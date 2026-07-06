@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core", "example", "lib", "proto", "test"]
+members = ["core", "dra", "example", "lib", "proto", "test"]
 
 
 [workspace.package]
@@ -12,6 +12,8 @@ repository = "https://github.com/imp/k8s-device-plugin-rs"
 [workspace.dependencies]
 async-trait = "0.1"
 hyper-util = "0.1"
+k8s-openapi = { version = "0.28", features = ["latest"] }
+kube = "4.0"
 prometheus_exporter = "0.8"
 prost = "0.14"
 tempfile = "3.27"
@@ -26,6 +28,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 k8s-device-plugin-core = { path = "core" }
+k8s-device-plugin-dra = { path = "dra" }
 k8s-device-plugin-lib = { path = "lib" }
 k8s-device-plugin-proto = { path = "proto" }
 k8s-device-plugin-test = { path = "test" }

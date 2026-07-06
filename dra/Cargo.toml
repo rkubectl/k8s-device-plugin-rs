@@ -1,0 +1,30 @@
+[package]
+name = "k8s-device-plugin-dra"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+
+[dependencies]
+async-trait.workspace = true
+k8s-openapi.workspace = true
+kube.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["fs", "time"] }
+tokio-stream.workspace = true
+tonic.workspace = true
+tower.workspace = true
+tracing.workspace = true
+
+k8s-device-plugin-core.workspace = true
+k8s-device-plugin-proto = { workspace = true, features = ["dra"] }
+
+
+[dev-dependencies]
+k8s-device-plugin-test = { workspace = true, features = ["dra"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
+
+
+[lints]
+workspace = true

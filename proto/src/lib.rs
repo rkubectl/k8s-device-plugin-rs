@@ -23,3 +23,37 @@ pub mod v1beta1 {
 
     tonic::include_proto!("v1beta1");
 }
+
+#[cfg(feature = "dra")]
+pub mod dra {
+
+    #[cfg(not(windows))]
+    pub const KUBELET_PLUGINS_PATH: &str = "/var/lib/kubelet/plugins/";
+    #[cfg(windows)]
+    pub const KUBELET_PLUGINS_PATH: &str = "\\var\\lib\\kubelet\\plugins\\";
+
+    #[cfg(not(windows))]
+    pub const KUBELET_PLUGINS_REGISTRY_PATH: &str = "/var/lib/kubelet/plugins_registry/";
+    #[cfg(windows)]
+    pub const KUBELET_PLUGINS_REGISTRY_PATH: &str = "\\var\\lib\\kubelet\\plugins_registry\\";
+
+    pub mod v1 {
+
+        pub use dra_plugin_client::DraPluginClient;
+        pub use dra_plugin_server::DraPlugin;
+        pub use dra_plugin_server::DraPluginServer;
+        pub use dra_plugin_server::SERVICE_NAME;
+
+        tonic::include_proto!("k8s.io.kubelet.pkg.apis.dra.v1");
+    }
+
+    pub mod registration {
+
+        pub use registration_client::RegistrationClient;
+        pub use registration_server::Registration;
+        pub use registration_server::RegistrationServer;
+        pub use registration_server::SERVICE_NAME;
+
+        tonic::include_proto!("pluginregistration");
+    }
+}

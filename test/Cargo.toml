@@ -5,6 +5,10 @@ edition.workspace = true
 repository.workspace = true
 
 
+[features]
+dra = ["k8s-device-plugin-proto/dra"]
+
+
 [dependencies]
 hyper-util.workspace = true
 tempfile.workspace = true

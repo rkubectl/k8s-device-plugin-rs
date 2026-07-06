@@ -12,6 +12,7 @@ You implement one trait describing *your* device backend; the framework handles 
 | `proto` | Generated bindings for the `v1beta1` device-plugin gRPC protocol (via `tonic`/`prost`), plus the vendored `k8s.io/kubelet` proto submodule. |
 | `lib` | The framework itself: `DevicePlugin` (registration + lifecycle) and `DevicePluginService` (the gRPC service adapter that drives a `K8sDevicePlugin` backend). |
 | `test` | Shared test-only helpers (mock kubelet registration server, mock device-plugin client) used by `lib`'s integration tests. |
+| `dra` | Dynamic Resource Allocation (DRA) driver runtime — see [`docs/dra-design.md`](docs/dra-design.md) for the design and current phase. |
 | `example` | A complete, deployable plugin built on `StaticDevicePlugin`, with a `Dockerfile` and K8s manifests — see [Deploying a real plugin](#deploying-a-real-plugin). |
 
 ## Quickstart
