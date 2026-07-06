@@ -1,4 +1,4 @@
-use std::fmt;
+use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Health {

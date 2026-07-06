@@ -1,16 +1,18 @@
 use std::collections::HashMap;
+use std::fmt;
+use std::path::PathBuf;
 
 use async_trait::async_trait;
-
-mod device;
-mod health;
-mod permissions;
 
 pub use device::Device;
 pub use device::DevicePath;
 pub use device::HostMount;
 pub use health::Health;
 pub use permissions::DevicePermissions;
+
+mod device;
+mod health;
+mod permissions;
 
 /// Enumerates the devices a plugin backend currently knows about.
 #[async_trait]

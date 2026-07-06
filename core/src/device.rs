@@ -1,7 +1,4 @@
-use std::path::PathBuf;
-
-use crate::DevicePermissions;
-use crate::Health;
+use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DevicePath {
