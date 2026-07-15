@@ -126,7 +126,7 @@ async fn main() -> std::io::Result<()> {
         .init();
 
     let service = DevicePluginService::new(ExampleWidgetPlugin::new());
-    let plugin = DevicePlugin::new(RESOURCE_NAME, service);
+    let plugin = DevicePlugin::new(RESOURCE_NAME, service).expect("valid resource name");
 
     tracing::info!(
         resource_name = RESOURCE_NAME,

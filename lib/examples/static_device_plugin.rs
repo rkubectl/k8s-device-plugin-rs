@@ -24,7 +24,7 @@ async fn main() -> std::io::Result<()> {
 
     let devices = vec![Device::rdwr("widget-0", "/dev/widget0")];
     let service = DevicePluginService::new(StaticDevicePlugin::new(devices));
-    let plugin = DevicePlugin::new(RESOURCE_NAME, service);
+    let plugin = DevicePlugin::new(RESOURCE_NAME, service).expect("valid resource name");
 
     tracing::info!(
         resource_name = RESOURCE_NAME,

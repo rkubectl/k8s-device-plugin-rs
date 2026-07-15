@@ -13,7 +13,8 @@ fn kubelet_socket_path() {
 
 #[test]
 fn register_uses_socket_filename_as_endpoint() {
-    let plugin = DevicePlugin::new("example.com/device", make_service());
+    let plugin =
+        DevicePlugin::new("example.com/device", make_service()).expect("valid resource name");
 
     let expected_prefix = "/var/lib/kubelet/device-plugins/example_com_device-";
     assert!(
@@ -25,6 +26,15 @@ fn register_uses_socket_filename_as_endpoint() {
         plugin
             .registration_endpoint()
             .starts_with("example_com_device-")
+    );
+}
+
+#[test]
+fn new_rejects_malformed_resource_name() {
+    let err = DevicePlugin::new("widget", make_service()).expect_err("no domain in name");
+    assert_eq!(
+        err,
+        ValidationError::MalformedResourceName("widget".to_string())
     );
 }
 
@@ -231,6 +241,27 @@ async fn list_and_watch_does_not_repeat_unchanged_devices() {
 }
 
 #[tokio::test]
+async fn list_and_watch_drops_invalid_device_but_keeps_valid_sibling() {
+    use v1beta1::DevicePlugin as _;
+
+    let devices = Arc::new(std::sync::Mutex::new(vec![
+        make_device("dev-0", Health::Healthy),
+        make_device("", Health::Healthy),
+    ]));
+    let service = DevicePluginService::new(DynamicDevicePlugin(Arc::clone(&devices)));
+
+    let mut stream = service
+        .list_and_watch(tonic::Request::new(v1beta1::Empty {}))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let response = stream.next().await.unwrap().unwrap();
+    assert_eq!(response.devices.len(), 1);
+    assert_eq!(response.devices[0].id, "dev-0");
+}
+
+#[tokio::test]
 async fn allocate_known_device() {
     use v1beta1::DevicePlugin as _;
 
@@ -282,6 +313,45 @@ async fn allocate_maps_mounts_envs_annotations_and_cdi_devices() {
         container_response.cdi_devices[0].name,
         "example.com/widget=widget-0"
     );
+}
+
+struct RelativePathPlugin;
+
+#[tonic::async_trait]
+impl DeviceDiscovery for RelativePathPlugin {
+    async fn discover(&self) -> Vec<Device> {
+        vec![]
+    }
+}
+
+#[tonic::async_trait]
+impl DeviceAllocator for RelativePathPlugin {
+    async fn allocate(
+        &self,
+        _device_ids: &[String],
+    ) -> Result<ContainerAllocation, AllocationError> {
+        Ok(ContainerAllocation {
+            device_paths: vec![DevicePath::rdwr("relative/widget0")],
+            ..Default::default()
+        })
+    }
+}
+
+impl K8sDevicePlugin for RelativePathPlugin {}
+
+#[tokio::test]
+async fn allocate_rejects_relative_device_path() {
+    use v1beta1::DevicePlugin as _;
+
+    let service = DevicePluginService::new(RelativePathPlugin);
+    let request = tonic::Request::new(v1beta1::AllocateRequest {
+        container_requests: vec![v1beta1::ContainerAllocateRequest {
+            devices_ids: vec!["widget-0".to_string()],
+        }],
+    });
+
+    let status = service.allocate(request).await.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::Internal);
 }
 
 struct SlowPlugin;
@@ -577,7 +647,8 @@ async fn try_register_succeeds_on_first_attempt() {
     use k8s_device_plugin_test::registration::start_mock_registration_server;
 
     let server = start_mock_registration_server(None);
-    let plugin = DevicePlugin::new("example.com/device", make_service());
+    let plugin =
+        DevicePlugin::new("example.com/device", make_service()).expect("valid resource name");
 
     plugin
         .try_register(server.socket_path(), 3, Duration::from_millis(1))
@@ -594,7 +665,8 @@ async fn try_register_gives_up_after_max_attempts() {
     use k8s_device_plugin_test::registration::start_mock_registration_server;
 
     let server = start_mock_registration_server(Some((tonic::Code::Unavailable, "kubelet down")));
-    let plugin = DevicePlugin::new("example.com/device", make_service());
+    let plugin =
+        DevicePlugin::new("example.com/device", make_service()).expect("valid resource name");
 
     let err = plugin
         .try_register(server.socket_path(), 3, Duration::from_millis(1))
@@ -610,7 +682,8 @@ async fn try_register_retries_until_success() {
     use k8s_device_plugin_test::registration::start_mock_registration_server_with_failures;
 
     let server = start_mock_registration_server_with_failures(2);
-    let plugin = DevicePlugin::new("example.com/device", make_service());
+    let plugin =
+        DevicePlugin::new("example.com/device", make_service()).expect("valid resource name");
 
     plugin
         .try_register(server.socket_path(), 3, Duration::from_millis(1))

@@ -178,6 +178,6 @@ async fn main() -> std::io::Result<()> {
     tracing::info!("Prometheus metrics available at http://127.0.0.1:9184/metrics");
 
     let service = DevicePluginService::new(ExampleWidgetPlugin::new());
-    let plugin = DevicePlugin::new(RESOURCE_NAME, service);
+    let plugin = DevicePlugin::new(RESOURCE_NAME, service).expect("valid resource name");
     plugin.run().await
 }

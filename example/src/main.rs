@@ -4,6 +4,7 @@
 //! and go. See `example/README.md` for the build/deploy walkthrough.
 
 use std::env;
+use std::io;
 use std::path::Path;
 
 use k8s_device_plugin_lib::Device;
@@ -14,7 +15,7 @@ use k8s_device_plugin_lib::StaticDevicePlugin;
 const DEFAULT_RESOURCE_NAME: &str = "example.com/widget";
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
@@ -35,7 +36,7 @@ async fn main() -> std::io::Result<()> {
     );
 
     let service = DevicePluginService::new(StaticDevicePlugin::new(devices));
-    let plugin = DevicePlugin::new(&resource_name, service);
+    let plugin = DevicePlugin::new(&resource_name, service).map_err(io::Error::other)?;
     plugin.run().await
 }
 

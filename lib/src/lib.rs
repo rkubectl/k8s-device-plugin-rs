@@ -25,6 +25,7 @@ pub use k8s_device_plugin_core::DevicePermissions;
 pub use k8s_device_plugin_core::Health;
 pub use k8s_device_plugin_core::HostMount;
 pub use k8s_device_plugin_core::K8sDevicePlugin;
+pub use k8s_device_plugin_core::ValidationError;
 pub use registration::RegistrationClient;
 pub use static_plugin::StaticDevicePlugin;
 
@@ -37,6 +38,50 @@ fn device_to_proto(device: &Device) -> v1beta1::Device {
         health: device.health.to_string(),
         topology: None,
     }
+}
+
+/// Validates a single discovered device's id and paths.
+fn validate_device(device: &Device) -> Result<(), ValidationError> {
+    k8s_device_plugin_core::validate_device_id(&device.id)?;
+    for path in &device.paths {
+        k8s_device_plugin_core::validate_absolute_path(&path.host_path)?;
+        k8s_device_plugin_core::validate_absolute_path(&path.container_path)?;
+    }
+    Ok(())
+}
+
+/// Drops (and logs) any device that fails [`validate_device`] instead of
+/// forwarding it to kubelet -- a single misbehaving device shouldn't take
+/// down health reporting for every other healthy device. Filtering happens
+/// before the `ListAndWatch` change-detection comparison, so a device that
+/// flaps in and out of validity doesn't cause spurious pushes of an
+/// otherwise-unchanged filtered list.
+fn valid_devices(devices: &[Device]) -> Vec<Device> {
+    devices
+        .iter()
+        .filter(|device| match validate_device(device) {
+            Ok(()) => true,
+            Err(err) => {
+                tracing::warn!(device_id = %device.id, %err, "dropping invalid device from ListAndWatch");
+                false
+            }
+        })
+        .cloned()
+        .collect()
+}
+
+/// Validates every path a [`ContainerAllocation`] would have kubelet bind-mount
+/// into a container.
+fn validate_allocation(allocation: &ContainerAllocation) -> Result<(), ValidationError> {
+    for path in &allocation.device_paths {
+        k8s_device_plugin_core::validate_absolute_path(&path.host_path)?;
+        k8s_device_plugin_core::validate_absolute_path(&path.container_path)?;
+    }
+    for mount in &allocation.mounts {
+        k8s_device_plugin_core::validate_absolute_path(&mount.host_path)?;
+        k8s_device_plugin_core::validate_absolute_path(&mount.container_path)?;
+    }
+    Ok(())
 }
 
 /// Compares two device snapshots by content, ignoring order, so a backend whose
@@ -110,18 +155,19 @@ pub struct DevicePlugin {
 }
 
 impl DevicePlugin {
-    pub fn new(resource_name: &str, service: DevicePluginService) -> Self {
+    pub fn new(resource_name: &str, service: DevicePluginService) -> Result<Self, ValidationError> {
+        k8s_device_plugin_core::validate_resource_name(resource_name)?;
         let socket_name = sanitize_socket_name(resource_name);
         let resource_name = resource_name.to_string();
         let endpoint = String::from(v1beta1::DEVICE_PLUGIN_PATH) + &socket_name;
         let service = Arc::new(service);
         let kubelet_socket = Self::kubelet_socket_path();
-        Self {
+        Ok(Self {
             endpoint,
             resource_name,
             service,
             kubelet_socket,
-        }
+        })
     }
 
     #[cfg(test)]
@@ -295,7 +341,7 @@ impl v1beta1::DevicePlugin for DevicePluginService {
     ) -> tonic::Result<tonic::Response<Self::ListAndWatchStream>> {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
 
-        let mut last_devices = self.plugin.discover().await;
+        let mut last_devices = valid_devices(&self.plugin.discover().await);
         let response = v1beta1::ListAndWatchResponse {
             devices: last_devices.iter().map(device_to_proto).collect(),
         };
@@ -308,7 +354,7 @@ impl v1beta1::DevicePlugin for DevicePluginService {
             loop {
                 tokio::select! {
                     () = tokio::time::sleep(poll_interval) => {
-                        let devices = plugin.discover().await;
+                        let devices = valid_devices(&plugin.discover().await);
                         if !devices_equal_ignoring_order(&devices, &last_devices) {
                             tracing::debug!(device_count = devices.len(), "device state changed; pushing update");
                             let response = v1beta1::ListAndWatchResponse {
@@ -383,7 +429,14 @@ impl v1beta1::DevicePlugin for DevicePluginService {
         let mut tasks = tasks.into_iter();
         while let Some(task) = tasks.next() {
             let allocation = match task.await {
-                Ok(Ok(allocation)) => allocation,
+                Ok(Ok(allocation)) => match validate_allocation(&allocation) {
+                    Ok(()) => allocation,
+                    Err(err) => {
+                        tracing::warn!(%err, "backend returned invalid allocation");
+                        tasks.for_each(|task| task.abort());
+                        return Err(tonic::Status::internal(err.to_string()));
+                    }
+                },
                 Ok(Err(err)) => {
                     tracing::warn!(%err, "allocate failed");
                     tasks.for_each(|task| task.abort());
