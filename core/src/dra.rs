@@ -94,6 +94,13 @@ pub struct ResolvedClaim {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PreparedDevice {
     pub request_names: Vec<String>,
+    /// The pool and device this was prepared from, required by the
+    /// wire-level `dra.v1.Device` message -- not necessarily inferable
+    /// from the input `AllocatedDevice`s a backend was given, since
+    /// `prepare` doesn't guarantee a positional 1:1 correspondence between
+    /// its input and output devices.
+    pub pool_name: String,
+    pub device_name: String,
     /// Fully qualified CDI device names, e.g. `"vendor.com/gpu=gpudevice1"`.
     pub cdi_device_ids: Vec<String>,
 }
@@ -174,6 +181,8 @@ mod tests {
                         .iter()
                         .map(|device| PreparedDevice {
                             request_names: device.request_name.clone().into_iter().collect(),
+                            pool_name: self.pool.clone(),
+                            device_name: device.device_name.clone(),
                             cdi_device_ids: vec![format!(
                                 "example.com/{}={}",
                                 self.pool, device.device_name

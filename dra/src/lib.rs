@@ -9,6 +9,7 @@
 
 pub use claim::ClaimResolver;
 pub use registration::DraRegistrationServer;
+pub use service::DraPluginService;
 
 mod claim;
 mod registration;
