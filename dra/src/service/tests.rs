@@ -3,37 +3,28 @@ use std::sync::atomic::Ordering;
 
 use k8s_device_plugin_core::ResolvedClaim;
 use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
+use k8s_device_plugin_test::kube_mock::MockKubeHandle;
+use k8s_device_plugin_test::kube_mock::allocated_status;
+use k8s_device_plugin_test::kube_mock::mock_kube_client;
+use k8s_device_plugin_test::kube_mock::not_found_json;
+use k8s_device_plugin_test::kube_mock::resource_claim_json;
 use kube::client::Body;
-use serde_json::json;
 use tempfile::TempDir;
 
 use super::*;
 
-type MockKubeHandle = tower_test::mock::Handle<http::Request<Body>, http::Response<Body>>;
-
 fn mock_resolver() -> (ClaimResolver, MockKubeHandle) {
-    let (mock_service, handle) =
-        tower_test::mock::pair::<http::Request<Body>, http::Response<Body>>();
-    let client = kube::Client::new(mock_service, "default");
+    let (client, handle) = mock_kube_client();
     (ClaimResolver::new(client), handle)
 }
 
 fn claim_json(name: &str, uid: &str, pool: &str, device: &str, request: &str) -> serde_json::Value {
-    json!({
-        "apiVersion": "resource.k8s.io/v1",
-        "kind": "ResourceClaim",
-        "metadata": { "name": name, "namespace": "default", "uid": uid },
-        "spec": {},
-        "status": {
-            "allocation": {
-                "devices": {
-                    "results": [
-                        { "request": request, "driver": "example.com", "pool": pool, "device": device }
-                    ]
-                }
-            }
-        },
-    })
+    resource_claim_json(
+        name,
+        "default",
+        uid,
+        allocated_status(pool, device, request),
+    )
 }
 
 /// Answers exactly `responses.len()` requests on `handle`, matching each by
@@ -59,14 +50,8 @@ fn spawn_kube_responder(
                     http::Response::new(Body::from(bytes))
                 }
                 None => {
-                    let not_found = json!({
-                        "kind": "Status",
-                        "apiVersion": "v1",
-                        "status": "Failure",
-                        "reason": "NotFound",
-                        "code": 404,
-                    });
-                    let bytes = serde_json::to_vec(&not_found).expect("serialize response body");
+                    let bytes =
+                        serde_json::to_vec(&not_found_json()).expect("serialize response body");
                     http::Response::builder()
                         .status(404)
                         .body(Body::from(bytes))

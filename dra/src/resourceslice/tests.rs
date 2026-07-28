@@ -1,12 +1,16 @@
 use std::collections::HashMap;
 
 use http_body_util::BodyExt;
+use k8s_device_plugin_test::kube_mock::MockKubeHandle;
+use k8s_device_plugin_test::kube_mock::device_json;
+use k8s_device_plugin_test::kube_mock::mock_kube_client;
+use k8s_device_plugin_test::kube_mock::node_json;
+use k8s_device_plugin_test::kube_mock::not_found_json;
+use k8s_device_plugin_test::kube_mock::resource_slice_json;
+use k8s_device_plugin_test::kube_mock::respond;
 use kube::client::Body;
-use serde_json::json;
 
 use super::*;
-
-type MockKubeHandle = tower_test::mock::Handle<http::Request<Body>, http::Response<Body>>;
 
 struct StaticPool(HashMap<String, Vec<PoolDevice>>);
 
@@ -22,68 +26,9 @@ fn one_pool(pool_name: &str, devices: Vec<PoolDevice>) -> StaticPool {
 }
 
 fn mock_publisher(resource_pool: StaticPool) -> (ResourceSlicePublisher, MockKubeHandle) {
-    let (mock_service, handle) =
-        tower_test::mock::pair::<http::Request<Body>, http::Response<Body>>();
-    let client = Client::new(mock_service, "default");
+    let (client, handle) = mock_kube_client();
     let publisher = ResourceSlicePublisher::new(client, "example.com", "node-0", resource_pool);
     (publisher, handle)
-}
-
-fn node_json(uid: &str) -> serde_json::Value {
-    json!({
-        "apiVersion": "v1",
-        "kind": "Node",
-        "metadata": { "name": "node-0", "uid": uid },
-    })
-}
-
-fn not_found_json() -> serde_json::Value {
-    json!({
-        "kind": "Status",
-        "apiVersion": "v1",
-        "status": "Failure",
-        "reason": "NotFound",
-        "code": 404,
-    })
-}
-
-fn slice_json(
-    name: &str,
-    driver: &str,
-    generation: i64,
-    pool_name: &str,
-    devices: Vec<serde_json::Value>,
-) -> serde_json::Value {
-    json!({
-        "apiVersion": "resource.k8s.io/v1",
-        "kind": "ResourceSlice",
-        "metadata": { "name": name },
-        "spec": {
-            "driver": driver,
-            "nodeName": "node-0",
-            "pool": { "name": pool_name, "generation": generation, "resourceSliceCount": 1 },
-            "devices": devices,
-        },
-    })
-}
-
-fn device_json(name: &str) -> serde_json::Value {
-    json!({ "name": name })
-}
-
-async fn respond(
-    handle: &mut MockKubeHandle,
-    status: u16,
-    body: &serde_json::Value,
-) -> http::Request<Body> {
-    let (request, send) = handle.next_request().await.expect("request sent");
-    let bytes = serde_json::to_vec(body).expect("serialize response body");
-    let response = http::Response::builder()
-        .status(status)
-        .body(Body::from(bytes))
-        .expect("build response");
-    send.send_response(response);
-    request
 }
 
 async fn request_body_json(request: http::Request<Body>) -> serde_json::Value {
@@ -102,7 +47,7 @@ async fn publish_once_creates_slice_when_absent() {
         mock_publisher(one_pool("pool-0", vec![PoolDevice::new("widget-0")]));
 
     let script = async {
-        let node_request = respond(&mut handle, 200, &node_json("node-uid-0")).await;
+        let node_request = respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
         assert_eq!(node_request.method(), http::Method::GET);
 
         let get_request = respond(&mut handle, 404, &not_found_json()).await;
@@ -140,11 +85,12 @@ async fn publish_once_updates_slice_in_place_when_devices_change() {
         mock_publisher(one_pool("pool-0", vec![PoolDevice::new("widget-1")]));
 
     let script = async {
-        respond(&mut handle, 200, &node_json("node-uid-0")).await;
+        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
 
-        let existing = slice_json(
+        let existing = resource_slice_json(
             "example.com-node-0-pool-0",
             "example.com",
+            "node-0",
             1,
             "pool-0",
             vec![device_json("widget-0")],
@@ -178,11 +124,12 @@ async fn publish_once_is_a_noop_when_devices_unchanged() {
         mock_publisher(one_pool("pool-0", vec![PoolDevice::new("widget-0")]));
 
     let script = async {
-        respond(&mut handle, 200, &node_json("node-uid-0")).await;
+        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
 
-        let existing = slice_json(
+        let existing = resource_slice_json(
             "example.com-node-0-pool-0",
             "example.com",
+            "node-0",
             1,
             "pool-0",
             vec![device_json("widget-0")],
@@ -210,12 +157,13 @@ async fn spawn_republishes_on_poll_interval() {
 
     let script = async {
         for _ in 0..2 {
-            respond(&mut handle, 200, &node_json("node-uid-0")).await;
+            respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
             respond(&mut handle, 404, &not_found_json()).await;
             let (_, send) = handle.next_request().await.expect("create request sent");
-            let created = slice_json(
+            let created = resource_slice_json(
                 "example.com-node-0-pool-0",
                 "example.com",
+                "node-0",
                 1,
                 "pool-0",
                 vec![device_json("widget-0")],

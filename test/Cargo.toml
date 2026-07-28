@@ -6,16 +6,21 @@ repository.workspace = true
 
 
 [features]
-dra = ["k8s-device-plugin-proto/dra"]
+dra = ["k8s-device-plugin-proto/dra", "dep:http", "dep:k8s-openapi", "dep:kube", "dep:serde_json", "dep:tower-test"]
 
 
 [dependencies]
+http = { workspace = true, optional = true }
 hyper-util.workspace = true
+k8s-openapi = { workspace = true, optional = true }
+kube = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["net", "sync", "rt"] }
 tokio-stream.workspace = true
 tonic.workspace = true
 tower.workspace = true
+tower-test = { workspace = true, optional = true }
 
 k8s-device-plugin-proto.workspace = true
 

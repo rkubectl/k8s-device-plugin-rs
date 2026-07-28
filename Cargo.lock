@@ -908,7 +908,6 @@ dependencies = [
  "tokio-stream",
  "tonic",
  "tower",
- "tower-test",
  "tracing",
  "tracing-subscriber",
 ]
@@ -955,13 +954,18 @@ dependencies = [
 name = "k8s-device-plugin-test"
 version = "0.0.1"
 dependencies = [
+ "http",
  "hyper-util",
  "k8s-device-plugin-proto",
+ "k8s-openapi",
+ "kube",
+ "serde_json",
  "tempfile",
  "tokio",
  "tokio-stream",
  "tonic",
  "tower",
+ "tower-test",
 ]
 
 [[package]]

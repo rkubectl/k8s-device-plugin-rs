@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use k8s_device_plugin_core::ClaimPreparer;
@@ -53,6 +54,15 @@ fn node_prepare_response(
     }
 }
 
+/// The `DRAPlugin` gRPC service's own socket path -- shared with the
+/// lifecycle harness (`DraPlugin::new`, crate root), which needs the same
+/// path to advertise as the registration server's `GetInfo.endpoint`.
+pub(crate) fn plugin_socket_path(driver_name: &str) -> PathBuf {
+    Path::new(KUBELET_PLUGINS_PATH)
+        .join(driver_name)
+        .join("plugin.sock")
+}
+
 async fn setup_listener(socket_path: &Path) -> io::Result<UnixListenerStream> {
     if tokio::fs::try_exists(socket_path).await? {
         tokio::fs::remove_file(socket_path).await?;
@@ -95,13 +105,10 @@ impl DraPluginService {
         self,
         driver_name: &str,
     ) -> io::Result<JoinHandle<Result<(), transport::Error>>> {
-        let socket_path = Path::new(KUBELET_PLUGINS_PATH)
-            .join(driver_name)
-            .join("plugin.sock");
-        self.spawn_at(&socket_path).await
+        self.spawn_at(&plugin_socket_path(driver_name)).await
     }
 
-    async fn spawn_at(
+    pub(crate) async fn spawn_at(
         self,
         socket_path: &Path,
     ) -> io::Result<JoinHandle<Result<(), transport::Error>>> {

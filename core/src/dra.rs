@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::*;
 
 /// A single typed attribute value, as used by DRA's CEL-based device
@@ -142,6 +144,31 @@ pub trait ClaimPreparer: Send + Sync {
     ) -> HashMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>>;
 
     async fn unprepare(&self, claim: &ClaimRef) -> Result<(), PrepareError>;
+}
+
+// Delegating impls so a single `Arc<D>` (one driver, shared) can be handed
+// to two consumers each expecting their own owned `impl ResourcePool`/
+// `impl ClaimPreparer` -- without these, `Arc<D>` wouldn't itself satisfy
+// either bound just because `D` does.
+#[async_trait]
+impl<T: ResourcePool + ?Sized> ResourcePool for Arc<T> {
+    async fn devices(&self) -> HashMap<String, Vec<PoolDevice>> {
+        (**self).devices().await
+    }
+}
+
+#[async_trait]
+impl<T: ClaimPreparer + ?Sized> ClaimPreparer for Arc<T> {
+    async fn prepare(
+        &self,
+        claims: &[ResolvedClaim],
+    ) -> HashMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>> {
+        (**self).prepare(claims).await
+    }
+
+    async fn unprepare(&self, claim: &ClaimRef) -> Result<(), PrepareError> {
+        (**self).unprepare(claim).await
+    }
 }
 
 /// Full framework abstraction a DRA driver backend implements. The DRA

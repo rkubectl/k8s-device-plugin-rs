@@ -5,3 +5,5 @@ pub mod registration;
 pub mod dra_plugin;
 #[cfg(feature = "dra")]
 pub mod dra_registration;
+#[cfg(feature = "dra")]
+pub mod kube_mock;
