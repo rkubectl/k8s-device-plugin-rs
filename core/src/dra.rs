@@ -106,6 +106,12 @@ pub enum PrepareError {
     DeviceUnavailable(String),
     #[error("hook failed: {0}")]
     HookFailed(String),
+    /// The claim reference couldn't be resolved at all -- e.g. the API
+    /// server request failed, or the fetched object's UID didn't match the
+    /// reference's (a stale/reused name+namespace pointing at a different
+    /// object than kubelet meant).
+    #[error("failed to resolve claim: {0}")]
+    ResolutionFailed(String),
 }
 
 /// Prepares and unprepares the devices a scheduler has allocated to

@@ -7,6 +7,7 @@ repository.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+futures.workspace = true
 k8s-openapi.workspace = true
 kube.workspace = true
 thiserror.workspace = true
@@ -21,9 +22,12 @@ k8s-device-plugin-proto = { workspace = true, features = ["dra"] }
 
 
 [dev-dependencies]
+http.workspace = true
 k8s-device-plugin-test = { workspace = true, features = ["dra"] }
+serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
+tower-test.workspace = true
 tracing-subscriber.workspace = true
 
 

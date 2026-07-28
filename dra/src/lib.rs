@@ -7,6 +7,7 @@
 //! `DraPlugin::run` lifecycle harness. See `docs/dra-design.md` for the
 //! full design and phasing.
 
+pub use claim::ClaimResolver;
 pub use registration::DraRegistrationServer;
 
 mod claim;
