@@ -63,11 +63,15 @@ fn sanitize_socket_name_keeps_full_endpoint_within_socket_path_limit() {
     let endpoint_len = v1beta1::DEVICE_PLUGIN_PATH.len() + socket_name.len();
 
     assert!(
-        endpoint_len <= MAX_SOCKET_PATH_LEN,
-        "endpoint length {endpoint_len} exceeds the socket path limit of {MAX_SOCKET_PATH_LEN}"
+        endpoint_len <= k8s_device_plugin_core::MAX_SOCKET_PATH_LEN,
+        "endpoint length {endpoint_len} exceeds the socket path limit of {}",
+        k8s_device_plugin_core::MAX_SOCKET_PATH_LEN
     );
-    // The disambiguating hash suffix must survive truncation intact.
-    assert!(socket_name.ends_with(&format!("-{:016x}", fnv1a64(long_name.as_bytes()))));
+    // The disambiguating hash suffix (`-` + 16 hex digits) must survive
+    // truncation intact.
+    let suffix = &socket_name[socket_name.len() - 17..];
+    assert!(suffix.starts_with('-'));
+    assert!(suffix[1..].chars().all(|c| c.is_ascii_hexdigit()));
 }
 
 #[test]

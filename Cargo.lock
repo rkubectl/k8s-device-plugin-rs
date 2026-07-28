@@ -881,6 +881,7 @@ dependencies = [
  "tonic",
  "tower",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

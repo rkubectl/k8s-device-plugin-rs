@@ -472,40 +472,15 @@ impl v1beta1::DevicePlugin for DevicePluginService {
     }
 }
 
-/// Linux's `sockaddr_un.sun_path` is 108 bytes including the NUL terminator;
-/// stay one byte under that as a conservative, portable budget.
-const MAX_SOCKET_PATH_LEN: usize = 107;
-
-/// Derives a filesystem-safe, collision-resistant socket name from a resource name.
-///
-/// Sanitization alone is not injective (e.g. "acme.com/gpu" and "acme_com/gpu" both
-/// sanitize to "acme_com_gpu"), so a deterministic hash of the *original* name is
-/// appended to guarantee distinct resource names never collide on the same path.
-/// The human-readable sanitized part is truncated (never the hash) if needed so the
-/// full endpoint path — including [`v1beta1::DEVICE_PLUGIN_PATH`] — never exceeds
-/// the platform's Unix socket path limit.
+/// Derives a filesystem-safe, collision-resistant socket name from a resource
+/// name, sized to fit alongside [`v1beta1::DEVICE_PLUGIN_PATH`] within the
+/// platform's Unix socket path limit. See
+/// [`k8s_device_plugin_core::sanitize_socket_name`] for how collisions and
+/// truncation are handled.
 fn sanitize_socket_name(name: &str) -> String {
-    let sanitized = name.replace(invalid_char, "_");
-    let suffix = format!("-{:016x}", fnv1a64(name.as_bytes()));
-    let budget = MAX_SOCKET_PATH_LEN
-        .saturating_sub(v1beta1::DEVICE_PLUGIN_PATH.len())
-        .saturating_sub(suffix.len());
-    // `sanitized` is guaranteed pure ASCII (invalid_char maps everything else to
-    // '_'), so counting chars is equivalent to counting bytes here.
-    let truncated = sanitized.chars().take(budget).collect::<String>();
-    truncated + &suffix
-}
-
-fn invalid_char(c: char) -> bool {
-    !(c.is_ascii_alphanumeric() || c == '-' || c == '_')
-}
-
-fn fnv1a64(bytes: &[u8]) -> u64 {
-    const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-    const PRIME: u64 = 0x0000_0100_0000_01b3;
-    bytes.iter().fold(OFFSET_BASIS, |hash, &b| {
-        (hash ^ u64::from(b)).wrapping_mul(PRIME)
-    })
+    let budget = k8s_device_plugin_core::MAX_SOCKET_PATH_LEN
+        .saturating_sub(v1beta1::DEVICE_PLUGIN_PATH.len());
+    k8s_device_plugin_core::sanitize_socket_name(name, budget)
 }
 
 #[cfg(test)]

@@ -21,6 +21,8 @@ pub use dra::ResolvedClaim;
 pub use dra::ResourcePool;
 pub use health::Health;
 pub use permissions::DevicePermissions;
+pub use socket_name::MAX_SOCKET_PATH_LEN;
+pub use socket_name::sanitize_socket_name;
 pub use validation::ValidationError;
 pub use validation::validate_absolute_path;
 pub use validation::validate_device_id;
@@ -30,6 +32,7 @@ mod device;
 mod dra;
 mod health;
 mod permissions;
+mod socket_name;
 mod validation;
 
 /// Enumerates the devices a plugin backend currently knows about.
