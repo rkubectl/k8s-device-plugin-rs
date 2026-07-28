@@ -895,6 +895,7 @@ dependencies = [
  "async-trait",
  "futures",
  "http",
+ "http-body-util",
  "k8s-device-plugin-core",
  "k8s-device-plugin-proto",
  "k8s-device-plugin-test",

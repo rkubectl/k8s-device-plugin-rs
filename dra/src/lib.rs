@@ -9,6 +9,7 @@
 
 pub use claim::ClaimResolver;
 pub use registration::DraRegistrationServer;
+pub use resourceslice::ResourceSlicePublisher;
 pub use service::DraPluginService;
 
 mod claim;

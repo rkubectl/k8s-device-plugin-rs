@@ -23,6 +23,7 @@ k8s-device-plugin-proto = { workspace = true, features = ["dra"] }
 
 [dev-dependencies]
 http.workspace = true
+http-body-util.workspace = true
 k8s-device-plugin-test = { workspace = true, features = ["dra"] }
 serde_json.workspace = true
 tempfile.workspace = true
