@@ -1,5 +1,4 @@
 /target
 
 # Beads: local-only issue tracking, not shared via git
-.beads/
 .doctor/
