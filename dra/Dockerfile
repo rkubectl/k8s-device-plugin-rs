@@ -4,9 +4,9 @@
 # available to Cargo:
 #
 #   git submodule update --init
-#   docker build -f dra/Dockerfile -t k8s-device-plugin-dra-example .
+#   container build -f dra/Dockerfile -t k8s-device-plugin-dra-example .
 
-ARG RUST_VERSION=1.90
+ARG RUST_VERSION=1.98
 
 FROM rust:${RUST_VERSION}-slim AS builder
 ARG TARGETARCH

@@ -5,16 +5,19 @@ the image from the repository root, load or publish it for the target cluster,
 then apply the kustomization:
 
 ```sh
-docker build -f dra/Dockerfile -t k8s-device-plugin-dra-example .
+container build -f dra/Dockerfile -t k8s-device-plugin-dra-example .
 kubectl apply -k dra/k8s
 ```
 
 The target cluster must expose the `resource.k8s.io/v1` DRA API and have DRA
-enabled before deployment. This driver publishes one static `widget-0` device
-in the `widget-pool` pool on each node; it is for registration and API-path
-validation only. It emits a harmless CDI environment marker for each static
-device so an end-to-end consumer pod can verify DRA attachment, but it does
-not provide a real hardware device.
+enabled before deployment. Kubernetes v1.36 with its default DRA configuration
+is the compatibility target; this fixture intentionally does not require
+optional DRA feature gates. Its v1.36 live-validation run is pending, so do
+not treat the historical v1.37 result as substitute evidence. This driver
+publishes one static `widget-0` device in the `widget-pool` pool on each node;
+it is for registration and API-path validation only. It emits a harmless CDI
+environment marker for each static device so an end-to-end consumer pod can
+verify DRA attachment, but it does not provide a real hardware device.
 
 The manifest is configured for the `dra.example.com` driver name and mounts
 only that driver's kubelet plugin directory. If you override `DRIVER_NAME`,

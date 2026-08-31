@@ -1,9 +1,11 @@
 # Dynamic Resource Allocation (DRA) support — design
 
-Status: **Phase 1 implemented and live-validated** on Kubernetes v1.37.0
-(linux/arm64 kind). The supported API remains `resource.k8s.io/v1`; see
-[cluster validation](#cluster-validation) for the exact exercised path and
-remaining production boundaries.
+Status: **Phase 1 implemented**. The compatibility target is Kubernetes
+v1.36 using stable `resource.k8s.io/v1` with the default DRA configuration;
+live validation of that baseline is still pending. The existing
+live-validation evidence is a historical Kubernetes v1.37.0 linux/arm64 kind
+run. See [cluster validation](#cluster-validation) for the exact exercised
+path and remaining production boundaries.
 
 ## Background
 
@@ -23,6 +25,21 @@ and turn into container-visible devices (CDI names, mounts, etc.).
 This is exploratory, post-POC scope — see project memory: the customer POC on
 the classic Device Plugin API takes priority, and this design deliberately
 does not gold-plate DRA support before that ships.
+
+### Compatibility baseline
+
+The supported compatibility target for this work is Kubernetes **v1.36** with
+the stable `resource.k8s.io/v1` DRA API and no optional DRA feature gates.
+This is deliberately narrower than every capability exposed by a newer
+cluster: Phase 1 uses the core ResourceSlice/ResourceClaim allocation and
+kubelet prepare/unprepare path only. It does not rely on extended-resource
+integration, device taints, device-health reporting, partitionable devices,
+consumable capacity, or other optional DRA APIs.
+
+The v1.36 target is a documented contract, not a substituted test result. The
+only completed live-cluster run recorded below used Kubernetes v1.37.0;
+Beads task `k8s-device-plugin-rs-qt7.2` must produce and record equivalent
+v1.36 evidence before this baseline can be described as live-validated.
 
 ### Reference material
 

@@ -9,15 +9,20 @@ allocated to that node.
 ## Status and scope
 
 Phase 1 is ready for a driver backend to integrate and validate against a
-real cluster. It was validated on Kubernetes v1.37.0 on linux/arm64. It
-supports the Kubernetes `resource.k8s.io/v1` API, one `ResourceSlice` per
-pool, pluginwatcher registration, and claim preparation/unpreparation.
+real cluster. Its compatibility target is Kubernetes v1.36 using the stable
+`resource.k8s.io/v1` API with the default DRA configuration; it does not
+require optional DRA feature gates. Live validation against that v1.36
+baseline is pending. The existing live-cluster evidence is a historical run
+on Kubernetes v1.37.0 on linux/arm64, not evidence that v1.36 validation has
+completed. It supports one `ResourceSlice` per pool, pluginwatcher
+registration, and claim preparation/unpreparation.
 
 It is not yet a turnkey production driver: it has no multi-slice
 reconciliation, resource-health stream, pre-v1.34 API compatibility, or
-production-scoped RBAC policy. The checked-in DaemonSet is a validation
-fixture, not a deployment template. See the [DRA design](../docs/dra-design.md)
-for the complete boundary and roadmap.
+production-scoped RBAC policy. Extended-resource integration, device taints,
+and other optional DRA APIs are also outside this baseline. The checked-in
+DaemonSet is a validation fixture, not a deployment template. See the
+[DRA design](../docs/dra-design.md) for the complete boundary and roadmap.
 
 ## Compatibility and dependency override
 
@@ -110,7 +115,7 @@ Kubernetes client configuration and `NODE_NAME`.
 
 ```sh
 cargo test --locked -p k8s-device-plugin-dra --all-targets
-docker build -f dra/Dockerfile -t k8s-device-plugin-dra-example .
+container build -f dra/Dockerfile -t k8s-device-plugin-dra-example .
 kubectl apply -k dra/k8s
 KUBE_CONTEXT=<context> dra/hack/e2e-smoke.sh
 ```
@@ -127,7 +132,7 @@ Kustomization for `minimal_driver`. Build the image from the repository root,
 make it available to the target cluster, then apply it:
 
 ```bash
-docker build -f dra/Dockerfile -t k8s-device-plugin-dra-example .
+container build -f dra/Dockerfile -t k8s-device-plugin-dra-example .
 kubectl apply -k dra/k8s
 ```
 
