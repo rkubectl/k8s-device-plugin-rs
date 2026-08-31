@@ -12,7 +12,7 @@ You implement one trait describing *your* device backend; the framework handles 
 | `proto` | Generated bindings for the `v1beta1` device-plugin gRPC protocol (via `tonic`/`prost`), plus the vendored `k8s.io/kubelet` proto submodule. |
 | `lib` | The framework itself: `DevicePlugin` (registration + lifecycle) and `DevicePluginService` (the gRPC service adapter that drives a `K8sDevicePlugin` backend). |
 | `test` | Shared test-only helpers (mock kubelet registration server, mock device-plugin client) used by `lib`'s integration tests. |
-| `dra` | Dynamic Resource Allocation (DRA) driver runtime — see [`docs/dra-design.md`](docs/dra-design.md) for the design and current phase. |
+| `dra` | Dynamic Resource Allocation (DRA) driver runtime: implements resource-pool publication and kubelet claim preparation. See the [crate guide](dra/README.md) and [Phase 1 design](docs/dra-design.md). |
 | `example` | A complete, deployable plugin built on `StaticDevicePlugin`, with a `Dockerfile` and K8s manifests — see [Deploying a real plugin](#deploying-a-real-plugin). |
 
 ## Quickstart
@@ -133,6 +133,16 @@ Ok(ContainerAllocation {
 ## Deploying a real plugin
 
 [`example/`](example/) is a complete, deployable device plugin built on `StaticDevicePlugin` — its own workspace crate with a `Dockerfile` (multi-stage, distroless static runtime) and a minimal K8s manifest set (`Namespace` + `DaemonSet` + `kustomization.yaml`) under `example/k8s/`. It's configured entirely through env vars (`RESOURCE_NAME`, `DEVICE_PATHS`), so forking it means editing the DaemonSet YAML, not the source. See [`example/README.md`](example/README.md) for the build/push/deploy walkthrough.
+
+## Dynamic Resource Allocation
+
+[`dra/`](dra/README.md) provides the equivalent runtime for Kubernetes
+Dynamic Resource Allocation (DRA): it publishes `ResourceSlice`s to the
+Kubernetes API and serves kubelet's `NodePrepareResources`/
+`NodeUnprepareResources` RPCs. It has different deployment and RBAC
+requirements from classic device plugins; start with the [DRA crate guide](dra/README.md)
+and consult the [Phase 1 design](docs/dra-design.md) for the supported scope
+and roadmap.
 
 ## Observability
 
