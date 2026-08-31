@@ -11,11 +11,12 @@ futures.workspace = true
 k8s-openapi.workspace = true
 kube.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["fs", "net", "time"] }
+tokio = { workspace = true, features = ["fs", "macros", "net", "rt-multi-thread", "time"] }
 tokio-stream.workspace = true
 tonic.workspace = true
 tower.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 
 k8s-device-plugin-core.workspace = true
 k8s-device-plugin-proto = { workspace = true, features = ["dra"] }

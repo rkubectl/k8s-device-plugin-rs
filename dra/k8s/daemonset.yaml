@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: k8s-device-plugin-dra-example
+  namespace: k8s-device-plugin-dra-example
+  labels:
+    app: k8s-device-plugin-dra-example
+spec:
+  # Kubelet cannot safely roll node plugins on clusters that lack the 1.33+
+  # seamless-upgrade support. See docs/dra-design.md's deployment note.
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+  selector:
+    matchLabels:
+      app: k8s-device-plugin-dra-example
+  template:
+    metadata:
+      labels:
+        app: k8s-device-plugin-dra-example
+    spec:
+      serviceAccountName: k8s-device-plugin-dra-example
+      # A DRA node plugin is kubelet infrastructure; keep it from eviction
+      # under node pressure, matching example/k8s/daemonset.yaml.
+      priorityClassName: system-node-critical
+      containers:
+        - name: dra-driver
+          image: k8s-device-plugin-dra-example:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsUser: 0
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: DRIVER_NAME
+              value: dra.example.com
+            - name: POOL_NAME
+              value: widget-pool
+            - name: DEVICE_NAMES
+              value: widget-0
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: RUST_LOG
+              value: info
+          volumeMounts:
+            - name: plugins-registry
+              mountPath: /var/lib/kubelet/plugins_registry
+            - name: plugins
+              mountPath: /var/lib/kubelet/plugins/dra.example.com
+      volumes:
+        - name: plugins-registry
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+            type: Directory
+        - name: plugins
+          hostPath:
+            path: /var/lib/kubelet/plugins/dra.example.com
+            type: DirectoryOrCreate
