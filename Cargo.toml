@@ -4,7 +4,7 @@ members = ["core", "dra", "example", "lib", "proto", "test"]
 
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
@@ -34,11 +34,11 @@ tower-test = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-k8s-device-plugin-core = { path = "core", version = "0.0.1" }
-k8s-device-plugin-dra = { path = "dra", version = "0.0.1" }
-k8s-device-plugin-lib = { path = "lib", version = "0.0.1" }
-k8s-device-plugin-proto = { path = "proto", version = "0.0.1" }
-k8s-device-plugin-test = { path = "test", version = "0.0.1" }
+k8s-device-plugin-core = { path = "core", version = "0.0.2" }
+k8s-device-plugin-dra = { path = "dra", version = "0.0.2" }
+k8s-device-plugin-lib = { path = "lib", version = "0.0.2" }
+k8s-device-plugin-proto = { path = "proto", version = "0.0.2" }
+k8s-device-plugin-test = { path = "test", version = "0.0.2" }
 
 
 [workspace.lints.clippy]
