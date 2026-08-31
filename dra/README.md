@@ -38,9 +38,9 @@ repeat the following block, then regenerate its lockfile (for example with
 h2 = { git = "https://github.com/rkubectl/h2", rev = "852915ba20501b2a0d39bd54ab4521cde8ee54c9" }
 ```
 
-The exact pin in the root [`Cargo.toml`](../Cargo.toml) is authoritative. Do
-not change it independently; the deferred upstream-cleanup task removes this
-override once either upstream route is released.
+The exact pin in the [workspace Cargo manifest](https://github.com/rkubectl/k8s-device-plugin-rs/blob/main/Cargo.toml)
+is authoritative. Do not change it independently; the deferred upstream-cleanup
+task removes this override once either upstream route is released.
 
 ## Implementation and automation contract
 

@@ -3,6 +3,7 @@ name = "k8s-device-plugin-example"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true
+publish = false
 
 
 [dependencies]

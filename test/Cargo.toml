@@ -2,7 +2,12 @@
 name = "k8s-device-plugin-test"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+license-file.workspace = true
 repository.workspace = true
+description = "Test mocks for Rust Kubernetes device-plugin and DRA drivers"
+readme = "README.md"
 
 
 [features]

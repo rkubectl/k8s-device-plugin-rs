@@ -2,7 +2,12 @@
 name = "k8s-device-plugin-proto"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+license-file.workspace = true
 repository.workspace = true
+description = "Generated Kubernetes device-plugin and DRA protocol bindings for Rust"
+readme = "README.md"
 
 
 [features]
