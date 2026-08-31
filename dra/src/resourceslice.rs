@@ -88,6 +88,17 @@ fn pool_device_to_wire(device: &PoolDevice) -> WireDevice {
     }
 }
 
+/// Returns devices in the stable order used for comparison and publication.
+///
+/// A [`ResourcePool`] may discover devices through an unordered source. The
+/// Kubernetes API preserves list order, so comparing the raw snapshots would
+/// otherwise write a new `ResourceSlice` generation every poll even though
+/// the advertised device set had not changed.
+fn canonicalize_devices(mut devices: Vec<WireDevice>) -> Vec<WireDevice> {
+    devices.sort_by(|left, right| left.name.cmp(&right.name));
+    devices
+}
+
 /// Diffs a [`ResourcePool`]'s device snapshot against the API server and
 /// publishes one `ResourceSlice` per pool. Phase 1 scope: no splitting
 /// across the ~128-device-per-slice limit, no workqueue, no mutation
@@ -146,11 +157,18 @@ impl ResourceSlicePublisher {
     async fn owner_reference(&self) -> kube::Result<OwnerReference> {
         let api: Api<Node> = Api::all(self.client.clone());
         let node = api.get(&self.node_name).await?;
+        let uid = node.metadata.uid.ok_or_else(|| {
+            kube::Error::Api(
+                kube::core::Status::failure("node object is missing a UID", "Invalid")
+                    .with_code(422)
+                    .boxed(),
+            )
+        })?;
         Ok(OwnerReference {
             api_version: "v1".to_string(),
             kind: "Node".to_string(),
             name: self.node_name.clone(),
-            uid: node.metadata.uid.unwrap_or_default(),
+            uid,
             controller: Some(true),
             block_owner_deletion: Some(false),
         })
@@ -164,17 +182,18 @@ impl ResourceSlicePublisher {
     ) -> kube::Result<()> {
         let api: Api<ResourceSlice> = Api::all(self.client.clone());
         let name = slice_name(&self.driver_name, &self.node_name, pool_name);
-        let wire_devices: Vec<WireDevice> = devices.iter().map(pool_device_to_wire).collect();
+        let wire_devices = canonicalize_devices(devices.iter().map(pool_device_to_wire).collect());
 
         match api.get_opt(&name).await? {
-            Some(mut existing) if existing.spec.devices.as_deref() != Some(&wire_devices) => {
-                existing.spec.pool.generation += 1;
-                existing.spec.devices = Some(wire_devices);
-                api.replace(&name, &PostParams::default(), &existing)
-                    .await?;
+            Some(mut existing) => {
+                let existing_devices = existing.spec.devices.take().map(canonicalize_devices);
+                if existing_devices.as_deref() != Some(&wire_devices) {
+                    existing.spec.pool.generation += 1;
+                    existing.spec.devices = Some(wire_devices);
+                    api.replace(&name, &PostParams::default(), &existing)
+                        .await?;
+                }
             }
-            // Devices already match what's published -- no write needed.
-            Some(_) => {}
             None => {
                 let slice = ResourceSlice {
                     metadata: ObjectMeta {

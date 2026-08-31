@@ -15,6 +15,7 @@ use k8s_device_plugin_core::DraDriver;
 use k8s_device_plugin_proto::dra::KUBELET_PLUGINS_PATH;
 use k8s_device_plugin_proto::dra::KUBELET_PLUGINS_REGISTRY_PATH;
 use kube::Client;
+use tokio::task::JoinHandle;
 use tonic::transport;
 
 pub use claim::ClaimResolver;
@@ -42,6 +43,37 @@ fn publisher_error(result: Result<(), tokio::task::JoinError>) -> io::Error {
     match result {
         Ok(()) => io::Error::other("ResourceSlice publisher exited unexpectedly"),
         Err(join_err) => io::Error::other(format!("ResourceSlice publisher panicked: {join_err}")),
+    }
+}
+
+/// Waits for the first component that exits, then stops and reaps the
+/// remaining components before returning its error. Dropping a
+/// [`JoinHandle`] detaches its task, so each losing branch must be aborted
+/// explicitly instead of relying on normal scope cleanup.
+async fn wait_for_component_exit(
+    mut registration_handle: JoinHandle<Result<(), transport::Error>>,
+    mut service_handle: JoinHandle<Result<(), transport::Error>>,
+    mut publisher_handle: JoinHandle<()>,
+) -> io::Result<()> {
+    tokio::select! {
+        result = &mut registration_handle => {
+            service_handle.abort();
+            publisher_handle.abort();
+            let _ = tokio::join!(service_handle, publisher_handle);
+            Err(component_error("registration server", result))
+        }
+        result = &mut service_handle => {
+            registration_handle.abort();
+            publisher_handle.abort();
+            let _ = tokio::join!(registration_handle, publisher_handle);
+            Err(component_error("DRAPlugin service", result))
+        }
+        result = &mut publisher_handle => {
+            registration_handle.abort();
+            service_handle.abort();
+            let _ = tokio::join!(registration_handle, service_handle);
+            Err(publisher_error(result))
+        }
     }
 }
 
@@ -122,9 +154,10 @@ impl DraPlugin {
     /// missing -- unlike `/var/lib/kubelet/device-plugins/`, which kubelet
     /// itself guarantees exists, these are the driver's own responsibility.
     /// Returns an error naming whichever component exited or panicked
-    /// first; there is no active re-registration retry loop to run here
-    /// (unlike `DevicePlugin::run()`) since plugin-watcher registration is
-    /// passive from the plugin's side -- see [`DraRegistrationServer`].
+    /// first, after aborting and reaping the remaining component tasks.
+    /// There is no active re-registration retry loop to run here (unlike
+    /// `DevicePlugin::run()`) since plugin-watcher registration is passive
+    /// from the plugin's side -- see [`DraRegistrationServer`].
     ///
     /// No graceful-shutdown/socket-cleanup logic on process termination:
     /// the classic plugin (`DevicePlugin::run`, `example/src/main.rs`) has
@@ -148,14 +181,17 @@ impl DraPlugin {
     /// `DraPluginService::spawn`/`spawn_at` already uses.
     async fn run_at(self, plugin_socket_path: &Path) -> io::Result<()> {
         let registration_handle = self.registration.spawn().await?;
-        let service_handle = self.service.spawn_at(plugin_socket_path).await?;
+        let service_handle = match self.service.spawn_at(plugin_socket_path).await {
+            Ok(handle) => handle,
+            Err(err) => {
+                registration_handle.abort();
+                let _ = registration_handle.await;
+                return Err(err);
+            }
+        };
         let publisher_handle = self.publisher.spawn();
 
-        tokio::select! {
-            result = registration_handle => Err(component_error("registration server", result)),
-            result = service_handle => Err(component_error("DRAPlugin service", result)),
-            result = publisher_handle => Err(publisher_error(result)),
-        }
+        wait_for_component_exit(registration_handle, service_handle, publisher_handle).await
     }
 }
 

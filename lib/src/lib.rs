@@ -228,18 +228,19 @@ impl DevicePlugin {
             return Err(io::Error::other("max_attempts must be at least 1"));
         }
         let mut delay = initial_delay;
-        for attempt in 1..=max_attempts {
+        for attempt in 1..max_attempts {
             match self.register_at(kubelet_socket.clone()).await {
                 Ok(()) => return Ok(()),
-                Err(err) if attempt < max_attempts => {
+                Err(err) => {
                     tracing::warn!(attempt, max_attempts, %err, "registration attempt failed; retrying");
                     tokio::time::sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(30));
                 }
-                Err(err) => return Err(io::Error::other(err)),
             }
         }
-        unreachable!()
+        self.register_at(kubelet_socket)
+            .await
+            .map_err(io::Error::other)
     }
 
     fn spawn_server(&self) -> io::Result<JoinHandle<Result<(), transport::Error>>> {

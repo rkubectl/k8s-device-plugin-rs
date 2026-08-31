@@ -150,6 +150,66 @@ async fn publish_once_is_a_noop_when_devices_unchanged() {
 }
 
 #[tokio::test]
+async fn publish_once_is_a_noop_when_devices_are_reordered() {
+    let (publisher, mut handle) = mock_publisher(one_pool(
+        "pool-0",
+        vec![PoolDevice::new("widget-0"), PoolDevice::new("widget-1")],
+    ));
+
+    let script = async {
+        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+
+        let existing = resource_slice_json(
+            "example.com-node-0-pool-0",
+            "example.com",
+            "node-0",
+            1,
+            "pool-0",
+            vec![device_json("widget-1"), device_json("widget-0")],
+        );
+        respond(&mut handle, 200, &existing).await;
+
+        let extra = tokio::time::timeout(Duration::from_millis(50), handle.next_request()).await;
+        assert!(
+            extra.is_err(),
+            "no further request should be sent when only device order differs"
+        );
+    };
+
+    let (_, result) = tokio::join!(script, publisher.publish_once());
+    result.expect("publish_once succeeds");
+}
+
+#[tokio::test]
+async fn publish_once_reports_a_missing_node_uid() {
+    let (publisher, mut handle) =
+        mock_publisher(one_pool("pool-0", vec![PoolDevice::new("widget-0")]));
+
+    let script = async {
+        respond(
+            &mut handle,
+            200,
+            &serde_json::json!({
+                "apiVersion": "v1",
+                "kind": "Node",
+                "metadata": { "name": "node-0" },
+            }),
+        )
+        .await;
+
+        let extra = tokio::time::timeout(Duration::from_millis(50), handle.next_request()).await;
+        assert!(
+            extra.is_err(),
+            "no ResourceSlice request should be sent without a Node UID"
+        );
+    };
+
+    let (_, result) = tokio::join!(script, publisher.publish_once());
+    let err = result.expect_err("a Node without a UID must be rejected");
+    assert!(err.to_string().contains("node object is missing a UID"));
+}
+
+#[tokio::test]
 async fn spawn_republishes_on_poll_interval() {
     let (publisher, mut handle) =
         mock_publisher(one_pool("pool-0", vec![PoolDevice::new("widget-0")]));

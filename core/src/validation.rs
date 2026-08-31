@@ -51,7 +51,9 @@ pub fn validate_resource_name(name: &str) -> Result<(), ValidationError> {
         ));
     }
     if domain == RESERVED_RESOURCE_DOMAIN
-        || domain.ends_with(&format!(".{RESERVED_RESOURCE_DOMAIN}"))
+        || domain
+            .strip_suffix(RESERVED_RESOURCE_DOMAIN)
+            .is_some_and(|prefix| prefix.ends_with('.'))
     {
         return Err(ValidationError::ReservedResourceDomain(domain.to_string()));
     }
