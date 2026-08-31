@@ -27,6 +27,13 @@ pub mod v1beta1 {
 #[cfg(feature = "dra")]
 pub mod dra {
 
+    /// Registration identifier for the stable kubelet DRA gRPC service.
+    ///
+    /// Kubelet compares this value with `PluginInfo.supported_versions` when
+    /// registering a `DRAPlugin`; it is a service identifier, not merely an
+    /// API version.
+    pub const DRA_PLUGIN_SERVICE: &str = "v1.DRAPlugin";
+
     #[cfg(not(windows))]
     pub const KUBELET_PLUGINS_PATH: &str = "/var/lib/kubelet/plugins/";
     #[cfg(windows)]

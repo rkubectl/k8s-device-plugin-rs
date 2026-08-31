@@ -53,6 +53,8 @@ spec:
               mountPath: /var/lib/kubelet/plugins_registry
             - name: plugins
               mountPath: /var/lib/kubelet/plugins/dra.example.com
+            - name: cdi
+              mountPath: /var/run/cdi
       volumes:
         - name: plugins-registry
           hostPath:
@@ -61,4 +63,8 @@ spec:
         - name: plugins
           hostPath:
             path: /var/lib/kubelet/plugins/dra.example.com
+            type: DirectoryOrCreate
+        - name: cdi
+          hostPath:
+            path: /var/run/cdi
             type: DirectoryOrCreate

@@ -14,6 +14,7 @@ use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 
+use k8s_device_plugin_proto::dra::DRA_PLUGIN_SERVICE;
 use k8s_device_plugin_proto::dra::KUBELET_PLUGINS_REGISTRY_PATH;
 use k8s_device_plugin_proto::dra::registration;
 use tokio::net::UnixListener;
@@ -40,7 +41,7 @@ impl DraRegistrationServer {
             r#type: "DRAPlugin".to_string(),
             name: driver_name.to_string(),
             endpoint: plugin_endpoint.to_string(),
-            supported_versions: vec!["v1".to_string()],
+            supported_versions: vec![DRA_PLUGIN_SERVICE.to_string()],
         };
         Self {
             socket_path,
@@ -54,7 +55,7 @@ impl DraRegistrationServer {
             r#type: "DRAPlugin".to_string(),
             name: driver_name.to_string(),
             endpoint: plugin_endpoint.to_string(),
-            supported_versions: vec!["v1".to_string()],
+            supported_versions: vec![DRA_PLUGIN_SERVICE.to_string()],
         };
         Self {
             socket_path,

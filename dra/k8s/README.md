@@ -12,11 +12,17 @@ kubectl apply -k dra/k8s
 The target cluster must expose the `resource.k8s.io/v1` DRA API and have DRA
 enabled before deployment. This driver publishes one static `widget-0` device
 in the `widget-pool` pool on each node; it is for registration and API-path
-validation only and does not provide a real CDI device.
+validation only. It emits a harmless CDI environment marker for each static
+device so an end-to-end consumer pod can verify DRA attachment, but it does
+not provide a real hardware device.
 
 The manifest is configured for the `dra.example.com` driver name and mounts
 only that driver's kubelet plugin directory. If you override `DRIVER_NAME`,
 update the matching `hostPath` and `mountPath` in `daemonset.yaml` too.
+
+After the DaemonSet is ready, use [`../hack/e2e-smoke.sh`](../hack/e2e-smoke.sh)
+to validate ResourceClaim allocation, kubelet preparation, CDI injection, and
+unpreparation with a temporary consumer pod.
 
 The `ClusterRole` is intentionally broader than a production driver needs:
 it can read `ResourceClaim`s cluster-wide and manage `ResourceSlice`s

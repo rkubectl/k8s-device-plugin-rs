@@ -1,9 +1,9 @@
 //! A validation-only DRA driver with one static pool of fake devices.
 //!
 //! Build a Linux container image for it with `dra/Dockerfile`, then deploy
-//! `dra/k8s/`. It deliberately returns no CDI device names: this example
-//! validates registration, `ResourceSlice` publishing, and claim preparation
-//! plumbing without pretending to provide a real hardware device.
+//! `dra/k8s/`. It exposes a harmless CDI environment marker instead of a real
+//! hardware device, so a consumer pod can prove the complete DRA path without
+//! requiring a host device node.
 
 use std::collections::HashMap;
 use std::env;
@@ -23,6 +23,30 @@ use k8s_device_plugin_dra::DraPlugin;
 const DEFAULT_DRIVER_NAME: &str = "dra.example.com";
 const DEFAULT_POOL_NAME: &str = "widget-pool";
 const DEFAULT_DEVICE_NAMES: &str = "widget-0";
+const CDI_SPEC_DIR: &str = "/var/run/cdi";
+const CDI_SPEC_PATH: &str = "/var/run/cdi/dra-example.json";
+const CDI_KIND: &str = "dra.example.com/widget";
+
+fn cdi_device_id(device_name: &str) -> String {
+    format!("{CDI_KIND}={device_name}")
+}
+
+async fn write_cdi_spec(devices: &[PoolDevice]) -> io::Result<()> {
+    let spec = serde_json::json!({
+        "cdiVersion": "0.8.0",
+        "kind": CDI_KIND,
+        "devices": devices.iter().map(|device| serde_json::json!({
+            "name": device.name,
+            "containerEdits": {
+                "env": [format!("DRA_E2E_DEVICE={}", device.name)],
+            },
+        })).collect::<Vec<_>>(),
+    });
+
+    tokio::fs::create_dir_all(CDI_SPEC_DIR).await?;
+    let encoded = serde_json::to_vec_pretty(&spec).map_err(io::Error::other)?;
+    tokio::fs::write(CDI_SPEC_PATH, encoded).await
+}
 
 #[derive(Debug)]
 struct StaticDraDriver {
@@ -61,6 +85,13 @@ impl ClaimPreparer for StaticDraDriver {
         claims
             .iter()
             .map(|resolved| {
+                tracing::info!(
+                    claim_namespace = %resolved.claim.namespace,
+                    claim_name = %resolved.claim.name,
+                    claim_uid = %resolved.claim.uid,
+                    device_count = resolved.devices.len(),
+                    "preparing DRA claim"
+                );
                 let prepared = resolved
                     .devices
                     .iter()
@@ -75,7 +106,7 @@ impl ClaimPreparer for StaticDraDriver {
                             request_names: device.request_name.clone().into_iter().collect(),
                             pool_name: device.pool_name.clone(),
                             device_name: device.device_name.clone(),
-                            cdi_device_ids: Vec::new(),
+                            cdi_device_ids: vec![cdi_device_id(&device.device_name)],
                         })
                     })
                     .collect();
@@ -84,7 +115,13 @@ impl ClaimPreparer for StaticDraDriver {
             .collect()
     }
 
-    async fn unprepare(&self, _claim: &ClaimRef) -> Result<(), PrepareError> {
+    async fn unprepare(&self, claim: &ClaimRef) -> Result<(), PrepareError> {
+        tracing::info!(
+            claim_namespace = %claim.namespace,
+            claim_name = %claim.name,
+            claim_uid = %claim.uid,
+            "unpreparing DRA claim"
+        );
         Ok(())
     }
 }
@@ -110,6 +147,7 @@ async fn main() -> io::Result<()> {
     if devices.is_empty() {
         tracing::warn!("no DEVICE_NAMES configured -- publishing an empty ResourceSlice");
     }
+    write_cdi_spec(&devices).await?;
     tracing::info!(
         %driver_name,
         %pool_name,
@@ -166,5 +204,10 @@ mod tests {
         assert!(driver.has_device(DEFAULT_POOL_NAME, "widget-0"));
         assert!(!driver.has_device("other-pool", "widget-0"));
         assert!(!driver.has_device(DEFAULT_POOL_NAME, "other-device"));
+    }
+
+    #[test]
+    fn cdi_device_id_uses_the_validation_spec_kind() {
+        assert_eq!(cdi_device_id("widget-0"), "dra.example.com/widget=widget-0");
     }
 }

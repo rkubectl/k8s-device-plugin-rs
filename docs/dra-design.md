@@ -1,7 +1,9 @@
 # Dynamic Resource Allocation (DRA) support — design
 
-Status: **draft, not yet implemented**. This document precedes ticketing; see
-[Phasing](#phasing) for how it will be broken into beads issues once agreed.
+Status: **Phase 1 implemented and live-validated** on Kubernetes v1.37.0
+(linux/arm64 kind). The supported API remains `resource.k8s.io/v1`; see
+[cluster validation](#cluster-validation) for the exact exercised path and
+remaining production boundaries.
 
 ## Background
 
@@ -79,8 +81,6 @@ plumbing — a different dependency footprint than `lib` has today (`tonic`/
 - Multi-slice `ResourceSlice` pooling/splitting for driver device counts
   above the per-slice limit (~128 devices).
 - `DRAResourceHealth` streaming.
-- A deployable example crate (mirrors `example/`, but for DRA) — deferred
-  until the `dra` crate itself is validated.
 
 These are explicitly future phases, not rejected — see [Phasing](#phasing).
 
@@ -174,7 +174,7 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
 - **`DraRegistrationServer`** — serves `pluginregistration::v1::Registration`
   on `/var/lib/kubelet/plugins_registry/<driver-name>-reg.sock`. `GetInfo`
   reports `type: "DRAPlugin"`, the real plugin socket as `endpoint`, and
-  `supported_versions: ["v1"]`. The AF_UNIX path-length problem this socket
+  `supported_versions: ["v1.DRAPlugin"]`. The AF_UNIX path-length problem this socket
   name has to fit in is the same one `lib`'s `sanitize_socket_name` already
   solves for the classic plugin (truncate + disambiguating hash within the
   108-byte `sun_path` budget) — reuse that approach rather than
@@ -214,11 +214,6 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
 4. **Phase 4** — `v1beta1` compatibility (only if a target cluster needs
    pre-1.34 support), deployable `dra-example` crate mirroring `example/`.
 
-Beads tickets will be filed per-phase once this document is agreed, starting
-with Phase 1 broken into: core types/traits, proto compilation, registration
-server, `DRAPlugin` service, single-slice publisher, claim resolver,
-end-to-end validation against a real cluster.
-
 ## Deployment note: no rolling updates in Phase 1
 
 Per `kubeletplugin` package docs, kubelet historically does not support
@@ -231,18 +226,39 @@ kubelet supports it. For Phase 1, document `maxSurge: 0` as a hard
 requirement; revisit seamless upgrades only if the target cluster is
 confirmed to run 1.33+.
 
+## Cluster validation
+
+The Phase 1 fixture was validated on a single-node `kind` cluster running
+Kubernetes **v1.37.0 linux/arm64**, with the default kubelet configuration
+(no additional DRA feature-gate overrides). The API server exposed the stable
+`resource.k8s.io/v1` `DeviceClass`, `ResourceClaim`, and `ResourceSlice`
+resources.
+
+The checked-in [`dra/hack/e2e-smoke.sh`](../dra/hack/e2e-smoke.sh) creates a
+`DeviceClass`, allocates one `widget-0` device through a `ResourceClaim`, and
+starts a consumer that asserts the CDI-provided `DRA_E2E_DEVICE=widget-0`
+marker. The live run confirmed exactly one `ResourceSlice` for
+`dra.example.com` / `widget-pool`, successful pluginwatcher registration,
+`NodePrepareResources`, container startup, and `NodeUnprepareResources` after
+consumer deletion.
+
+With `maxSurge: 0`, a DaemonSet restart fully terminated the old driver before
+starting its replacement. The replacement re-registered in about two seconds;
+the already-running consumer remained healthy and kubelet did **not** reissue
+`NodePrepareResources` for its in-use claim during the observation window.
+The replacement did receive `NodeUnprepareResources` when that consumer was
+deleted. Backends must therefore keep `prepare` idempotent for a potential
+future retry, but should not rely on restart to replay preparation.
+
+Kubelet's grpc-go Unix-socket client sends the percent-encoded registry socket
+path as the HTTP/2 `:authority`. Upstream `h2` rejects that malformed authority
+before Tonic can dispatch the RPC, so this workspace pins a narrow local `h2`
+patch: it drops only UDS-shaped invalid authorities and preserves normal
+`PROTOCOL_ERROR` handling for other malformed values. The patch is required
+for real kubelet interoperability, not for Tonic-to-Tonic tests.
+
 ## Open risks / things to verify against a real cluster before Phase 1 is "done"
 
-- Exact pluginwatcher rescan-triggering behavior on driver restart
-  (registration itself is now well understood from the reference
-  implementation — see above — but the precise timing of kubelet's
-  directory rescan needs confirming against a live cluster).
-- Whether kubelet's DRA manager retries `NodePrepareResources` on driver
-  restart the same way the classic manager retries registration, or whether
-  the driver must proactively reconcile in-flight claims on startup. The
-  `prepare` idempotency requirement above is upstream's answer at the
-  driver-contract level; still worth confirming the retry *timing* kubelet
-  actually uses.
 - RBAC scope needed for the `ResourceSlice`/`ResourceClaim` API client
   (namespaced vs. cluster-scoped, field selectors for node-local claims).
   Upstream's `kubeletplugin` docs recommend scoping `ResourceClaim`/

@@ -66,3 +66,10 @@ unused = "warn"
 unused_lifetimes = "warn"
 unused_qualifications = "warn"
 # warnings = "deny"
+
+
+[patch.crates-io]
+# kubelet's grpc-go Unix-socket client sends a percent-encoded socket path as
+# :authority. Upstream h2 rejects it before Tonic can dispatch the gRPC call.
+# Keep the fork revision pinned until upstream h2 or kubelet resolves this.
+h2 = { git = "https://github.com/rkubectl/h2", rev = "852915ba20501b2a0d39bd54ab4521cde8ee54c9" }

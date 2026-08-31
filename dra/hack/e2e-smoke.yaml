@@ -1,0 +1,47 @@
+# Deliberately small, manually applied DRA smoke fixture. See the accompanying
+# e2e-smoke.sh for lifecycle assertions and cleanup.
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: dra-example-widget
+spec:
+  selectors:
+    - cel:
+        expression: device.driver == "dra.example.com"
+---
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaim
+metadata:
+  name: dra-example-widget
+  namespace: k8s-device-plugin-dra-example
+spec:
+  devices:
+    requests:
+      - name: widget
+        exactly:
+          deviceClassName: dra-example-widget
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dra-example-consumer
+  namespace: k8s-device-plugin-dra-example
+spec:
+  restartPolicy: Never
+  containers:
+    - name: consumer
+      image: busybox:1.37
+      imagePullPolicy: IfNotPresent
+      command:
+        - sh
+        - -ec
+        - |
+          test "$DRA_E2E_DEVICE" = "widget-0"
+          echo "DRA_E2E_DEVICE=$DRA_E2E_DEVICE"
+          sleep 3600
+      resources:
+        claims:
+          - name: widget
+  resourceClaims:
+    - name: widget
+      resourceClaimName: dra-example-widget

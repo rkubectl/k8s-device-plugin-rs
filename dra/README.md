@@ -27,10 +27,10 @@ plugin.run().await
 
 [`examples/minimal_driver.rs`](examples/minimal_driver.rs) is the complete,
 copyable version of that pattern. It implements a static `widget-0` device
-without CDI hardware backing, so it is suitable for repeatable cluster
-validation. Keep it as the source of truth for the quickstart instead of
-copying a second implementation into this README; Cargo compiles and tests it
-directly:
+with a harmless CDI environment marker instead of hardware backing, so it is
+suitable for repeatable cluster validation. Keep it as the source of truth for
+the quickstart instead of copying a second implementation into this README;
+Cargo compiles and tests it directly:
 
 ```bash
 cargo test -p k8s-device-plugin-dra --example minimal_driver
@@ -70,3 +70,17 @@ for seamless DRA-plugin upgrades, so an update may leave a brief gap while the
 old node plugin terminates before the new one starts. The RBAC is intentionally
 broad for this validation fixture and is not production guidance; see the
 [manifest README](k8s/README.md) for that limitation.
+
+### End-to-end smoke test
+
+With the DaemonSet ready, run the checked-in consumer fixture:
+
+```sh
+KUBE_CONTEXT=kind-dra-validation dra/hack/e2e-smoke.sh
+```
+
+The script creates a `DeviceClass`, `ResourceClaim`, and one consumer pod. It
+asserts that containerd applied `DRA_E2E_DEVICE=widget-0` from the fixture's
+CDI specification, then deletes the consumer. Inspect the DaemonSet log for
+`preparing DRA claim` and `unpreparing DRA claim` to see the corresponding
+kubelet RPCs. The script removes all of its fixture objects on exit.

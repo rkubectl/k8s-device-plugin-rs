@@ -7,6 +7,7 @@ use k8s_device_plugin_core::PrepareError;
 use k8s_device_plugin_core::PreparedDevice;
 use k8s_device_plugin_core::ResolvedClaim;
 use k8s_device_plugin_core::ResourcePool;
+use k8s_device_plugin_proto::dra::DRA_PLUGIN_SERVICE;
 use k8s_device_plugin_proto::dra::v1;
 use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
 use k8s_device_plugin_test::dra_registration::MockRegistrationClient;
@@ -128,7 +129,10 @@ async fn run_spawns_all_three_components_and_they_work() {
     let info = registration_client.get_info().await.expect("get_info call");
     assert_eq!(info.r#type, "DRAPlugin");
     assert_eq!(info.name, "example.com");
-    assert_eq!(info.supported_versions, vec!["v1".to_string()]);
+    assert_eq!(
+        info.supported_versions,
+        vec![DRA_PLUGIN_SERVICE.to_string()]
+    );
 
     // DRAPlugin gRPC service came up and can resolve+prepare a claim
     // through to a real response, driving the resolver's kube request

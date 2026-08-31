@@ -2,6 +2,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use k8s_device_plugin_proto::dra::DRA_PLUGIN_SERVICE;
 use k8s_device_plugin_test::dra_registration::MockRegistrationClient;
 use tempfile::TempDir;
 use tracing::Level;
@@ -42,7 +43,10 @@ async fn get_info_returns_configured_plugin_info() {
         info.endpoint,
         "/var/lib/kubelet/plugins/example.com/widget/plugin.sock"
     );
-    assert_eq!(info.supported_versions, vec!["v1".to_string()]);
+    assert_eq!(
+        info.supported_versions,
+        vec![DRA_PLUGIN_SERVICE.to_string()]
+    );
 
     handle.abort();
 }

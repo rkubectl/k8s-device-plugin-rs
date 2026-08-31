@@ -10,6 +10,7 @@ async-trait.workspace = true
 futures.workspace = true
 k8s-openapi.workspace = true
 kube.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "macros", "net", "rt-multi-thread", "time"] }
 tokio-stream.workspace = true
