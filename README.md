@@ -141,8 +141,8 @@ Dynamic Resource Allocation (DRA): it publishes `ResourceSlice`s to the
 Kubernetes API and serves kubelet's `NodePrepareResources`/
 `NodeUnprepareResources` RPCs. It has different deployment and RBAC
 requirements from classic device plugins; start with the [DRA crate guide](dra/README.md)
-and consult the [Phase 1 design](docs/dra-design.md) for the supported scope
-and roadmap.
+and consult the [Phase 1 design](docs/dra-design.md) for the supported scope,
+compatibility override required by downstream consumers, and roadmap.
 
 ## Observability
 

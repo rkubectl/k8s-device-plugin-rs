@@ -6,11 +6,64 @@ Kubernetes `ResourceSlice` objects, then serves kubelet's
 `NodePrepareResources` and `NodeUnprepareResources` RPCs for the claims
 allocated to that node.
 
-This is deliberately Phase 1 infrastructure, not a production-ready example
-driver. It supports the Kubernetes `resource.k8s.io/v1` API, a single
-`ResourceSlice` per pool, and claim preparation. Health streaming, multiple
-API versions, and a polished deployable example are outside this phase; see
-the [DRA design](../docs/dra-design.md) for the complete boundary and roadmap.
+## Status and scope
+
+Phase 1 is ready for a driver backend to integrate and validate against a
+real cluster. It was validated on Kubernetes v1.37.0 on linux/arm64. It
+supports the Kubernetes `resource.k8s.io/v1` API, one `ResourceSlice` per
+pool, pluginwatcher registration, and claim preparation/unpreparation.
+
+It is not yet a turnkey production driver: it has no multi-slice
+reconciliation, resource-health stream, pre-v1.34 API compatibility, or
+production-scoped RBAC policy. The checked-in DaemonSet is a validation
+fixture, not a deployment template. See the [DRA design](../docs/dra-design.md)
+for the complete boundary and roadmap.
+
+## Compatibility and dependency override
+
+Kubelet currently sends a percent-encoded Unix-socket path in the HTTP/2
+`:authority` header during pluginwatcher registration. Upstream `h2` rejects
+that header before Tonic can dispatch the request. Until upstream `h2` releases
+a fix or kubelet fixes its DRA client, this workspace pins a narrow compatibility
+fork.
+
+Building this repository's workspace uses the override automatically. If an
+application depends on `k8s-device-plugin-dra` from Git or crates.io, Cargo does
+**not** propagate the override: the application's top-level `Cargo.toml` must
+repeat the following block, then regenerate its lockfile (for example with
+`cargo update -p h2`). CI must also be able to fetch Git dependencies.
+
+```toml
+[patch.crates-io]
+h2 = { git = "https://github.com/rkubectl/h2", rev = "852915ba20501b2a0d39bd54ab4521cde8ee54c9" }
+```
+
+The exact pin in the root [`Cargo.toml`](../Cargo.toml) is authoritative. Do
+not change it independently; the deferred upstream-cleanup task removes this
+override once either upstream route is released.
+
+## Implementation and automation contract
+
+This is the compact integration contract for both driver authors and automated
+changes:
+
+1. Implement `ResourcePool` to return the complete current device snapshot,
+   and `ClaimPreparer` to prepare and release allocations. Together they form
+   `DraDriver`.
+2. Use one stable driver name everywhere: `DraDriver::driver_name()`,
+   `DraPlugin::new`, the DaemonSet `DRIVER_NAME`, and its mounted kubelet plugin
+   directory must describe the same driver.
+3. Make `ClaimPreparer::prepare` idempotent. It receives a batch and must
+   return exactly one result for every input claim; never assume a restart will
+   replay preparation.
+4. Return the real CDI device IDs or other preparation artifacts required by
+   the workload. The minimal driver uses only a harmless environment marker;
+   it does not provide hardware.
+5. Give the driver Kubernetes API permissions to read local claims, publish
+   its slices, and read its node. Scope production RBAC to the local node;
+   the fixture's cluster-wide role is deliberately broad.
+6. Validate changes with the commands below before treating an integration as
+   ready.
 
 ## Quickstart
 
@@ -52,6 +105,20 @@ The example reads these environment variables:
 to look up the local `Node`, publish its `ResourceSlice`, and resolve claims;
 unlike a classic device plugin, it cannot run meaningfully without a
 Kubernetes client configuration and `NODE_NAME`.
+
+### Validation checklist
+
+```sh
+cargo test --locked -p k8s-device-plugin-dra --all-targets
+docker build -f dra/Dockerfile -t k8s-device-plugin-dra-example .
+kubectl apply -k dra/k8s
+KUBE_CONTEXT=<context> dra/hack/e2e-smoke.sh
+```
+
+The smoke test proves registration, `ResourceClaim` allocation,
+`NodePrepareResources`, CDI attachment, and `NodeUnprepareResources`. It does
+not validate production RBAC boundaries, multi-node behavior, or upgrade
+availability; those remain driver-specific release gates.
 
 ## Cluster validation deployment
 

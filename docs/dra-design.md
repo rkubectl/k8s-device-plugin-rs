@@ -252,10 +252,18 @@ future retry, but should not rely on restart to replay preparation.
 
 Kubelet's grpc-go Unix-socket client sends the percent-encoded registry socket
 path as the HTTP/2 `:authority`. Upstream `h2` rejects that malformed authority
-before Tonic can dispatch the RPC, so this workspace pins a narrow local `h2`
-patch: it drops only UDS-shaped invalid authorities and preserves normal
-`PROTOCOL_ERROR` handling for other malformed values. The patch is required
-for real kubelet interoperability, not for Tonic-to-Tonic tests.
+before Tonic can dispatch the RPC, so this workspace pins a narrow
+[`rkubectl/h2`](https://github.com/rkubectl/h2) fork: it drops only UDS-shaped
+invalid authorities and preserves normal `PROTOCOL_ERROR` handling for other
+malformed values. The override is required for real kubelet interoperability,
+not for Tonic-to-Tonic tests.
+
+Cargo patches apply only at the workspace/application root. Building this
+repository uses the override automatically; an application consuming the DRA
+crate from Git or crates.io must repeat the exact pinned `[patch.crates-io]`
+entry from the root `Cargo.toml`. The [crate guide](../dra/README.md) is the
+authoritative copy-and-paste instruction. This is a release constraint, not a
+hidden implementation detail.
 
 ## Open risks / things to verify against a real cluster before Phase 1 is "done"
 
