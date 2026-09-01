@@ -11,10 +11,12 @@ allocated to that node.
 Phase 1 is ready for a driver backend to integrate and validate against a
 real cluster. Its compatibility target is Kubernetes v1.36 using the stable
 `resource.k8s.io/v1` API with the default DRA configuration; it does not
-require optional DRA feature gates. Live validation against that v1.36
-baseline is pending. The existing live-cluster evidence is a historical run
-on Kubernetes v1.37.0 on linux/arm64, not evidence that v1.36 validation has
-completed. It supports one `ResourceSlice` per pool, pluginwatcher
+require optional DRA feature gates. Live validation of that baseline completed
+on Kubernetes v1.36.1 on linux/arm64. The validation environment used Apple
+Container with Rosetta disabled and a `kindest/node` v1.36.1 image; the
+checked-in smoke test completed the ResourceSlice-to-CDI lifecycle. The older
+Kubernetes v1.37.0 linux/arm64 run remains historical evidence. It supports
+one `ResourceSlice` per pool, pluginwatcher
 registration, and claim preparation/unpreparation.
 
 It is not yet a turnkey production driver: it has no multi-slice
@@ -125,6 +127,11 @@ The smoke test proves registration, `ResourceClaim` allocation,
 not validate production RBAC boundaries, multi-node behavior, or upgrade
 availability; those remain driver-specific release gates.
 
+On Apple Container 1.3.1, a large local `target/` directory may be walked
+while the build context is prepared despite this repository's `.dockerignore`.
+If the build stalls before `load build context`, run `cargo clean` and retry;
+this is a local builder-context issue, not a Rust or Dockerfile failure.
+
 ## Cluster validation deployment
 
 [`k8s/`](k8s/README.md) provides a small validation-only DaemonSet, RBAC, and
@@ -148,7 +155,7 @@ broad for this validation fixture and is not production guidance; see the
 With the DaemonSet ready, run the checked-in consumer fixture:
 
 ```sh
-KUBE_CONTEXT=kind-dra-validation dra/hack/e2e-smoke.sh
+KUBE_CONTEXT=<context> dra/hack/e2e-smoke.sh
 ```
 
 The script creates a `DeviceClass`, `ResourceClaim`, and one consumer pod. It
@@ -156,3 +163,32 @@ asserts that containerd applied `DRA_E2E_DEVICE=widget-0` from the fixture's
 CDI specification, then deletes the consumer. Inspect the DaemonSet log for
 `preparing DRA claim` and `unpreparing DRA claim` to see the corresponding
 kubelet RPCs. The script removes all of its fixture objects on exit.
+
+#### Verified local Apple Container run
+
+The v1.36.1 validation used a local, native arm64 Apple Container Kubernetes
+cluster named `dra-validation`, provided by a separately installed
+`rosettaless-k8s` plugin. That plugin is host tooling, not a project
+dependency. After building the image, the verified flow was:
+
+```sh
+container rosettaless-k8s load-image --name dra-validation k8s-device-plugin-dra-example
+kubectl apply -k dra/k8s
+KUBE_CONTEXT=dra-validation dra/hack/e2e-smoke.sh
+```
+
+The current local plugin's `load-image` operation imports the image but can
+omit the fully qualified CRI tag that kubelet resolves. If the driver pod is
+in `ImagePullBackOff` for `docker.io/library/k8s-device-plugin-dra-example`,
+add that tag in the node and recreate only the failed DaemonSet pod:
+
+```sh
+container exec dra-validation ctr -n k8s.io images tag \
+  k8s-device-plugin-dra-example:latest \
+  docker.io/library/k8s-device-plugin-dra-example:latest
+kubectl -n k8s-device-plugin-dra-example delete pod \
+  -l app=k8s-device-plugin-dra-example
+```
+
+The subsequent smoke run reported `DRA_E2E_DEVICE=widget-0` and deleted the
+consumer successfully. Rosetta was not installed or enabled for this run.

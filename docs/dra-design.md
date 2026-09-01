@@ -1,11 +1,11 @@
 # Dynamic Resource Allocation (DRA) support — design
 
 Status: **Phase 1 implemented**. The compatibility target is Kubernetes
-v1.36 using stable `resource.k8s.io/v1` with the default DRA configuration;
-live validation of that baseline is still pending. The existing
-live-validation evidence is a historical Kubernetes v1.37.0 linux/arm64 kind
-run. See [cluster validation](#cluster-validation) for the exact exercised
-path and remaining production boundaries.
+v1.36 using stable `resource.k8s.io/v1` with the default DRA configuration.
+Live validation completed on Kubernetes v1.36.1 linux/arm64 through the
+checked-in smoke path. The existing Kubernetes v1.37.0 linux/arm64 kind run
+is retained as historical evidence. See [cluster validation](#cluster-validation)
+for the exact exercised path and remaining production boundaries.
 
 ## Background
 
@@ -36,10 +36,10 @@ kubelet prepare/unprepare path only. It does not rely on extended-resource
 integration, device taints, device-health reporting, partitionable devices,
 consumable capacity, or other optional DRA APIs.
 
-The v1.36 target is a documented contract, not a substituted test result. The
-only completed live-cluster run recorded below used Kubernetes v1.37.0;
-Beads task `k8s-device-plugin-rs-qt7.2` must produce and record equivalent
-v1.36 evidence before this baseline can be described as live-validated.
+The v1.36 target is both a documented contract and a completed live-cluster
+test result. On 2026-09-01, Kubernetes v1.36.1 on linux/arm64 completed the
+checked-in ResourceSlice-to-CDI smoke path under Apple Container with Rosetta
+disabled. Beads task `k8s-device-plugin-rs-qt7.2` records that evidence.
 
 ### Reference material
 
@@ -245,11 +245,15 @@ confirmed to run 1.33+.
 
 ## Cluster validation
 
-The Phase 1 fixture was validated on a single-node `kind` cluster running
-Kubernetes **v1.37.0 linux/arm64**, with the default kubelet configuration
-(no additional DRA feature-gate overrides). The API server exposed the stable
-`resource.k8s.io/v1` `DeviceClass`, `ResourceClaim`, and `ResourceSlice`
-resources.
+The Phase 1 fixture was first validated on a single-node `kind` cluster
+running Kubernetes **v1.37.0 linux/arm64**, with the default kubelet
+configuration (no additional DRA feature-gate overrides). It was then
+validated on 2026-09-01 against Kubernetes **v1.36.1 linux/arm64** in a local
+Apple Container cluster using a `kindest/node` v1.36.1 image. The latter used
+a separately installed `rosettaless-k8s` host plugin and had Rosetta disabled;
+that plugin is a local validation mechanism, not a repository dependency. In
+both environments, the API server exposed the stable `resource.k8s.io/v1`
+`DeviceClass`, `ResourceClaim`, and `ResourceSlice` resources.
 
 The checked-in [`dra/hack/e2e-smoke.sh`](../dra/hack/e2e-smoke.sh) creates a
 `DeviceClass`, allocates one `widget-0` device through a `ResourceClaim`, and
@@ -257,7 +261,17 @@ starts a consumer that asserts the CDI-provided `DRA_E2E_DEVICE=widget-0`
 marker. The live run confirmed exactly one `ResourceSlice` for
 `dra.example.com` / `widget-pool`, successful pluginwatcher registration,
 `NodePrepareResources`, container startup, and `NodeUnprepareResources` after
-consumer deletion.
+consumer deletion. The v1.36.1 run reported `DRA_E2E_DEVICE=widget-0` and
+deleted the consumer successfully.
+
+For that Apple Container run, the host's existing 19 GiB `target/` directory
+made `container build` stall while it prepared the context despite the
+repository `.dockerignore`; `cargo clean` made the same build complete in 125
+seconds. The local `rosettaless-k8s` image loader also required a one-time
+containerd retag from `k8s-device-plugin-dra-example:latest` to
+`docker.io/library/k8s-device-plugin-dra-example:latest` before kubelet could
+resolve the imported image. These are host-tooling caveats, not DRA runtime
+failures.
 
 With `maxSurge: 0`, a DaemonSet restart fully terminated the old driver before
 starting its replacement. The replacement re-registered in about two seconds;
