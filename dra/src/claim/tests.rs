@@ -3,6 +3,7 @@ use k8s_device_plugin_test::kube_mock::mock_kube_client;
 use k8s_device_plugin_test::kube_mock::resource_claim_json;
 use kube::client::Body;
 use serde_json::json;
+use std::time::Duration;
 
 use super::*;
 
@@ -155,4 +156,102 @@ async fn resolve_all_resolves_a_batch_concurrently() {
         };
         assert_eq!(resolved.devices[0].pool_name, expected_pool);
     }
+}
+
+#[tokio::test]
+async fn resolve_retries_a_transient_api_failure() {
+    let (resolver, mut handle) = mock_resolver();
+    let resolver = resolver.with_retry_policy(2, Duration::ZERO);
+    let claim_ref = ClaimRef {
+        namespace: "default".to_string(),
+        uid: "claim-uid-0".to_string(),
+        name: "my-claim".to_string(),
+    };
+    let expected = resource_claim_json(
+        "my-claim",
+        "default",
+        "claim-uid-0",
+        allocated_status("pool-0", "widget-0", "req-0"),
+    );
+
+    let server = tokio::spawn(async move {
+        let (first, send) = handle.next_request().await.expect("first request sent");
+        assert_eq!(first.method(), http::Method::GET);
+        send.send_response(
+            http::Response::builder()
+                .status(500)
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "status": "Failure",
+                        "reason": "InternalError",
+                        "code": 500,
+                    }))
+                    .expect("serialize error status"),
+                ))
+                .expect("build error response"),
+        );
+
+        let (second, send) = handle.next_request().await.expect("retry request sent");
+        assert_eq!(second.method(), http::Method::GET);
+        send.send_response(http::Response::new(Body::from(
+            serde_json::to_vec(&expected).expect("serialize resolved claim"),
+        )));
+    });
+
+    let resolved = resolver.resolve(&claim_ref).await.expect("retry succeeds");
+    server.await.expect("server task completes");
+    assert_eq!(resolved.devices[0].pool_name, "pool-0");
+}
+
+#[tokio::test]
+async fn resolve_all_honors_the_concurrency_bound_and_request_order() {
+    let (resolver, mut handle) = mock_resolver();
+    let resolver = resolver.with_max_concurrent_resolves(1);
+    let claim_refs = vec![
+        ClaimRef {
+            namespace: "default".to_string(),
+            uid: "uid-a".to_string(),
+            name: "claim-a".to_string(),
+        },
+        ClaimRef {
+            namespace: "default".to_string(),
+            uid: "uid-b".to_string(),
+            name: "claim-b".to_string(),
+        },
+    ];
+    let resolve = tokio::spawn(async move { resolver.resolve_all(&claim_refs).await });
+
+    let (first, send) = handle.next_request().await.expect("first request sent");
+    assert!(first.uri().path().contains("claim-a"));
+    let second_before_first_response =
+        tokio::time::timeout(Duration::from_millis(20), handle.next_request()).await;
+    assert!(
+        second_before_first_response.is_err(),
+        "the configured bound must prevent a second in-flight request"
+    );
+    send.send_response(http::Response::new(Body::from(
+        serde_json::to_vec(&resource_claim_json(
+            "claim-a",
+            "default",
+            "uid-a",
+            allocated_status("pool-a", "widget-0", "req-0"),
+        ))
+        .expect("serialize first claim"),
+    )));
+
+    let (second, send) = handle.next_request().await.expect("second request sent");
+    assert!(second.uri().path().contains("claim-b"));
+    send.send_response(http::Response::new(Body::from(
+        serde_json::to_vec(&resource_claim_json(
+            "claim-b",
+            "default",
+            "uid-b",
+            allocated_status("pool-b", "widget-0", "req-0"),
+        ))
+        .expect("serialize second claim"),
+    )));
+
+    let results = resolve.await.expect("resolution task completes");
+    assert_eq!(results[0].0.name, "claim-a");
+    assert_eq!(results[1].0.name, "claim-b");
 }

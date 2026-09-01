@@ -15,15 +15,15 @@ require optional DRA feature gates. Live validation of that baseline completed
 on Kubernetes v1.36.1 on linux/arm64. The validation environment used Apple
 Container with Rosetta disabled and a `kindest/node` v1.36.1 image; the
 checked-in smoke test completed the ResourceSlice-to-CDI lifecycle. The older
-Kubernetes v1.37.0 linux/arm64 run remains historical evidence. It supports
-one `ResourceSlice` per pool, pluginwatcher
-registration, and claim preparation/unpreparation.
+Kubernetes v1.37.0 linux/arm64 run remains historical evidence. It
+authoritatively reconciles each local pool into one or more `ResourceSlice`s,
+pluginwatcher registration, and claim preparation/unpreparation.
 
-It is not yet a turnkey production driver: it has no multi-slice
-reconciliation, resource-health stream, pre-v1.34 API compatibility, or
-production-scoped RBAC policy. Extended-resource integration, device taints,
-and other optional DRA APIs are also outside this baseline. The checked-in
-DaemonSet is a validation fixture, not a deployment template. See the
+It is not yet a turnkey production driver: it has no resource-health stream,
+pre-v1.34 API compatibility, or production-scoped RBAC policy. Extended-resource
+integration, device taints, and other optional DRA APIs are also outside this
+baseline. The checked-in DaemonSet is a validation fixture, not a deployment
+template. See the
 [DRA design](../docs/dra-design.md) for the complete boundary and roadmap.
 
 ## Compatibility and dependency override
@@ -124,8 +124,9 @@ KUBE_CONTEXT=<context> dra/hack/e2e-smoke.sh
 
 The smoke test proves registration, `ResourceClaim` allocation,
 `NodePrepareResources`, CDI attachment, and `NodeUnprepareResources`. It does
-not validate production RBAC boundaries, multi-node behavior, or upgrade
-availability; those remain driver-specific release gates.
+not validate production RBAC boundaries, multi-node behavior, multi-slice
+inventory changes, or upgrade availability; those remain driver-specific
+release gates.
 
 On Apple Container 1.3.1, a large local `target/` directory may be walked
 while the build context is prepared despite this repository's `.dockerignore`.

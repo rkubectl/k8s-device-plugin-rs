@@ -17,7 +17,6 @@ use k8s_device_plugin_test::dra_registration::MockRegistrationClient;
 use k8s_device_plugin_test::kube_mock::allocated_status;
 use k8s_device_plugin_test::kube_mock::mock_kube_client;
 use k8s_device_plugin_test::kube_mock::node_json;
-use k8s_device_plugin_test::kube_mock::not_found_json;
 use k8s_device_plugin_test::kube_mock::resource_claim_json;
 use k8s_device_plugin_test::kube_mock::respond;
 use kube::client::Body;
@@ -122,11 +121,20 @@ async fn run_spawns_all_three_components_and_they_work() {
     let run_handle = tokio::spawn(async move { plugin.run_at(&run_plugin_socket).await });
 
     // The publisher's default 30s poll interval means exactly one publish
-    // cycle (Node get, slice get, create) happens during this test -- drain
+    // cycle (Node get, list slices, create) happens during this test -- drain
     // it before triggering any other kube traffic, so ordering stays
     // deterministic instead of racing against the resolver's later request.
     respond(&mut kube_handle, 200, &node_json("node-0", "node-uid-0")).await;
-    respond(&mut kube_handle, 404, &not_found_json()).await;
+    respond(
+        &mut kube_handle,
+        200,
+        &json!({
+            "apiVersion": "resource.k8s.io/v1",
+            "kind": "ResourceSliceList",
+            "items": [],
+        }),
+    )
+    .await;
     let (create_request, send) = kube_handle
         .next_request()
         .await

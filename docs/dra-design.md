@@ -1,11 +1,12 @@
 # Dynamic Resource Allocation (DRA) support — design
 
-Status: **Phase 1 implemented**. The compatibility target is Kubernetes
-v1.36 using stable `resource.k8s.io/v1` with the default DRA configuration.
-Live validation completed on Kubernetes v1.36.1 linux/arm64 through the
-checked-in smoke path. The existing Kubernetes v1.37.0 linux/arm64 kind run
-is retained as historical evidence. See [cluster validation](#cluster-validation)
-for the exact exercised path and remaining production boundaries.
+Status: **Phase 2 reconciliation implemented**. The compatibility target is
+Kubernetes v1.36 using stable `resource.k8s.io/v1` with the default DRA
+configuration. Live baseline validation completed on Kubernetes v1.36.1
+linux/arm64 through the checked-in smoke path. The existing Kubernetes v1.37.0
+linux/arm64 kind run is retained as historical evidence. See
+[cluster validation](#cluster-validation) for the exact exercised path and
+remaining production boundaries.
 
 ## Background
 
@@ -60,9 +61,10 @@ implementations rather than inventing the shape from scratch:
   - [`resourceslice`](https://github.com/kubernetes/kubernetes/tree/master/staging/src/k8s.io/dynamic-resource-allocation/resourceslice) —
     `resourceslicecontroller.go` + `tracker/` is the analog of our
     `ResourceSlicePublisher`, but production-grade: workqueue-based,
-    per-pool sync delay, and a mutation cache to absorb informer lag. Phase 1
-    deliberately does not build this; Phase 2 should port its approach
-    rather than re-derive one (see [Phasing](#phasing)).
+    per-pool sync delay, and a mutation cache to absorb informer lag. Our
+    reconciler adopts its desired-state, generation/count, and safe-delete
+    model; an informer-backed workqueue and mutation cache remain future
+    production scalability work (see [Phasing](#phasing)).
 - [`kubernetes-sigs/dra-example-driver`](https://github.com/kubernetes-sigs/dra-example-driver)
   — reference driver built on the helper library. It ships **three**
   binaries: `dra-example-kubeletplugin` (the node-local DRA driver — what
@@ -95,8 +97,6 @@ plumbing — a different dependency footprint than `lib` has today (`tonic`/
 
 - Supporting DRA API versions other than `v1` (no `v1beta1` compatibility
   shim for pre-1.34 clusters).
-- Multi-slice `ResourceSlice` pooling/splitting for driver device counts
-  above the per-slice limit (~128 devices).
 - `DRAResourceHealth` streaming.
 
 These are explicitly future phases, not rejected — see [Phasing](#phasing).
@@ -203,12 +203,16 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
   become a requirement.
 - **`DraPluginService`** — serves `dra::v1::DRAPlugin` on
   `/var/lib/kubelet/plugins/<driver-name>/plugin.sock`. `NodePrepareResources`
-  reads the referenced `ResourceClaim` (via a shared `kube::Api`/reflector),
-  builds a `ResolvedClaim`, and calls `ClaimPreparer::prepare`.
-- **`ResourceSlicePublisher`** (single-slice, this phase) — diffs
-  `ResourcePool::devices()` output against the last-published state and PUTs
-  one `ResourceSlice` owned by the local `Node`. No splitting, no GC beyond
-  relying on the `Node` owner-reference for cleanup.
+  reads the referenced `ResourceClaim` through a bounded, retrying
+  `kube::Api` resolver, builds a `ResolvedClaim`, and calls
+  `ClaimPreparer::prepare`.
+- **`ResourceSlicePublisher`** — lists the local driver's current slices,
+  derives the complete desired inventory from `ResourcePool::devices()`, and
+  reconciles it authoritatively. Pools are split at 128 devices per slice;
+  all slices for a changed pool receive one new generation and the same total
+  count. Desired slices are created or updated before stale ones are deleted.
+  The serialized poll loop coalesces each snapshot and retries API failures
+  with bounded exponential backoff.
 - **`DraPlugin::run()`** — lifecycle harness analogous to today's
   `DevicePlugin::run()`: spawn both gRPC servers, recreate the registration
   socket if kubelet's pluginwatcher rescans, drive the slice publisher off
@@ -216,16 +220,15 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
 
 ## Phasing
 
-1. **Phase 1 (this design)** — registration server + `DRAPlugin` service +
-   single-slice `ResourceSlicePublisher`, DRA API `v1` only. Enough to demo
-   structured-parameter allocation end-to-end for the POC.
-2. **Phase 2** — `ResourceSlice` splitting/reconciliation for pools
-   exceeding the per-slice device limit; retry/backoff hardening on the
-   publisher and `ResourceClaim` resolver. Model this on upstream's
-   `resourceslice.Controller` (workqueue keyed by pool name, a
-   sync-delay so bursts of change coalesce, and a mutation cache to absorb
-   informer lag around deletes) rather than inventing a reconciliation
-   strategy from scratch.
+1. **Phase 1** — registration server + `DRAPlugin` service + a DRA API `v1`
+   `ResourceSlicePublisher`. Enough to demo structured-parameter allocation
+   end-to-end for the POC.
+2. **Phase 2 (implemented)** — authoritative `ResourceSlice`
+   splitting/reconciliation for pools exceeding the per-slice device limit,
+   bounded publisher backoff, and bounded/retrying `ResourceClaim`
+   resolution. The current poller serializes full snapshots; an informer
+   workqueue and mutation cache are intentionally deferred until device scale
+   or API-server load demonstrates that they are needed.
 3. **Phase 3** — `DRAResourceHealth` streaming, parity with the classic
    plugin's `ListAndWatch` health-diffing behavior.
 4. **Phase 4** — `v1beta1` compatibility (only if a target cluster needs
