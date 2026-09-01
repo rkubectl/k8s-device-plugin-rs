@@ -5,7 +5,7 @@
 //! hardware device, so a consumer pod can prove the complete DRA path without
 //! requiring a host device node.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::env;
 use std::io;
 
@@ -71,8 +71,8 @@ impl StaticDraDriver {
 
 #[async_trait]
 impl ResourcePool for StaticDraDriver {
-    async fn devices(&self) -> HashMap<String, Vec<PoolDevice>> {
-        HashMap::from([(self.pool.clone(), self.devices.clone())])
+    async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
+        BTreeMap::from([(self.pool.clone(), self.devices.clone())])
     }
 }
 
@@ -81,7 +81,7 @@ impl ClaimPreparer for StaticDraDriver {
     async fn prepare(
         &self,
         claims: &[ResolvedClaim],
-    ) -> HashMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>> {
+    ) -> BTreeMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>> {
         claims
             .iter()
             .map(|resolved| {

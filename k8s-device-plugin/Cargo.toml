@@ -1,0 +1,24 @@
+[package]
+name = "k8s-device-plugin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Unified Rust entrypoint for Kubernetes device-plugin and DRA runtimes"
+readme = "README.md"
+
+[features]
+default = ["device-plugin", "dra", "proto"]
+device-plugin = ["dep:k8s-device-plugin-lib"]
+dra = ["dep:k8s-device-plugin-dra"]
+proto = ["dep:k8s-device-plugin-proto"]
+
+[dependencies]
+k8s-device-plugin-core.workspace = true
+k8s-device-plugin-dra = { workspace = true, optional = true }
+k8s-device-plugin-lib = { workspace = true, optional = true }
+k8s-device-plugin-proto = { workspace = true, optional = true }
+
+[lints]
+workspace = true

@@ -84,7 +84,7 @@ impl ClaimPreparer for FakeClaimPreparer {
     async fn prepare(
         &self,
         claims: &[ResolvedClaim],
-    ) -> HashMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>> {
+    ) -> BTreeMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>> {
         self.prepare_calls.fetch_add(1, Ordering::SeqCst);
         claims
             .iter()

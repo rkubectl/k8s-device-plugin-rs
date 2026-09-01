@@ -136,8 +136,8 @@ fn container_allocation_to_response(
             .map(device_path_to_spec)
             .collect(),
         mounts: allocation.mounts.iter().map(host_mount_to_proto).collect(),
-        envs: allocation.envs,
-        annotations: allocation.annotations,
+        envs: allocation.envs.into_iter().collect(),
+        annotations: allocation.annotations.into_iter().collect(),
         cdi_devices: allocation
             .cdi_devices
             .into_iter()

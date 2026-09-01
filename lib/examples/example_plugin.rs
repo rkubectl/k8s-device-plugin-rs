@@ -12,7 +12,7 @@
 //! cargo run --example example_plugin
 //! ```
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use k8s_device_plugin_lib::AllocationError;
@@ -72,7 +72,7 @@ impl DeviceAllocator for ExampleWidgetPlugin {
         }
         // Real devices often need more than a /dev node -- e.g. an env var
         // pointing the workload at which devices it was given.
-        let envs = HashMap::from([("EXAMPLE_WIDGET_DEVICES".to_string(), device_ids.join(","))]);
+        let envs = BTreeMap::from([("EXAMPLE_WIDGET_DEVICES".to_string(), device_ids.join(","))]);
         Ok(ContainerAllocation {
             device_paths,
             envs,

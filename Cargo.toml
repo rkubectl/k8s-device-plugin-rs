@@ -1,14 +1,14 @@
 [workspace]
 resolver = "3"
-members = ["core", "dra", "example", "lib", "proto", "test"]
+members = ["core", "dra", "example", "k8s-device-plugin", "lib", "proto", "test"]
 
 
 [workspace.package]
 version = "0.0.2"
 edition = "2024"
 rust-version = "1.98"
-license = "Apache-2.0"
 repository = "https://github.com/rkubectl/k8s-device-plugin-rs"
+license = "Apache-2.0"
 
 
 [workspace.dependencies]
@@ -34,6 +34,7 @@ tower-test = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+k8s-device-plugin = { path = "k8s-device-plugin", version = "0.0.2" }
 k8s-device-plugin-core = { path = "core", version = "0.0.2" }
 k8s-device-plugin-dra = { path = "dra", version = "0.0.2" }
 k8s-device-plugin-lib = { path = "lib", version = "0.0.2" }

@@ -1,7 +1,7 @@
 //! `DRAPlugin` gRPC service (`NodePrepareResources`/`NodeUnprepareResources`)
 //! — see beads issue 9uf.7.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
 use std::path::Path;
@@ -139,7 +139,7 @@ impl v1::DraPlugin for DraPluginService {
         // built exactly this for exactly this purpose.
         let resolved = self.resolver.resolve_all(&claim_refs).await;
 
-        let mut resolve_errors = HashMap::new();
+        let mut resolve_errors = BTreeMap::new();
         let mut resolved_claims = Vec::new();
         for (claim_ref, result) in resolved {
             match result {

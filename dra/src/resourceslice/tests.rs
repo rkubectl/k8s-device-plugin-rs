@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use http_body_util::BodyExt;
 use k8s_device_plugin_test::kube_mock::MockKubeHandle;
@@ -12,17 +12,17 @@ use kube::client::Body;
 
 use super::*;
 
-struct StaticPool(HashMap<String, Vec<PoolDevice>>);
+struct StaticPool(BTreeMap<String, Vec<PoolDevice>>);
 
 #[tonic::async_trait]
 impl ResourcePool for StaticPool {
-    async fn devices(&self) -> HashMap<String, Vec<PoolDevice>> {
+    async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
         self.0.clone()
     }
 }
 
 fn one_pool(pool_name: &str, devices: Vec<PoolDevice>) -> StaticPool {
-    StaticPool(HashMap::from([(pool_name.to_string(), devices)]))
+    StaticPool(BTreeMap::from([(pool_name.to_string(), devices)]))
 }
 
 fn mock_publisher(resource_pool: StaticPool) -> (ResourceSlicePublisher, MockKubeHandle) {

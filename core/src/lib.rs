@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
 use std::path::PathBuf;
@@ -54,8 +54,8 @@ pub trait DeviceAllocator: Send + Sync {
 pub struct ContainerAllocation {
     pub device_paths: Vec<DevicePath>,
     pub mounts: Vec<HostMount>,
-    pub envs: HashMap<String, String>,
-    pub annotations: HashMap<String, String>,
+    pub envs: BTreeMap<String, String>,
+    pub annotations: BTreeMap<String, String>,
     /// Fully qualified CDI device names, e.g. `"vendor.com/gpu=gpudevice1"`.
     pub cdi_devices: Vec<String>,
 }

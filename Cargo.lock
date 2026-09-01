@@ -879,6 +879,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "k8s-device-plugin"
+version = "0.0.2"
+dependencies = [
+ "k8s-device-plugin-core",
+ "k8s-device-plugin-dra",
+ "k8s-device-plugin-lib",
+ "k8s-device-plugin-proto",
+]
+
+[[package]]
 name = "k8s-device-plugin-core"
 version = "0.0.2"
 dependencies = [

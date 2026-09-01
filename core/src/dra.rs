@@ -25,8 +25,8 @@ pub struct Quantity(pub i64);
 #[derive(Clone, Debug, PartialEq)]
 pub struct PoolDevice {
     pub name: String,
-    pub attributes: HashMap<String, AttributeValue>,
-    pub capacity: HashMap<String, Quantity>,
+    pub attributes: BTreeMap<String, AttributeValue>,
+    pub capacity: BTreeMap<String, Quantity>,
     pub health: Health,
 }
 
@@ -34,8 +34,8 @@ impl PoolDevice {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            attributes: HashMap::new(),
-            capacity: HashMap::new(),
+            attributes: BTreeMap::new(),
+            capacity: BTreeMap::new(),
             health: Health::Healthy,
         }
     }
@@ -60,12 +60,12 @@ impl PoolDevice {
 #[async_trait]
 pub trait ResourcePool: Send + Sync {
     /// Devices this driver currently offers, keyed by pool name.
-    async fn devices(&self) -> HashMap<String, Vec<PoolDevice>>;
+    async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>>;
 }
 
 /// Identifies a `ResourceClaim` API object, matching the wire-level
 /// `dra.v1.Claim` message fields exactly.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClaimRef {
     pub namespace: String,
     pub uid: String,
@@ -141,7 +141,7 @@ pub trait ClaimPreparer: Send + Sync {
     async fn prepare(
         &self,
         claims: &[ResolvedClaim],
-    ) -> HashMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>>;
+    ) -> BTreeMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>>;
 
     async fn unprepare(&self, claim: &ClaimRef) -> Result<(), PrepareError>;
 }
@@ -152,7 +152,7 @@ pub trait ClaimPreparer: Send + Sync {
 // either bound just because `D` does.
 #[async_trait]
 impl<T: ResourcePool + ?Sized> ResourcePool for Arc<T> {
-    async fn devices(&self) -> HashMap<String, Vec<PoolDevice>> {
+    async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
         (**self).devices().await
     }
 }
@@ -162,7 +162,7 @@ impl<T: ClaimPreparer + ?Sized> ClaimPreparer for Arc<T> {
     async fn prepare(
         &self,
         claims: &[ResolvedClaim],
-    ) -> HashMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>> {
+    ) -> BTreeMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>> {
         (**self).prepare(claims).await
     }
 
@@ -189,8 +189,8 @@ mod tests {
 
     #[async_trait]
     impl ResourcePool for StaticDriver {
-        async fn devices(&self) -> HashMap<String, Vec<PoolDevice>> {
-            HashMap::from([(self.pool.clone(), self.devices.clone())])
+        async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
+            BTreeMap::from([(self.pool.clone(), self.devices.clone())])
         }
     }
 
@@ -199,7 +199,7 @@ mod tests {
         async fn prepare(
             &self,
             claims: &[ResolvedClaim],
-        ) -> HashMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>> {
+        ) -> BTreeMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>> {
             claims
                 .iter()
                 .map(|resolved| {

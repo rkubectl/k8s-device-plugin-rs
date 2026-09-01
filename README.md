@@ -8,6 +8,7 @@ You implement one trait describing *your* device backend; the framework handles 
 
 | Crate | Role |
 |---|---|
+| `k8s-device-plugin` | Unified, feature-gated entrypoint. Re-exports the common classic and DRA APIs at the crate root and exposes the focused crates as `core`, `device_plugin`, `dra`, and `proto` modules. |
 | `core` | Backend-facing abstractions: `DeviceDiscovery`, `DeviceAllocator`, `K8sDevicePlugin`, and the `Device`/`DevicePermissions`/`AllocationError` types. No gRPC or async runtime specifics — this is what a backend implements against. |
 | `proto` | Generated bindings for the `v1beta1` device-plugin gRPC protocol (via `tonic`/`prost`), plus the vendored `k8s.io/kubelet` proto submodule. |
 | `lib` | The framework itself: `DevicePlugin` (registration + lifecycle) and `DevicePluginService` (the gRPC service adapter that drives a `K8sDevicePlugin` backend). |
@@ -17,12 +18,16 @@ You implement one trait describing *your* device backend; the framework handles 
 
 ## Quickstart
 
+`k8s-device-plugin` is the recommended application dependency. Its default
+features include the classic device-plugin and DRA runtimes; use the focused
+crates directly when an application needs a narrower dependency surface.
+
 ### The fast path: a fixed device list
 
 If your devices are known up front and don't need custom discovery or allocation logic, `StaticDevicePlugin` needs no trait implementation at all — just a `Vec<Device>`. It re-checks that each device's host path still exists on disk before every `Allocate` call, so unplugged hardware fails cleanly instead of handing kubelet a stale path:
 
 ```rust
-use k8s_device_plugin_lib::{Device, DevicePlugin, DevicePluginService, StaticDevicePlugin};
+use k8s_device_plugin::{Device, DevicePlugin, DevicePluginService, StaticDevicePlugin};
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -41,7 +46,7 @@ That's the whole plugin. Reach for a custom backend (below) once you need dynami
 Implement `DeviceDiscovery` and `DeviceAllocator` for your backend type, then opt into `K8sDevicePlugin` (a marker trait with optional, default-implemented hooks — see below):
 
 ```rust
-use k8s_device_plugin_lib::{
+use k8s_device_plugin::{
     AllocationError, ContainerAllocation, Device, DeviceAllocator, DeviceDiscovery,
     DevicePlugin, DevicePluginService, K8sDevicePlugin,
 };
@@ -123,9 +128,11 @@ Leave both hooks at their defaults (`false` / no-op / unavailable) if your devic
 `ContainerAllocation` isn't limited to `device_paths` (`/dev` nodes) — it also carries `mounts` (extra host bind-mounts, e.g. shared libraries), `envs` (environment variables, e.g. a `*_VISIBLE_DEVICES`-style variable), `annotations`, and `cdi_devices` (fully qualified [CDI](https://github.com/container-orchestrated-devices/container-device-interface) device names). All four default to empty, so use `..Default::default()` when you only need a subset:
 
 ```rust
+use std::collections::BTreeMap;
+
 Ok(ContainerAllocation {
     device_paths,
-    envs: HashMap::from([("MY_VISIBLE_DEVICES".to_string(), device_ids.join(","))]),
+    envs: BTreeMap::from([("MY_VISIBLE_DEVICES".to_string(), device_ids.join(","))]),
     ..Default::default()
 })
 ```

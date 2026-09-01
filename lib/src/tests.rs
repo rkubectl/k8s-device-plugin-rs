@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use tokio_stream::StreamExt;
@@ -375,7 +375,7 @@ impl DeviceAllocator for SlowPlugin {
     ) -> Result<ContainerAllocation, AllocationError> {
         tokio::time::sleep(Duration::from_millis(20)).await;
         Ok(ContainerAllocation {
-            envs: HashMap::from([("DEVICE_IDS".to_string(), device_ids.join(","))]),
+            envs: BTreeMap::from([("DEVICE_IDS".to_string(), device_ids.join(","))]),
             ..Default::default()
         })
     }
@@ -516,8 +516,8 @@ impl DeviceAllocator for FullFeaturedPlugin {
                 container_path: PathBuf::from("/opt/widget/lib"),
                 read_only: true,
             }],
-            envs: HashMap::from([("WIDGET_VISIBLE_DEVICES".to_string(), "0".to_string())]),
-            annotations: HashMap::from([("widget.example.com/pool".to_string(), "a".to_string())]),
+            envs: BTreeMap::from([("WIDGET_VISIBLE_DEVICES".to_string(), "0".to_string())]),
+            annotations: BTreeMap::from([("widget.example.com/pool".to_string(), "a".to_string())]),
             cdi_devices: vec!["example.com/widget=widget-0".to_string()],
             ..Default::default()
         })
