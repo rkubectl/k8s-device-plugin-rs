@@ -11,7 +11,7 @@ application needs:
 
 ```toml
 [dependencies]
-k8s-device-plugin = { version = "0.0.2", default-features = false, features = ["dra"] }
+k8s-device-plugin = { version = "0.0.3", default-features = false, features = ["dra"] }
 ```
 
 The common types are available at the crate root:
