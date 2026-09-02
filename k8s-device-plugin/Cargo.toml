@@ -22,6 +22,11 @@ default = ["device-plugin", "dra", "proto"]
 device-plugin = ["dep:k8s-device-plugin-lib"]
 dra = ["dep:k8s-device-plugin-dra"]
 proto = ["dep:k8s-device-plugin-proto"]
+resource-health = [
+    "dra",
+    "k8s-device-plugin-core/resource-health",
+    "k8s-device-plugin-dra/resource-health",
+]
 
 
 [lints]

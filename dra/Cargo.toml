@@ -15,6 +15,10 @@ resource-health = [
     "k8s-device-plugin-proto/dra-health",
 ]
 
+[[example]]
+name = "resource_health_reporter"
+required-features = ["resource-health"]
+
 
 [dependencies]
 futures.workspace = true

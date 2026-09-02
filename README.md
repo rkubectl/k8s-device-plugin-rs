@@ -147,9 +147,11 @@ Ok(ContainerAllocation {
 Dynamic Resource Allocation (DRA): it publishes `ResourceSlice`s to the
 Kubernetes API and serves kubelet's `NodePrepareResources`/
 `NodeUnprepareResources` RPCs. It has different deployment and RBAC
-requirements from classic device plugins; start with the [DRA crate guide](dra/README.md)
-and consult the [Phase 1 design](docs/dra-design.md) for the supported scope,
-compatibility override required by downstream consumers, and roadmap.
+requirements from classic device plugins. The [getting-started guide](docs/getting-started.md)
+chooses the right runtime and leads through the first DRA deployment; the
+[DRA crate guide](dra/README.md) is the integration contract, and the
+[Phase 1 design](docs/dra-design.md) records supported scope, the compatibility
+override required by downstream consumers, and the roadmap.
 
 ## Observability
 
@@ -182,4 +184,4 @@ Building the `proto` crate requires `protoc` (the Protobuf compiler) on `PATH`.
 
 ## Issue tracking
 
-Work is tracked locally with [beads_rust](https://github.com/Dicklesworthstone/beads_rust) (`br`/`brr`) — see `AGENTS.md` for the workflow. `.beads/` is git-ignored; issue state is local-only and not part of this repository.
+Work is tracked locally with [beads_rust](https://github.com/Dicklesworthstone/beads_rust) (`br`/`brr`) — see `AGENTS.md` for the workflow. The local Beads database is ignored, while the shared `.beads/issues.jsonl` export is tracked with the work it describes.

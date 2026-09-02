@@ -20,6 +20,19 @@ The common types are available at the crate root:
 use k8s_device_plugin::{DevicePlugin, DevicePluginService, StaticDevicePlugin};
 ```
 
-The full focused APIs remain available as modules: `core`, `device_plugin`,
-`dra`, and `proto`. The individual `k8s-device-plugin-*` crates remain
-supported for applications that prefer explicit, minimal dependencies.
+The common DRA runtime types are also available at the crate root, including
+`DraPlugin`, `ClaimDeviceStatusPublisher`, and `DraPluginLivenessProbe`. The
+full focused APIs remain available as modules: `core`, `device_plugin`, `dra`,
+and `proto`. The individual `k8s-device-plugin-*` crates remain supported for
+applications that prefer explicit, minimal dependencies.
+
+Enable the optional DRA resource-health protocol explicitly; it is additive to
+the DRA runtime:
+
+```toml
+[dependencies]
+k8s-device-plugin = { version = "0.0.3", default-features = false, features = ["dra", "resource-health"] }
+```
+
+Start with the workspace [getting-started guide](../docs/getting-started.md)
+to choose between the classic and DRA runtimes and find runnable examples.

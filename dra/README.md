@@ -127,7 +127,12 @@ The DRA resource-health protocol is optional on the Kubernetes side as well.
 For the v1.36 baseline, `ResourceHealthStatus` is beta and enabled by default;
 clusters that disable it will not call the service.
 
-## Quickstart
+## Customer quickstart
+
+Start with the workspace [getting-started guide](../docs/getting-started.md)
+when choosing between the classic and DRA runtimes, adding the facade crate to
+an application, or following a first deployment. This guide is the DRA-specific
+contract for the backend, Kubernetes API access, and validation.
 
 Implement `ResourcePool` to report the pool/device snapshot and
 `ClaimPreparer` to prepare or release allocated devices. `DraDriver` ties the
@@ -136,16 +141,19 @@ driver name, and the local node name, and call `.run()`:
 
 ```rust
 let client = kube::Client::try_default().await?;
+let node_name = std::env::var("NODE_NAME")?;
 let plugin = DraPlugin::new(client, "dra.example.com", node_name, driver);
 plugin.run().await
 ```
 
 [`examples/minimal_driver.rs`](examples/minimal_driver.rs) is the complete,
-copyable version of that pattern. It implements a static `widget-0` device
-with a harmless CDI environment marker instead of hardware backing, so it is
-suitable for repeatable cluster validation. Keep it as the source of truth for
-the quickstart instead of copying a second implementation into this README;
-Cargo compiles and tests it directly:
+copyable DRA deployment example. It covers a stable inventory, idempotent
+claim preparation, CDI output, a status publisher, kube client construction,
+and structured logging. It implements a static `widget-0` device with a
+harmless CDI environment marker instead of hardware backing, so it is suitable
+for repeatable cluster validation. Replace its static inventory and CDI writer
+with the hardware backend, but retain its claim identity, allocation, and
+idempotence checks. Cargo compiles and tests it directly:
 
 ```bash
 cargo test -p k8s-device-plugin-dra --example minimal_driver
@@ -160,6 +168,15 @@ The example reads these environment variables:
 | `DEVICE_NAMES` | `widget-0` | Comma-separated static device names. |
 | `NODE_NAME` | *(required)* | Kubernetes node that owns the published `ResourceSlice`. |
 | `RUST_LOG` | *(unset)* | Standard `tracing-subscriber` filter, for example `info`. |
+
+For the opt-in resource-health protocol, see the standalone
+[`examples/resource_health_reporter.rs`](examples/resource_health_reporter.rs)
+contract example. It demonstrates source-scoped snapshots and clean shutdown
+when kubelet closes the report channel:
+
+```bash
+cargo run -p k8s-device-plugin-dra --example resource_health_reporter --features resource-health
+```
 
 `DraPlugin::run()` creates and serves sockets below
 `/var/lib/kubelet/plugins_registry/` and
