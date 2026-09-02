@@ -111,7 +111,9 @@ The example reads these environment variables:
 `/var/lib/kubelet/plugins/<driver-name>/`. It also needs Kubernetes API access
 to look up the local `Node`, publish its `ResourceSlice`, and resolve claims;
 unlike a classic device plugin, it cannot run meaningfully without a
-Kubernetes client configuration and `NODE_NAME`.
+Kubernetes client configuration and `NODE_NAME`. Both DRA sockets refuse to
+replace an actively-serving instance and recover only a stale socket left by a
+terminated instance.
 
 ### Validation checklist
 

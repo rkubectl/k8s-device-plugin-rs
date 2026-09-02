@@ -216,7 +216,10 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
 - **`DraPlugin::run()`** — lifecycle harness analogous to today's
   `DevicePlugin::run()`: spawn both gRPC servers, recreate the registration
   socket if kubelet's pluginwatcher rescans, drive the slice publisher off
-  the same discovery source used by `ResourcePool`.
+  the same discovery source used by `ResourcePool`. Shared socket startup
+  serializes contending plugin instances, refuses to replace an active socket,
+  and recovers a stale socket only after a refused connection proves it is no
+  longer serving.
 
 ## Phasing
 

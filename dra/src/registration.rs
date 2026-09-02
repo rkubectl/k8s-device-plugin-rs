@@ -94,10 +94,13 @@ impl DraRegistrationServer {
     }
 
     async fn setup_listener(&self) -> io::Result<UnixListenerStream> {
-        if tokio::fs::try_exists(&self.socket_path).await? {
-            tokio::fs::remove_file(&self.socket_path).await?;
-        }
-        UnixListener::bind(&self.socket_path).map(UnixListenerStream::new)
+        let socket_path = self.socket_path.clone();
+        let listener = tokio::task::spawn_blocking(move || {
+            k8s_device_plugin_core::bind_unix_listener(&socket_path)
+        })
+        .await
+        .map_err(io::Error::other)??;
+        UnixListener::from_std(listener).map(UnixListenerStream::new)
     }
 }
 

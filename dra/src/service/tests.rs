@@ -1,3 +1,4 @@
+use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -146,6 +147,27 @@ async fn start_service(
         .await
         .expect("connect to plugin socket");
     (client, socket_dir, handle)
+}
+
+#[tokio::test]
+async fn spawn_at_refuses_an_active_plugin_socket() {
+    let socket_dir = TempDir::new().expect("create temp dir for plugin socket");
+    let socket_path = socket_dir.path().join("plugin.sock");
+    let (active_resolver, _active_kube_handle) = mock_resolver();
+    let active_service = DraPluginService::new(active_resolver, FakeClaimPreparer::default());
+    let active = active_service
+        .spawn_at(&socket_path)
+        .await
+        .expect("spawn active service");
+
+    let (contender_resolver, _contender_kube_handle) = mock_resolver();
+    let contender_service = DraPluginService::new(contender_resolver, FakeClaimPreparer::default());
+    let error = match contender_service.spawn_at(&socket_path).await {
+        Ok(_) => panic!("must refuse active service"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
+    active.abort();
 }
 
 #[tokio::test]

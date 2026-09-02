@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
+use std::io;
 use std::path::PathBuf;
 
+use tempfile::TempDir;
 use tokio_stream::StreamExt;
 
 use super::*;
@@ -36,6 +38,35 @@ fn new_rejects_malformed_resource_name() {
         err,
         ValidationError::MalformedResourceName("widget".to_string())
     );
+}
+
+#[tokio::test]
+async fn setup_listener_refuses_an_active_endpoint() {
+    let socket_dir = TempDir::new().expect("create temp dir for plugin socket");
+    let endpoint = socket_dir
+        .path()
+        .join("plugin.sock")
+        .to_string_lossy()
+        .into_owned();
+    let active = DevicePlugin::for_test(
+        "example.com/device",
+        make_service(),
+        endpoint.clone(),
+        "unused".to_string(),
+    );
+    let contender = DevicePlugin::for_test(
+        "example.com/device",
+        make_service(),
+        endpoint,
+        "unused".to_string(),
+    );
+    let _listener = active.setup_listener().expect("bind active listener");
+
+    let error = match contender.setup_listener() {
+        Ok(_) => panic!("must refuse active listener"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
 }
 
 #[test]

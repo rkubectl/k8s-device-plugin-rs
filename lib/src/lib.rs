@@ -1,5 +1,4 @@
 use std::fmt;
-use std::fs;
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
@@ -274,10 +273,8 @@ impl DevicePlugin {
     }
 
     fn setup_listener(&self) -> io::Result<UnixListenerStream> {
-        if fs::exists(&self.endpoint)? {
-            fs::remove_file(&self.endpoint)?;
-        }
-        UnixListener::bind(&self.endpoint).map(UnixListenerStream::new)
+        let listener = k8s_device_plugin_core::bind_unix_listener(Path::new(&self.endpoint))?;
+        UnixListener::from_std(listener).map(UnixListenerStream::new)
     }
 
     fn service(&self) -> v1beta1::DevicePluginServer<DevicePluginService> {

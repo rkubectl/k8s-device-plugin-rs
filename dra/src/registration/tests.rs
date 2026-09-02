@@ -1,4 +1,5 @@
 use std::fmt;
+use std::io;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -49,6 +50,31 @@ async fn get_info_returns_configured_plugin_info() {
     );
 
     handle.abort();
+}
+
+#[tokio::test]
+async fn spawn_refuses_an_active_registration_socket() {
+    let (server, _dir) = make_server();
+    let socket_path = server.socket_path().to_path_buf();
+    let active = server
+        .spawn()
+        .await
+        .expect("spawn active registration server");
+
+    let error = match server.spawn().await {
+        Ok(_) => panic!("must refuse active registration server"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
+
+    let mut client = MockRegistrationClient::connect(&socket_path)
+        .await
+        .expect("active registration server remains reachable");
+    client
+        .get_info()
+        .await
+        .expect("active server answers requests");
+    active.abort();
 }
 
 #[tokio::test]

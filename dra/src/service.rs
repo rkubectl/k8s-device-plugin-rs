@@ -64,10 +64,13 @@ pub(crate) fn plugin_socket_path(driver_name: &str) -> PathBuf {
 }
 
 async fn setup_listener(socket_path: &Path) -> io::Result<UnixListenerStream> {
-    if tokio::fs::try_exists(socket_path).await? {
-        tokio::fs::remove_file(socket_path).await?;
-    }
-    UnixListener::bind(socket_path).map(UnixListenerStream::new)
+    let socket_path = socket_path.to_path_buf();
+    let listener = tokio::task::spawn_blocking(move || {
+        k8s_device_plugin_core::bind_unix_listener(&socket_path)
+    })
+    .await
+    .map_err(io::Error::other)??;
+    UnixListener::from_std(listener).map(UnixListenerStream::new)
 }
 
 /// Adapter between the wire-level `dra.v1.DRAPlugin` gRPC service and a

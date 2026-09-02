@@ -893,6 +893,7 @@ name = "k8s-device-plugin-core"
 version = "0.0.3"
 dependencies = [
  "async-trait",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
 ]

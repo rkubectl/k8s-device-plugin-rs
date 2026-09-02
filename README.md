@@ -79,7 +79,7 @@ async fn main() -> std::io::Result<()> {
 }
 ```
 
-`plugin.run()` registers with kubelet, serves the gRPC service over a Unix socket under `/var/lib/kubelet/device-plugins/`, re-registers automatically if kubelet restarts, and re-polls `discover()` on an interval (default 5s, override with `DevicePluginService::with_poll_interval`) so `ListAndWatch` reports health/inventory changes as they happen.
+`plugin.run()` registers with kubelet, serves the gRPC service over a Unix socket under `/var/lib/kubelet/device-plugins/`, re-registers automatically if kubelet restarts, and re-polls `discover()` on an interval (default 5s, override with `DevicePluginService::with_poll_interval`) so `ListAndWatch` reports health/inventory changes as they happen. Startup refuses to replace a socket that is actively serving another plugin instance, while recovering a stale socket left by a terminated instance.
 
 A complete, runnable version of this — including the optional hooks below — lives in [`lib/examples/example_plugin.rs`](lib/examples/example_plugin.rs):
 
