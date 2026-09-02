@@ -240,31 +240,37 @@ CDI specification, then deletes the consumer. Inspect the DaemonSet log for
 `preparing DRA claim` and `unpreparing DRA claim` to see the corresponding
 kubelet RPCs. The script removes all of its fixture objects on exit.
 
-#### Verified local Apple Container run
+#### Verified local Apple Container runs
 
-The v1.36.1 validation used a local, native arm64 Apple Container Kubernetes
-cluster named `dra-validation`, provided by a separately installed
-`rosettaless-k8s` plugin. That plugin is host tooling, not a project
-dependency. After building the image, the verified flow was:
+The local native-arm64 Apple Container helper is named `k8s-versioned`. It is
+host tooling derived from Apple Container 1.3.1, not a project dependency. It
+pins `kindest/node` images for Kubernetes v1.36.1 and v1.37.0, passes the
+selected image version to kubeadm, persists the kind restart configuration,
+and always provisions with Rosetta disabled. A Homebrew upgrade of `container`
+replaces its plugin directory, so reinstall this local helper after upgrading.
 
-```sh
-container rosettaless-k8s load-image --name dra-validation k8s-device-plugin-dra-example
-kubectl apply -k dra/k8s
-KUBE_CONTEXT=dra-validation dra/hack/e2e-smoke.sh
-```
-
-The current local plugin's `load-image` operation imports the image but can
-omit the fully qualified CRI tag that kubelet resolves. If the driver pod is
-in `ImagePullBackOff` for `docker.io/library/k8s-device-plugin-dra-example`,
-add that tag in the node and recreate only the failed DaemonSet pod:
+The two on-demand validation profiles are intentionally not run together:
 
 ```sh
-container exec dra-validation ctr -n k8s.io images tag \
-  k8s-device-plugin-dra-example:latest \
-  docker.io/library/k8s-device-plugin-dra-example:latest
-kubectl -n k8s-device-plugin-dra-example delete pod \
-  -l app=k8s-device-plugin-dra-example
+# Switch to the v1.36.1 baseline.
+container stop dra-validation-137
+container k8s-versioned start --name dra-validation
+
+# Switch to the v1.37.0 validation profile.
+container stop dra-validation
+container k8s-versioned start --name dra-validation-137
 ```
 
-The subsequent smoke run reported `DRA_E2E_DEVICE=widget-0` and deleted the
-consumer successfully. Rosetta was not installed or enabled for this run.
+Both profiles were created and restarted successfully as linux/arm64 nodes.
+The v1.37.0 profile also completed the checked-in DRA smoke test. After
+building the image, the validation flow is:
+
+```sh
+container k8s-versioned load-image --name <cluster> k8s-device-plugin-dra-example
+kubectl --context <cluster> apply -k dra/k8s
+KUBE_CONTEXT=<cluster> dra/hack/e2e-smoke.sh
+```
+
+`load-image` also adds the canonical `docker.io/library/...` CRI alias for a
+short local image name. The smoke run reported `DRA_E2E_DEVICE=widget-0` and
+deleted the consumer successfully. Rosetta was not installed or enabled.

@@ -317,15 +317,17 @@ driver before allowing a surge rollout.
 
 ## Cluster validation
 
-The Phase 1 fixture was first validated on a single-node `kind` cluster
-running Kubernetes **v1.37.0 linux/arm64**, with the default kubelet
-configuration (no additional DRA feature-gate overrides). It was then
-validated on 2026-09-01 against Kubernetes **v1.36.1 linux/arm64** in a local
-Apple Container cluster using a `kindest/node` v1.36.1 image. The latter used
-a separately installed `rosettaless-k8s` host plugin and had Rosetta disabled;
-that plugin is a local validation mechanism, not a repository dependency. In
-both environments, the API server exposed the stable `resource.k8s.io/v1`
-`DeviceClass`, `ResourceClaim`, and `ResourceSlice` resources.
+The Phase 1 fixture was validated on single-node Kubernetes **v1.36.1** and
+**v1.37.0 linux/arm64** clusters, with the default kubelet configuration (no
+additional DRA feature-gate overrides). The local Apple Container validation
+profiles use a separately installed `k8s-versioned` helper, which selects a
+pinned `kindest/node` image, passes that version into kubeadm, persists the
+kind restart configuration, and sets Rosetta to false. `dra-validation`
+(v1.36.1) and `dra-validation-137` (v1.37.0) are started on demand rather than
+run together. This is a local validation mechanism, not a repository
+dependency. In both environments, the API server exposed the stable
+`resource.k8s.io/v1` `DeviceClass`, `ResourceClaim`, and `ResourceSlice`
+resources.
 
 The checked-in [`dra/hack/e2e-smoke.sh`](../dra/hack/e2e-smoke.sh) creates a
 `DeviceClass`, allocates one `widget-0` device through a `ResourceClaim`, and
@@ -339,10 +341,9 @@ deleted the consumer successfully.
 For that Apple Container run, the host's existing 19 GiB `target/` directory
 made `container build` stall while it prepared the context despite the
 repository `.dockerignore`; `cargo clean` made the same build complete in 125
-seconds. The local `rosettaless-k8s` image loader also required a one-time
-containerd retag from `k8s-device-plugin-dra-example:latest` to
-`docker.io/library/k8s-device-plugin-dra-example:latest` before kubelet could
-resolve the imported image. These are host-tooling caveats, not DRA runtime
+seconds. The versioned helper adds the `docker.io/library/...` CRI alias when
+it imports a short local image name, so kubelet can resolve the driver image
+on current containerd. These are host-tooling details, not DRA runtime
 failures.
 
 With `maxSurge: 0`, a DaemonSet restart fully terminated the old driver before
