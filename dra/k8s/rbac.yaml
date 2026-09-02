@@ -12,6 +12,15 @@ rules:
   - apiGroups: ["resource.k8s.io"]
     resources: ["resourceclaims"]
     verbs: ["get", "list", "watch"]
+  # ResourceClaim device status is driver-owned. Kubernetes v1.36 adds this
+  # synthetic, node-aware authorization check in addition to status patching.
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceclaims/status"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceclaims/driver"]
+    verbs: ["associated-node:patch"]
+    resourceNames: ["dra.example.com"]
   - apiGroups: ["resource.k8s.io"]
     resources: ["resourceslices"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

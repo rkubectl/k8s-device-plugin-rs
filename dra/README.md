@@ -10,8 +10,8 @@ allocated to that node.
 
 Phase 1 is ready for a driver backend to integrate and validate against a
 real cluster. Its compatibility target is Kubernetes v1.36 using the stable
-`resource.k8s.io/v1` API with the default DRA configuration; it does not
-require optional DRA feature gates. Live validation of that baseline completed
+`resource.k8s.io/v1` API with the default DRA configuration; its core path does
+not require optional DRA feature gates. Live validation of that baseline completed
 on Kubernetes v1.36.1 on linux/arm64. The validation environment used Apple
 Container with Rosetta disabled and a `kindest/node` v1.36.1 image; the
 checked-in smoke test completed the ResourceSlice-to-CDI lifecycle. The older
@@ -73,6 +73,35 @@ changes:
    and local node; the fixture's cluster-wide role is deliberately broad.
 6. Validate changes with the commands below before treating an integration as
    ready.
+
+### ResourceClaim device status
+
+`ClaimDeviceStatusPublisher` is an explicit backend API for durable,
+per-allocation observability. It is separate from both `ResourcePool`
+inventory and optional resource-health streaming: create it with the same
+Kubernetes client and driver name as `DraPlugin`, then call `publish` from
+preparation or a backend monitor whenever a device's configured state changes.
+Each `ClaimDeviceStatus` owns its optional JSON `data` value; the publisher
+serializes it when it sends the status subresource request and rejects data
+larger than Kubernetes' 10 KiB limit.
+
+The publisher validates the `ClaimRef` UID and the exact
+`pool`/`device`/`shareID` against the current allocation before sending an
+update. It only applies entries for its own driver, never removes omitted
+entries, and returns `Unchanged` without a write when the supplied entries are
+already current. Server-side apply keeps status list entries owned by other
+drivers intact. Treat authorization failures as configuration errors instead
+of retrying them: a node-local driver needs `get,patch` on
+`resourceclaims/status` plus `associated-node:patch` on the synthetic
+`resourceclaims/driver` subresource, restricted with `resourceNames` to its
+driver name.
+
+The API is available in Kubernetes v1.36 and v1.37 using
+`resource.k8s.io/v1`. In v1.36, `DRAResourceClaimDeviceStatus` is beta and
+enabled by default, so cluster operators that explicitly disable it should not
+enable this reporting path. It is GA in v1.37. The validation example publishes
+`{"phase":"prepared"}` during `NodePrepareResources`, and the smoke script
+asserts that value after the consumer starts.
 
 ### Optional resource-health reporting
 
@@ -151,9 +180,9 @@ KUBE_CONTEXT=<context> dra/hack/e2e-smoke.sh
 ```
 
 The smoke test proves registration, `ResourceClaim` allocation,
-`NodePrepareResources`, CDI attachment, and `NodeUnprepareResources`. It does
-not by itself validate production RBAC boundaries, multi-node behavior, or
-upgrade availability; the production gates are in the
+`NodePrepareResources`, CDI attachment, `ResourceClaim.status.devices`
+publication, and `NodeUnprepareResources`. It does not by itself validate
+production RBAC boundaries, multi-node behavior, or upgrade availability; the production gates are in the
 [manifest guide](k8s/README.md#production-deployment-contract).
 
 On Apple Container 1.3.1, a large local `target/` directory may be walked

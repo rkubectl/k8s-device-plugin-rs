@@ -30,12 +30,15 @@ does not gold-plate DRA support before that ships.
 ### Compatibility baseline
 
 The supported compatibility target for this work is Kubernetes **v1.36** with
-the stable `resource.k8s.io/v1` DRA API and no optional DRA feature gates.
+the stable `resource.k8s.io/v1` DRA API and default DRA feature configuration.
 This is deliberately narrower than every capability exposed by a newer
 cluster: Phase 1 uses the core ResourceSlice/ResourceClaim allocation and
 kubelet prepare/unprepare path only. It does not rely on extended-resource
 integration, device taints, device-health reporting, partitionable devices,
-consumable capacity, or other optional DRA APIs.
+consumable capacity, or other optional DRA APIs. Driver-owned
+`ResourceClaim.status.devices` reporting is an explicit exception: it is beta
+and default-on in v1.36, then GA in v1.37; a v1.36 operator that disables
+`DRAResourceClaimDeviceStatus` must not enable the publisher.
 
 The v1.36 target is both a documented contract and a completed live-cluster
 test result. On 2026-09-01, Kubernetes v1.36.1 on linux/arm64 completed the
@@ -138,15 +141,15 @@ pattern, shaped for claims instead of raw device-ID lists:
 /// plugin's `Device` (id + health + paths).
 pub struct PoolDevice {
     pub name: String,
-    pub attributes: HashMap<String, AttributeValue>, // string/int/bool/version
-    pub capacity: HashMap<String, Quantity>,
+    pub attributes: BTreeMap<String, AttributeValue>, // string/int/bool/version
+    pub capacity: BTreeMap<String, Quantity>,
     pub health: Health, // reuses core::Health
 }
 
 #[async_trait]
 pub trait ResourcePool: Send + Sync {
     /// Devices this driver currently offers, keyed by pool name.
-    async fn devices(&self) -> HashMap<String, Vec<PoolDevice>>;
+    async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>>;
 }
 
 /// What NodePrepareResources needs resolved for one already-allocated claim.
@@ -167,7 +170,7 @@ pub trait ClaimPreparer: Send + Sync {
     async fn prepare(
         &self,
         claims: &[ResolvedClaim],
-    ) -> HashMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>>;
+    ) -> BTreeMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>>;
 
     async fn unprepare(&self, claim: &ClaimRef) -> Result<(), PrepareError>;
 }
@@ -231,6 +234,15 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
   ends a completed or failed monitor with `Unavailable` so kubelet reconnects.
   `ResourcePool` and `PoolDevice::health` are never treated as this stream's
   source of truth.
+- **`ClaimDeviceStatusPublisher`** — an explicit backend-owned publisher for
+  allocated-device configuration and diagnostics. It validates a claim UID and
+  each driver/pool/device/share allocation key before server-side applying the
+  caller's owned status entries, which preserves other drivers' entries. The
+  backend may call it from preparation or a separate monitor; it is neither
+  inferred from `ResourcePool` nor coupled to resource-health streaming. On
+  Kubernetes v1.36 it relies on the default-on beta
+  `DRAResourceClaimDeviceStatus` gate and node-aware synthetic authorization;
+  it is GA in v1.37.
 
 ## Phasing
 
@@ -245,8 +257,11 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
    or API-server load demonstrates that they are needed.
 3. **Phase 3 (implemented, opt-in)** — `DRAResourceHealth` streaming with
    independent backend reports, bounded forwarding, and reconnect behavior.
-4. **Phase 4** — `v1beta1` compatibility (only if a target cluster needs
-   pre-1.34 support), deployable `dra-example` crate mirroring `example/`.
+4. **Phase 4 (partially implemented)** — driver-owned ResourceClaim device
+   status publishing with allocation validation, idempotent server-side apply,
+   and v1.36 node-aware RBAC. Remaining Phase 4 scope is `v1beta1`
+   compatibility (only if a target cluster needs pre-1.34 support) and a
+   deployable `dra-example` crate mirroring `example/`.
 
 ## Deployment note: no rolling updates in Phase 1
 
@@ -268,7 +283,11 @@ image reference, hardware-specific node selection and host mounts, the least
 Linux privilege compatible with its device interface, and resource limits. The
 runtime requires `get` on `ResourceClaim` and `Node`, plus
 `get/list/create/update/patch/delete` on `ResourceSlice`; it does not need
-cluster-wide claim listing or watching. A cluster-scoped role remains necessary
+cluster-wide claim listing or watching. Drivers that opt into
+`ResourceClaim.status.devices` additionally require `get,patch` on
+`resourceclaims/status` and `associated-node:patch` on the synthetic
+`resourceclaims/driver` subresource with a `resourceNames` restriction to their
+driver name. A cluster-scoped role remains necessary
 because slices are cluster-scoped and claims may belong to workloads in any
 namespace. RBAC cannot restrict a shared DaemonSet service account to only the
 local node's slices, so a cluster-owned Validating Admission Policy or

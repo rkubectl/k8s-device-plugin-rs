@@ -43,6 +43,8 @@ done
 kubectl_run apply -f "$FIXTURE"
 kubectl_run -n "$NAMESPACE" wait --for=condition=Ready pod/dra-example-consumer --timeout=180s
 kubectl_run -n "$NAMESPACE" logs pod/dra-example-consumer | grep -F 'DRA_E2E_DEVICE=widget-0'
+kubectl_run -n "$NAMESPACE" get resourceclaim/dra-example-widget \
+    -o jsonpath='{.status.devices[?(@.driver=="dra.example.com")].data.phase}' | grep -qx 'prepared'
 
 # Deleting the consumer asks kubelet to invoke NodeUnprepareResources. The
 # driver emits a structured "unpreparing DRA claim" event that an operator can

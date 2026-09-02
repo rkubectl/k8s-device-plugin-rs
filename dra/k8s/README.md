@@ -11,7 +11,7 @@ kubectl apply -k dra/k8s
 
 The target cluster must expose the `resource.k8s.io/v1` DRA API and have DRA
 enabled before deployment. Kubernetes v1.36 with its default DRA configuration
-is the compatibility target; this fixture intentionally does not require
+is the compatibility target; its core path intentionally does not require
 optional DRA feature gates. The checked-in smoke path completed on Kubernetes
 v1.36.1 linux/arm64. This driver publishes one static `widget-0` device in the
 `widget-pool` pool on each node; it is for registration and API-path validation
@@ -25,7 +25,9 @@ update the matching `hostPath` and `mountPath` in `daemonset.yaml` too.
 
 After the DaemonSet is ready, use [`../hack/e2e-smoke.sh`](../hack/e2e-smoke.sh)
 to validate ResourceClaim allocation, kubelet preparation, CDI injection, and
-unpreparation with a temporary consumer pod. Before it creates the consumer,
+unpreparation with a temporary consumer pod. The example also publishes its
+driver-owned `ResourceClaim.status.devices` entry during preparation, and the
+smoke script asserts its `data.phase=prepared` value. Before it creates the consumer,
 the script executes the driver's real-RPC liveness probe and requires a
 `ResourceSlice` on every node that runs a driver pod. It therefore exercises
 all DaemonSet replicas when the target has multiple nodes.
@@ -64,6 +66,13 @@ rules:
     resources: ["resourceclaims"]
     verbs: ["get"]
   - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceclaims/status"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceclaims/driver"]
+    verbs: ["associated-node:patch"]
+    resourceNames: ["your.driver.example.com"]
+  - apiGroups: ["resource.k8s.io"]
     resources: ["resourceslices"]
     verbs: ["get", "list", "create", "update", "patch", "delete"]
   - apiGroups: [""]
@@ -79,7 +88,12 @@ express “only this node's objects.” Use a cluster-admin-owned
 driver name and expected Node owner reference on every slice mutation. Treat
 that admission policy as part of the production deployment and validate its
 exact CEL expressions against the target Kubernetes version before enforcement.
-RBAC alone does not provide that isolation.
+RBAC alone does not provide that isolation. `resourceclaims/driver` is a
+Kubernetes v1.36 synthetic subresource: bind the driver service account to a
+node-local, pod-bound token so the API server can enforce the associated-node
+check. `DRAResourceClaimDeviceStatus` is beta and enabled by default in v1.36,
+then GA in v1.37; a v1.36 cluster that explicitly disables it must omit the
+reporting path and these permissions.
 
 ### Liveness and readiness
 

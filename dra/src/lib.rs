@@ -29,12 +29,19 @@ pub use resourceslice::ResourceSlicePublisher;
 pub use service::DraPluginService;
 
 mod claim;
+mod device_status;
 mod health;
 mod registration;
 #[cfg(feature = "resource-health")]
 mod resource_health;
 mod resourceslice;
 mod service;
+
+pub use device_status::ClaimDeviceStatus;
+pub use device_status::ClaimDeviceStatusError;
+pub use device_status::ClaimDeviceStatusKey;
+pub use device_status::ClaimDeviceStatusPublishOutcome;
+pub use device_status::ClaimDeviceStatusPublisher;
 
 fn component_error(
     component: &str,

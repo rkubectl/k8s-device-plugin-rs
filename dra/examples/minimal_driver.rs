@@ -18,6 +18,8 @@ use k8s_device_plugin_core::PrepareError;
 use k8s_device_plugin_core::PreparedDevice;
 use k8s_device_plugin_core::ResolvedClaim;
 use k8s_device_plugin_core::ResourcePool;
+use k8s_device_plugin_dra::ClaimDeviceStatus;
+use k8s_device_plugin_dra::ClaimDeviceStatusPublisher;
 use k8s_device_plugin_dra::DraPlugin;
 
 const DEFAULT_DRIVER_NAME: &str = "dra.example.com";
@@ -53,6 +55,7 @@ struct StaticDraDriver {
     name: String,
     pool: String,
     devices: Vec<PoolDevice>,
+    status_publisher: Option<ClaimDeviceStatusPublisher>,
 }
 
 impl StaticDraDriver {
@@ -61,7 +64,13 @@ impl StaticDraDriver {
             name,
             pool,
             devices,
+            status_publisher: None,
         }
+    }
+
+    fn with_status_publisher(mut self, status_publisher: ClaimDeviceStatusPublisher) -> Self {
+        self.status_publisher = Some(status_publisher);
+        self
     }
 
     fn has_device(&self, pool_name: &str, device_name: &str) -> bool {
@@ -82,37 +91,60 @@ impl ClaimPreparer for StaticDraDriver {
         &self,
         claims: &[ResolvedClaim],
     ) -> BTreeMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>> {
-        claims
-            .iter()
-            .map(|resolved| {
-                tracing::info!(
-                    claim_namespace = %resolved.claim.namespace,
-                    claim_name = %resolved.claim.name,
-                    claim_uid = %resolved.claim.uid,
-                    device_count = resolved.devices.len(),
-                    "preparing DRA claim"
-                );
-                let prepared = resolved
-                    .devices
-                    .iter()
-                    .map(|device| {
-                        if !self.has_device(&device.pool_name, &device.device_name) {
-                            return Err(PrepareError::DeviceUnavailable(format!(
-                                "{}/{}",
-                                device.pool_name, device.device_name
-                            )));
-                        }
-                        Ok(PreparedDevice {
-                            request_names: device.request_name.clone().into_iter().collect(),
-                            pool_name: device.pool_name.clone(),
-                            device_name: device.device_name.clone(),
-                            cdi_device_ids: vec![cdi_device_id(&device.device_name)],
-                        })
+        let mut results = BTreeMap::new();
+        for resolved in claims {
+            tracing::info!(
+                claim_namespace = %resolved.claim.namespace,
+                claim_name = %resolved.claim.name,
+                claim_uid = %resolved.claim.uid,
+                device_count = resolved.devices.len(),
+                "preparing DRA claim"
+            );
+            let prepared = resolved
+                .devices
+                .iter()
+                .map(|device| {
+                    if !self.has_device(&device.pool_name, &device.device_name) {
+                        return Err(PrepareError::DeviceUnavailable(format!(
+                            "{}/{}",
+                            device.pool_name, device.device_name
+                        )));
+                    }
+                    Ok(PreparedDevice {
+                        request_names: device.request_name.clone().into_iter().collect(),
+                        pool_name: device.pool_name.clone(),
+                        device_name: device.device_name.clone(),
+                        cdi_device_ids: vec![cdi_device_id(&device.device_name)],
                     })
-                    .collect();
-                (resolved.claim.clone(), prepared)
-            })
-            .collect()
+                })
+                .collect::<Result<Vec<_>, _>>();
+
+            let prepared = match prepared {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    results.insert(resolved.claim.clone(), Err(error));
+                    continue;
+                }
+            };
+            if let Some(status_publisher) = &self.status_publisher {
+                let statuses = prepared.iter().map(|device| {
+                    let mut status = ClaimDeviceStatus::new(&device.pool_name, &device.device_name);
+                    status.data = Some(serde_json::json!({"phase": "prepared"}));
+                    status
+                });
+                if let Err(error) = status_publisher.publish(&resolved.claim, statuses).await {
+                    results.insert(
+                        resolved.claim.clone(),
+                        Err(PrepareError::HookFailed(format!(
+                            "failed to publish ResourceClaim device status: {error}"
+                        ))),
+                    );
+                    continue;
+                }
+            }
+            results.insert(resolved.claim.clone(), Ok(prepared));
+        }
+        results
     }
 
     async fn unprepare(&self, claim: &ClaimRef) -> Result<(), PrepareError> {
@@ -159,12 +191,10 @@ async fn main() -> io::Result<()> {
     let client = kube::Client::try_default()
         .await
         .map_err(io::Error::other)?;
-    let plugin = DraPlugin::new(
-        client,
-        driver_name.clone(),
-        node_name,
-        StaticDraDriver::new(driver_name, pool_name, devices),
-    );
+    let status_publisher = ClaimDeviceStatusPublisher::new(client.clone(), driver_name.clone());
+    let driver = StaticDraDriver::new(driver_name.clone(), pool_name, devices)
+        .with_status_publisher(status_publisher);
+    let plugin = DraPlugin::new(client, driver_name.clone(), node_name, driver);
     plugin.run().await
 }
 
