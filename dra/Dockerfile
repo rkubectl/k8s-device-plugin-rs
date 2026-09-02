@@ -23,13 +23,16 @@ WORKDIR /src
 COPY . .
 RUN mkdir /out \
     && cargo build --release --locked --target "$(cat /rust_target)" \
-        -p k8s-device-plugin-dra --example minimal_driver \
+        -p k8s-device-plugin-dra --example minimal_driver --example liveness_probe \
     && cp "target/$(cat /rust_target)/release/examples/minimal_driver" \
-        /out/k8s-device-plugin-dra-example
+        /out/k8s-device-plugin-dra-example \
+    && cp "target/$(cat /rust_target)/release/examples/liveness_probe" \
+        /out/k8s-device-plugin-dra-liveness
 
 # The kubelet plugin directories mounted by dra/k8s are normally root-owned.
 # If a target cluster permits a non-root driver, use a non-root runtime image
 # and adjust the manifest's security context accordingly.
 FROM gcr.io/distroless/static-debian12 AS runtime
 COPY --from=builder /out/k8s-device-plugin-dra-example /usr/local/bin/k8s-device-plugin-dra-example
+COPY --from=builder /out/k8s-device-plugin-dra-liveness /usr/local/bin/k8s-device-plugin-dra-liveness
 ENTRYPOINT ["/usr/local/bin/k8s-device-plugin-dra-example"]

@@ -19,11 +19,13 @@ use tokio::task::JoinHandle;
 use tonic::transport;
 
 pub use claim::ClaimResolver;
+pub use health::DraPluginLivenessProbe;
 pub use registration::DraRegistrationServer;
 pub use resourceslice::ResourceSlicePublisher;
 pub use service::DraPluginService;
 
 mod claim;
+mod health;
 mod registration;
 mod resourceslice;
 mod service;
@@ -79,7 +81,7 @@ async fn wait_for_component_exit(
 
 /// Wires the registration server, `DRAPlugin` gRPC service, and
 /// `ResourceSlice` publisher together into the same "implement one trait,
-/// call `.run()`" experience [`k8s_device_plugin_lib`]'s `DevicePlugin`
+/// call `.run()`" experience `k8s_device_plugin_lib`'s `DevicePlugin`
 /// gives classic device-plugin authors -- referenced here only for
 /// orientation, not a dependency of this crate.
 #[derive(Debug)]

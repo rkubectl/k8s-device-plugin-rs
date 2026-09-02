@@ -20,10 +20,10 @@ authoritatively reconciles each local pool into one or more `ResourceSlice`s,
 pluginwatcher registration, and claim preparation/unpreparation.
 
 It is not yet a turnkey production driver: it has no resource-health stream,
-pre-v1.34 API compatibility, or production-scoped RBAC policy. Extended-resource
-integration, device taints, and other optional DRA APIs are also outside this
-baseline. The checked-in DaemonSet is a validation fixture, not a deployment
-template. See the
+pre-v1.34 API compatibility, or hardware-specific production deployment.
+Extended-resource integration, device taints, and other optional DRA APIs are
+also outside this baseline. The checked-in DaemonSet is a validation fixture,
+not a deployment template. See the
 [DRA design](../docs/dra-design.md) for the complete boundary and roadmap.
 
 ## Compatibility and dependency override
@@ -66,9 +66,10 @@ changes:
 4. Return the real CDI device IDs or other preparation artifacts required by
    the workload. The minimal driver uses only a harmless environment marker;
    it does not provide hardware.
-5. Give the driver Kubernetes API permissions to read local claims, publish
-   its slices, and read its node. Scope production RBAC to the local node;
-   the fixture's cluster-wide role is deliberately broad.
+5. Give the driver Kubernetes API permissions to read claims, publish its
+   slices, and read its node. Keep the base role minimal and use a
+   cluster-owned admission policy to constrain slice mutations to the driver
+   and local node; the fixture's cluster-wide role is deliberately broad.
 6. Validate changes with the commands below before treating an integration as
    ready.
 
@@ -126,9 +127,9 @@ KUBE_CONTEXT=<context> dra/hack/e2e-smoke.sh
 
 The smoke test proves registration, `ResourceClaim` allocation,
 `NodePrepareResources`, CDI attachment, and `NodeUnprepareResources`. It does
-not validate production RBAC boundaries, multi-node behavior, multi-slice
-inventory changes, or upgrade availability; those remain driver-specific
-release gates.
+not by itself validate production RBAC boundaries, multi-node behavior, or
+upgrade availability; the production gates are in the
+[manifest guide](k8s/README.md#production-deployment-contract).
 
 On Apple Container 1.3.1, a large local `target/` directory may be walked
 while the build context is prepared despite this repository's `.dockerignore`.
@@ -151,7 +152,8 @@ DaemonSet explicitly uses `maxSurge: 0`: Phase 1 cannot assume kubelet support
 for seamless DRA-plugin upgrades, so an update may leave a brief gap while the
 old node plugin terminates before the new one starts. The RBAC is intentionally
 broad for this validation fixture and is not production guidance; see the
-[manifest README](k8s/README.md) for that limitation.
+[manifest README](k8s/README.md) for production RBAC, real-RPC liveness, and
+multi-node maintenance requirements.
 
 ### End-to-end smoke test
 

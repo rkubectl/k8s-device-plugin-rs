@@ -26,6 +26,20 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 cleanup
+
+# Exercise the same real-RPC liveness probe configured on every driver pod.
+# On a multi-node cluster this also verifies that every DaemonSet replica has
+# published a local ResourceSlice before a consumer asks kubelet for a device.
+driver_pods=$(kubectl_run -n "$NAMESPACE" get pod -l app=k8s-device-plugin-dra-example -o name)
+test -n "$driver_pods"
+for driver_pod in $driver_pods; do
+    kubectl_run -n "$NAMESPACE" exec "$driver_pod" -- /usr/local/bin/k8s-device-plugin-dra-liveness
+    node_name=$(kubectl_run -n "$NAMESPACE" get "$driver_pod" -o jsonpath='{.spec.nodeName}')
+    kubectl_run get resourceslices \
+        --field-selector="spec.driver=dra.example.com,spec.nodeName=$node_name" \
+        -o name | grep -q '^resourceslice.resource.k8s.io/'
+done
+
 kubectl_run apply -f "$FIXTURE"
 kubectl_run -n "$NAMESPACE" wait --for=condition=Ready pod/dra-example-consumer --timeout=180s
 kubectl_run -n "$NAMESPACE" logs pod/dra-example-consumer | grep -F 'DRA_E2E_DEVICE=widget-0'

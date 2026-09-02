@@ -906,6 +906,7 @@ dependencies = [
  "futures",
  "http",
  "http-body-util",
+ "hyper-util",
  "k8s-device-plugin-core",
  "k8s-device-plugin-proto",
  "k8s-device-plugin-test",
@@ -916,6 +917,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tonic",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]

@@ -48,6 +48,26 @@ spec:
                   fieldPath: spec.nodeName
             - name: RUST_LOG
               value: info
+          # This verifies real registration and DRA gRPC calls over their
+          # Unix sockets. It is stronger than checking that socket paths exist.
+          startupProbe:
+            exec:
+              command: ["/usr/local/bin/k8s-device-plugin-dra-liveness"]
+            periodSeconds: 2
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command: ["/usr/local/bin/k8s-device-plugin-dra-liveness"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["/usr/local/bin/k8s-device-plugin-dra-liveness"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
           volumeMounts:
             - name: plugins-registry
               mountPath: /var/lib/kubelet/plugins_registry

@@ -194,6 +194,43 @@ async fn run_spawns_all_three_components_and_they_work() {
 }
 
 #[tokio::test]
+async fn liveness_probe_checks_both_dra_sockets_with_real_rpcs() {
+    let (client, _kube_handle) = mock_kube_client();
+    let registration_dir = TempDir::new().expect("create temp dir for registration socket");
+    let registration_socket_path = registration_dir.path().join("plugin-reg.sock");
+    let plugin_dir = TempDir::new().expect("create temp dir for plugin socket");
+    let plugin_socket_path = plugin_dir.path().join("plugin.sock");
+    let driver = StaticDraDriver {
+        name: "example.com".to_string(),
+        pool: "pool-0".to_string(),
+        devices: vec![PoolDevice::new("widget-0")],
+    };
+
+    let registration = DraRegistrationServer::for_test(
+        "example.com",
+        &plugin_socket_path.to_string_lossy(),
+        registration_socket_path.clone(),
+    );
+    let registration_handle = registration
+        .spawn()
+        .await
+        .expect("spawn registration server");
+    let service = DraPluginService::new(ClaimResolver::new(client), driver);
+    let service_handle = service
+        .spawn_at(&plugin_socket_path)
+        .await
+        .expect("spawn DRAPlugin service");
+
+    DraPluginLivenessProbe::with_socket_paths(registration_socket_path, plugin_socket_path)
+        .check()
+        .await
+        .expect("both DRA sockets answer the liveness probe");
+
+    registration_handle.abort();
+    service_handle.abort();
+}
+
+#[tokio::test]
 async fn run_at_stops_registration_when_service_startup_fails() {
     let (client, _kube_handle) = mock_kube_client();
     let registration_dir = TempDir::new().expect("create temp dir for registration socket");

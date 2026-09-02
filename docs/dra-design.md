@@ -249,6 +249,42 @@ kubelet supports it. For Phase 1, document `maxSurge: 0` as a hard
 requirement; revisit seamless upgrades only if the target cluster is
 confirmed to run 1.33+.
 
+## Production deployment and lifecycle gates
+
+The checked-in DaemonSet is a validation fixture, not a generic production
+chart. A driver deployment must supply a dedicated service account, immutable
+image reference, hardware-specific node selection and host mounts, the least
+Linux privilege compatible with its device interface, and resource limits. The
+runtime requires `get` on `ResourceClaim` and `Node`, plus
+`get/list/create/update/patch/delete` on `ResourceSlice`; it does not need
+cluster-wide claim listing or watching. A cluster-scoped role remains necessary
+because slices are cluster-scoped and claims may belong to workloads in any
+namespace. RBAC cannot restrict a shared DaemonSet service account to only the
+local node's slices, so a cluster-owned Validating Admission Policy or
+equivalent admission control must enforce the expected driver name and Node
+owner reference for slice mutations.
+
+The runtime exposes [`DraPluginLivenessProbe`](../dra/src/health.rs), which
+checks both node-local sockets with real gRPC calls: `Registration.GetInfo`
+must advertise the expected plugin endpoint, and `DRAPlugin.NodePrepareResources`
+must accept an empty, non-mutating batch. The example image executes that probe
+for startup, liveness, and readiness. A task exit in the registration server,
+DRA service, or publisher already makes `DraPlugin::run()` abort and reap the
+other tasks before returning an error, allowing the DaemonSet's restart policy
+to recover. Socket-file existence alone is not a valid liveness signal, and a
+successful probe must be paired with a `ResourceSlice` check for inventory
+readiness.
+
+Before a production release, validate the real driver on multiple eligible
+nodes: every ready DaemonSet pod must answer the probe and own a local slice;
+drain and uncordon a maintenance node while a different node retains a
+consumer; and perform an immutable-image upgrade while a consumer remains
+prepared. Never remove or drain a node with an in-use driver until kubelet's
+`dra_resource_claims_in_use` metric for that driver is zero and driver logs
+show unprepare completion. Retain `maxSurge: 0` for all of these gates. A
+target kubelet's seamless-upgrade behavior must be demonstrated with the real
+driver before allowing a surge rollout.
+
 ## Cluster validation
 
 The Phase 1 fixture was first validated on a single-node `kind` cluster

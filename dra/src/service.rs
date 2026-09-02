@@ -75,7 +75,7 @@ async fn setup_listener(socket_path: &Path) -> io::Result<UnixListenerStream> {
 
 /// Adapter between the wire-level `dra.v1.DRAPlugin` gRPC service and a
 /// backend's [`ClaimPreparer`]. The DRA analog of
-/// [`k8s_device_plugin_lib`]'s `DevicePluginService` -- referenced here only
+/// `k8s_device_plugin_lib`'s `DevicePluginService` -- referenced here only
 /// for orientation, not a dependency of this crate.
 pub struct DraPluginService {
     resolver: ClaimResolver,

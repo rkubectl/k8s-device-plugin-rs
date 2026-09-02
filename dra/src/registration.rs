@@ -63,7 +63,7 @@ impl DraRegistrationServer {
         }
     }
 
-    fn socket_name(driver_name: &str) -> String {
+    pub(crate) fn socket_name(driver_name: &str) -> String {
         let budget = k8s_device_plugin_core::MAX_SOCKET_PATH_LEN
             .saturating_sub(KUBELET_PLUGINS_REGISTRY_PATH.len())
             .saturating_sub(REGISTRATION_SOCKET_SUFFIX.len());
