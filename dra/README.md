@@ -19,8 +19,9 @@ Kubernetes v1.37.0 linux/arm64 run remains historical evidence. It
 authoritatively reconciles each local pool into one or more `ResourceSlice`s,
 pluginwatcher registration, and claim preparation/unpreparation.
 
-It is not yet a turnkey production driver: it has no resource-health stream,
-pre-v1.34 API compatibility, or hardware-specific production deployment.
+It is not yet a turnkey production driver: resource health is opt-in,
+pre-v1.34 API compatibility is absent, and it has no hardware-specific
+production deployment.
 Extended-resource integration, device taints, and other optional DRA APIs are
 also outside this baseline. The checked-in DaemonSet is a validation fixture,
 not a deployment template. See the
@@ -72,6 +73,30 @@ changes:
    and local node; the fixture's cluster-wide role is deliberately broad.
 6. Validate changes with the commands below before treating an integration as
    ready.
+
+### Optional resource-health reporting
+
+Enable the `resource-health` feature to compile the kubelet
+`dra-health/v1alpha1` protocol. A backend can then implement
+`ResourceHealthReporter` and use `DraPlugin::with_resource_health(...)`
+instead of `DraPlugin::new(...)`. The health service shares the normal DRA
+plugin socket; it streams snapshots to kubelet through
+`DRAResourceHealth.NodeWatchResources`.
+
+`ResourceHealthReporter` is deliberately separate from `ResourcePool` and
+`PoolDevice::health`: inventory snapshots determine what is allocatable,
+whereas reports describe the current state of devices already allocated to
+workloads. A reporter receives a bounded channel and must stop when that
+channel closes. Each report may cover one source's subset of devices, and the
+source must resend it before its per-device timeout expires. Returning from a
+watch ends that RPC with `Unavailable`, allowing kubelet to reconnect and
+start a fresh monitor session. A feature-enabled driver that does not call
+`with_resource_health` explicitly returns `Unimplemented`, so kubelet stops
+opening health watches for it.
+
+The DRA resource-health protocol is optional on the Kubernetes side as well.
+For the v1.36 baseline, `ResourceHealthStatus` is beta and enabled by default;
+clusters that disable it will not call the service.
 
 ## Quickstart
 

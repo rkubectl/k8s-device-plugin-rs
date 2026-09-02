@@ -12,6 +12,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use k8s_device_plugin_core::DraDriver;
+#[cfg(feature = "resource-health")]
+use k8s_device_plugin_core::ResourceHealthReporter;
 use k8s_device_plugin_proto::dra::KUBELET_PLUGINS_PATH;
 use k8s_device_plugin_proto::dra::KUBELET_PLUGINS_REGISTRY_PATH;
 use kube::Client;
@@ -21,12 +23,16 @@ use tonic::transport;
 pub use claim::ClaimResolver;
 pub use health::DraPluginLivenessProbe;
 pub use registration::DraRegistrationServer;
+#[cfg(feature = "resource-health")]
+pub use resource_health::DraResourceHealthService;
 pub use resourceslice::ResourceSlicePublisher;
 pub use service::DraPluginService;
 
 mod claim;
 mod health;
 mod registration;
+#[cfg(feature = "resource-health")]
+mod resource_health;
 mod resourceslice;
 mod service;
 
@@ -113,6 +119,33 @@ impl DraPlugin {
             DraRegistrationServer::new(&driver_name, &plugin_endpoint.to_string_lossy());
         let service =
             DraPluginService::new(ClaimResolver::new(client.clone()), Arc::clone(&driver));
+        let publisher = ResourceSlicePublisher::new(client, driver_name.clone(), node_name, driver);
+        Self {
+            driver_name,
+            registration,
+            service,
+            publisher,
+        }
+    }
+
+    /// Creates a DRA plugin that also serves the opt-in resource-health
+    /// protocol. The backend health monitor is intentionally independent of
+    /// the `ResourcePool` inventory snapshot.
+    #[cfg(feature = "resource-health")]
+    pub fn with_resource_health<D: DraDriver + ResourceHealthReporter + 'static>(
+        client: Client,
+        driver_name: impl Into<String>,
+        node_name: impl Into<String>,
+        driver: D,
+    ) -> Self {
+        let driver_name = driver_name.into();
+        let driver = Arc::new(driver);
+        let plugin_endpoint = service::plugin_socket_path(&driver_name);
+        let registration =
+            DraRegistrationServer::new(&driver_name, &plugin_endpoint.to_string_lossy());
+        let service =
+            DraPluginService::new(ClaimResolver::new(client.clone()), Arc::clone(&driver))
+                .with_resource_health(Arc::clone(&driver));
         let publisher = ResourceSlicePublisher::new(client, driver_name.clone(), node_name, driver);
         Self {
             driver_name,

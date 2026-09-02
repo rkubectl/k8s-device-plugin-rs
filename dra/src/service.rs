@@ -12,6 +12,8 @@ use k8s_device_plugin_core::ClaimPreparer;
 use k8s_device_plugin_core::ClaimRef;
 use k8s_device_plugin_core::PrepareError;
 use k8s_device_plugin_core::PreparedDevice;
+#[cfg(feature = "resource-health")]
+use k8s_device_plugin_core::ResourceHealthReporter;
 use k8s_device_plugin_proto::dra::KUBELET_PLUGINS_PATH;
 use k8s_device_plugin_proto::dra::v1;
 use tokio::net::UnixListener;
@@ -20,6 +22,8 @@ use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport;
 
 use crate::claim::ClaimResolver;
+#[cfg(feature = "resource-health")]
+use crate::resource_health::DraResourceHealthService;
 
 fn claim_from_wire(claim: &v1::Claim) -> ClaimRef {
     ClaimRef {
@@ -80,6 +84,8 @@ async fn setup_listener(socket_path: &Path) -> io::Result<UnixListenerStream> {
 pub struct DraPluginService {
     resolver: ClaimResolver,
     preparer: Arc<dyn ClaimPreparer>,
+    #[cfg(feature = "resource-health")]
+    health: DraResourceHealthService,
 }
 
 impl fmt::Debug for DraPluginService {
@@ -93,7 +99,19 @@ impl DraPluginService {
         Self {
             resolver,
             preparer: Arc::new(preparer),
+            #[cfg(feature = "resource-health")]
+            health: DraResourceHealthService::unsupported(),
         }
+    }
+
+    #[cfg(feature = "resource-health")]
+    /// Adds the optional `DRAResourceHealth` service to this plugin socket.
+    pub fn with_resource_health<R: ResourceHealthReporter + 'static>(
+        mut self,
+        reporter: R,
+    ) -> Self {
+        self.health = DraResourceHealthService::new(reporter);
+        self
     }
 
     /// Binds `/var/lib/kubelet/plugins/<driver_name>/plugin.sock` and spawns
@@ -116,7 +134,14 @@ impl DraPluginService {
         socket_path: &Path,
     ) -> io::Result<JoinHandle<Result<(), transport::Error>>> {
         let incoming = setup_listener(socket_path).await?;
-        let router = transport::Server::builder().add_service(v1::DraPluginServer::new(self));
+        let mut router = transport::Server::builder();
+        #[cfg(feature = "resource-health")]
+        let router = router.add_service(
+            k8s_device_plugin_proto::dra::health::v1alpha1::DraResourceHealthServer::new(
+                self.health.clone(),
+            ),
+        );
+        let router = router.add_service(v1::DraPluginServer::new(self));
         Ok(tokio::spawn(router.serve_with_incoming(incoming)))
     }
 }

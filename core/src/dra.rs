@@ -2,6 +2,9 @@ use std::sync::Arc;
 
 use super::*;
 
+#[cfg(feature = "resource-health")]
+use tokio::sync::mpsc;
+
 /// A single typed attribute value, as used by DRA's CEL-based device
 /// selectors (`DeviceClass`/`ResourceClaim` selector expressions match
 /// against these).
@@ -175,6 +178,84 @@ impl<T: ClaimPreparer + ?Sized> ClaimPreparer for Arc<T> {
 /// analog of [`crate::K8sDevicePlugin`].
 pub trait DraDriver: ResourcePool + ClaimPreparer {
     fn driver_name(&self) -> &str;
+}
+
+/// A health state reported independently from [`PoolDevice::health`].
+///
+/// Resource health describes already-allocated devices to kubelet. It must
+/// therefore be driven by the backend's health monitor, rather than inferred
+/// from the inventory snapshot used to publish `ResourceSlice`s.
+#[cfg(feature = "resource-health")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ResourceHealthStatus {
+    /// The backend cannot determine the device's health.
+    #[default]
+    Unknown,
+    /// The device is operating normally.
+    Healthy,
+    /// The device has reported a problem.
+    Unhealthy,
+}
+
+/// The health status of one DRA device.
+#[cfg(feature = "resource-health")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DraDeviceHealth {
+    pub pool_name: String,
+    pub device_name: String,
+    pub health: ResourceHealthStatus,
+    /// Unix time in seconds when the backend determined this status.
+    pub last_updated_time: i64,
+    /// Lease for this report. Zero asks kubelet to use its default timeout.
+    pub health_check_timeout_seconds: i64,
+    /// Optional human-readable diagnostic detail.
+    pub message: String,
+}
+
+/// A snapshot from one DRA health source.
+///
+/// Reports may cover a subset of the driver's devices. A source must resend
+/// reports before its device leases expire; otherwise kubelet treats those
+/// devices as having unknown health.
+#[cfg(feature = "resource-health")]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ResourceHealthReport {
+    pub devices: Vec<DraDeviceHealth>,
+}
+
+/// A backend failure while producing resource-health reports.
+#[cfg(feature = "resource-health")]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ResourceHealthError {
+    #[error("resource health monitor failed: {0}")]
+    MonitorFailed(String),
+}
+
+/// Streams health snapshots for DRA devices that this backend manages.
+///
+/// `DraPlugin` calls this once for each kubelet `NodeWatchResources` stream.
+/// Send reports through `reports` until it closes, then return. Returning
+/// `Ok(())` or an error ends that RPC with `Unavailable`, allowing kubelet to
+/// reconnect and start a new watch. This trait is available only with the
+/// `resource-health` feature.
+#[cfg(feature = "resource-health")]
+#[async_trait]
+pub trait ResourceHealthReporter: Send + Sync {
+    async fn watch_resource_health(
+        &self,
+        reports: mpsc::Sender<ResourceHealthReport>,
+    ) -> Result<(), ResourceHealthError>;
+}
+
+#[cfg(feature = "resource-health")]
+#[async_trait]
+impl<T: ResourceHealthReporter + ?Sized> ResourceHealthReporter for Arc<T> {
+    async fn watch_resource_health(
+        &self,
+        reports: mpsc::Sender<ResourceHealthReport>,
+    ) -> Result<(), ResourceHealthError> {
+        (**self).watch_resource_health(reports).await
+    }
 }
 
 #[cfg(test)]

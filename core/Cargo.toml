@@ -9,9 +9,14 @@ description = "Core traits and types for Rust Kubernetes device-plugin and DRA d
 readme = "README.md"
 
 
+[features]
+resource-health = ["dep:tokio"]
+
+
 [dependencies]
 async-trait.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"], optional = true }
 
 
 [dev-dependencies]

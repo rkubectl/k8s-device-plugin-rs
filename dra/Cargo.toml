@@ -9,13 +9,20 @@ description = "Kubernetes Dynamic Resource Allocation driver runtime for Rust"
 readme = "README.md"
 
 
+[features]
+resource-health = [
+    "k8s-device-plugin-core/resource-health",
+    "k8s-device-plugin-proto/dra-health",
+]
+
+
 [dependencies]
 futures.workspace = true
 hyper-util.workspace = true
 k8s-openapi.workspace = true
 kube.workspace = true
-tokio = { workspace = true, features = ["fs", "macros", "net", "rt-multi-thread", "time"] }
-tokio-stream.workspace = true
+tokio = { workspace = true, features = ["fs", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio-stream = { workspace = true, features = ["sync"] }
 tonic.workspace = true
 tracing.workspace = true
 tower.workspace = true

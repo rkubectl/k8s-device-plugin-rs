@@ -86,7 +86,7 @@ one registration call. DRA pulls in a materially different subsystem:
 | Main service | `DevicePlugin` (`ListAndWatch`, `Allocate`, ...) served on `/var/lib/kubelet/device-plugins/` | `DRAPlugin` (`NodePrepareResources`/`NodeUnprepareResources`) served on `/var/lib/kubelet/plugins/<driver-name>/`, endpoint advertised via `GetInfo` |
 | Inventory publishing | Pushed to kubelet directly over the socket (`ListAndWatch` stream) | Published as `ResourceSlice` objects on the **API server** — requires a real Kubernetes client, not just a kubelet socket |
 | Allocation decision | Made by the plugin itself (`allocate`/`preferred_allocation`), called synchronously by kubelet | Made by the **scheduler**, written into `ResourceClaim.status.allocation`. The plugin's `NodePrepareResources` only receives a claim reference (namespace/uid/name) and must read the claim back from the API server to see what was allocated |
-| Health | Polled via `ListAndWatch` diffing (already built) | Separate optional streaming RPC, `DRAResourceHealth.NodeWatchResources` (deferred — see [Phasing](#phasing)) |
+| Health | Polled via `ListAndWatch` diffing (already built) | Optional `DRAResourceHealth.NodeWatchResources` stream, implemented behind the `resource-health` Cargo feature |
 
 So DRA needs a Kubernetes API client (list/watch `ResourceClaim`, create/
 update/delete `ResourceSlice`) in addition to the kubelet-facing gRPC
@@ -97,7 +97,8 @@ plumbing — a different dependency footprint than `lib` has today (`tonic`/
 
 - Supporting DRA API versions other than `v1` (no `v1beta1` compatibility
   shim for pre-1.34 clusters).
-- `DRAResourceHealth` streaming.
+- Enabling Kubernetes resource-health feature gates on older clusters; the
+  optional runtime protocol itself is implemented behind a Cargo feature.
 
 These are explicitly future phases, not rejected — see [Phasing](#phasing).
 
@@ -111,7 +112,8 @@ does today:
 ```
 core   — extend with DRA-facing pure types/traits (no gRPC, no k8s client)
 proto  — add a `dra` module, gated behind a `dra` cargo feature, compiling
-         dra/v1/api.proto and pluginregistration/v1/api.proto
+         dra/v1/api.proto and pluginregistration/v1/api.proto; the additive
+         `dra-health` feature compiles dra-health/v1alpha1/api.proto
 dra    — new crate: the DRA runtime (registration server, DRAPlugin service,
          ResourceSlice publisher, ResourceClaim resolver). Depends on core,
          proto (dra feature), tonic, kube, k8s-openapi.
@@ -220,6 +222,15 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
   serializes contending plugin instances, refuses to replace an active socket,
   and recovers a stale socket only after a refused connection proves it is no
   longer serving.
+- **`DraResourceHealthService` (optional)** — when the `resource-health`
+  Cargo feature is enabled, the shared plugin socket also serves
+  `DRAResourceHealth.NodeWatchResources`. A backend opts in by implementing
+  `ResourceHealthReporter` and constructing with
+  `DraPlugin::with_resource_health`; it sends bounded, source-scoped snapshots
+  through a channel. The service forwards every buffered final report, then
+  ends a completed or failed monitor with `Unavailable` so kubelet reconnects.
+  `ResourcePool` and `PoolDevice::health` are never treated as this stream's
+  source of truth.
 
 ## Phasing
 
@@ -232,8 +243,8 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
    resolution. The current poller serializes full snapshots; an informer
    workqueue and mutation cache are intentionally deferred until device scale
    or API-server load demonstrates that they are needed.
-3. **Phase 3** — `DRAResourceHealth` streaming, parity with the classic
-   plugin's `ListAndWatch` health-diffing behavior.
+3. **Phase 3 (implemented, opt-in)** — `DRAResourceHealth` streaming with
+   independent backend reports, bounded forwarding, and reconnect behavior.
 4. **Phase 4** — `v1beta1` compatibility (only if a target cluster needs
    pre-1.34 support), deployable `dra-example` crate mirroring `example/`.
 
