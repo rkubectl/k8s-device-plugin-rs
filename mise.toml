@@ -23,6 +23,10 @@ run = "cargo clippy --workspace --all-targets -- -D warnings"
 description = "Run the full CI checklist locally: fmt, clippy, test"
 depends = ["fmt", "clippy", "test"]
 
+[tasks.dra-validate-k8s]
+description = "Serially validate the DRA fixture on local Kubernetes v1.36.1 and v1.37.0"
+run = "dra/hack/validate-k8s-versions.sh"
+
 [tasks.lint]
 description = "Lint with clippy"
 env = { RUST_BACKTRACE = "1" }  # env vars for the script

@@ -274,3 +274,22 @@ KUBE_CONTEXT=<cluster> dra/hack/e2e-smoke.sh
 `load-image` also adds the canonical `docker.io/library/...` CRI alias for a
 short local image name. The smoke run reported `DRA_E2E_DEVICE=widget-0` and
 deleted the consumer successfully. Rosetta was not installed or enabled.
+
+#### Serial local validation matrix
+
+Run both local profiles without keeping them running together:
+
+```sh
+mise run dra-validate-k8s
+```
+
+The task builds the linux/arm64 fixture image once, starts each profile in
+turn, imports the image, applies and restarts the validation DaemonSet, waits
+for rollout, and invokes the existing smoke fixture. It verifies that each
+server is the expected patch version and has Rosetta disabled. Apple Container
+can assign a fresh guest IP on restart, so the task refreshes kube-proxy's API
+endpoint before exercising service networking. On either
+success or failure it stops the v1.37 profile and restores `dra-validation`
+(v1.36.1) as the sole running cluster. This is an opt-in local integration
+gate, not part of `mise run ci`. Set `DRA_E2E_SKIP_BUILD=1` only when the
+current local `k8s-device-plugin-dra-example` image has already been built.
