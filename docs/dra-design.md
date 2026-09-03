@@ -259,9 +259,12 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
    independent backend reports, bounded forwarding, and reconnect behavior.
 4. **Phase 4 (partially implemented)** — driver-owned ResourceClaim device
    status publishing with allocation validation, idempotent server-side apply,
-   and v1.36 node-aware RBAC. Remaining Phase 4 scope is `v1beta1`
-   compatibility (only if a target cluster needs pre-1.34 support) and a
-   deployable `dra-example` crate mirroring `example/`.
+   and v1.36 node-aware RBAC. Kubernetes v1.37 extended-resource allocation
+   is covered by a separate fixture: it maps a `DeviceClass` to an extended
+   resource and proves the generated-claim CDI path without a workload-authored
+   `ResourceClaim`. Remaining Phase 4 scope is `v1beta1` compatibility (only
+   if a target cluster needs pre-1.34 support) and a deployable `dra-example`
+   crate mirroring `example/`.
 
 ## Deployment note: no rolling updates in Phase 1
 
@@ -337,6 +340,13 @@ marker. The live run confirmed exactly one `ResourceSlice` for
 `NodePrepareResources`, container startup, and `NodeUnprepareResources` after
 consumer deletion. The v1.36.1 run reported `DRA_E2E_DEVICE=widget-0` and
 deleted the consumer successfully.
+
+Kubernetes v1.37 additionally completed
+[`dra/hack/e2e-extended-resource.sh`](../dra/hack/e2e-extended-resource.sh):
+the fixture mapped the DeviceClass to `dra.example.com/widget`, requested that
+resource directly in a Pod container, observed the scheduler-generated
+ResourceClaim reach the same CDI path, and verified its cleanup after Pod
+deletion. This optional v1.37 capability is not part of the v1.36 baseline.
 
 For that Apple Container run, the host's existing 19 GiB `target/` directory
 made `container build` stall while it prepared the context despite the

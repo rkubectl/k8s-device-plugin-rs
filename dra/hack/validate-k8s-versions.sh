@@ -14,6 +14,7 @@ NAMESPACE=k8s-device-plugin-dra-example
 V136_CLUSTER=${DRA_E2E_V136_CLUSTER:-dra-validation}
 V137_CLUSTER=${DRA_E2E_V137_CLUSTER:-dra-validation-137}
 SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-smoke.sh
+EXTENDED_RESOURCE_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-extended-resource.sh
 
 require_command() {
     command -v "$1" >/dev/null 2>&1 || {
@@ -162,6 +163,9 @@ run_profile() {
     "$KUBECTL" --context "$cluster" -n "$NAMESPACE" rollout restart daemonset/k8s-device-plugin-dra-example
     "$KUBECTL" --context "$cluster" -n "$NAMESPACE" rollout status daemonset/k8s-device-plugin-dra-example --timeout=180s
     KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" "$SMOKE_SCRIPT"
+    if [[ "$expected_version" == v1.37.0 ]]; then
+        KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" "$EXTENDED_RESOURCE_SMOKE_SCRIPT"
+    fi
 
     stop_if_running "$cluster"
 }
@@ -170,6 +174,7 @@ require_command "$CONTAINER"
 require_command "$KUBECTL"
 require_command "$JQ"
 test -x "$SMOKE_SCRIPT"
+test -x "$EXTENDED_RESOURCE_SMOKE_SCRIPT"
 
 assert_native_cluster "$V136_CLUSTER"
 assert_native_cluster "$V137_CLUSTER"

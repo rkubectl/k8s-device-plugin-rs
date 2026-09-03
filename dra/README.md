@@ -22,9 +22,10 @@ pluginwatcher registration, and claim preparation/unpreparation.
 It is not yet a turnkey production driver: resource health is opt-in,
 pre-v1.34 API compatibility is absent, and it has no hardware-specific
 production deployment.
-Extended-resource integration, device taints, and other optional DRA APIs are
-also outside this baseline. The checked-in DaemonSet is a validation fixture,
-not a deployment template. See the
+Extended-resource allocation is additionally supported on Kubernetes v1.37,
+where it is stable. Device taints and other optional DRA APIs remain outside
+the v1.36 baseline. The checked-in DaemonSet is a validation fixture, not a
+deployment template. See the
 [DRA design](../docs/dra-design.md) for the complete boundary and roadmap.
 
 ## Compatibility and dependency override
@@ -240,6 +241,24 @@ CDI specification, then deletes the consumer. Inspect the DaemonSet log for
 `preparing DRA claim` and `unpreparing DRA claim` to see the corresponding
 kubelet RPCs. The script removes all of its fixture objects on exit.
 
+#### Kubernetes v1.37 extended-resource smoke
+
+Kubernetes v1.37 makes DRA extended-resource allocation stable. A
+`DeviceClass` can map its matching DRA devices to an ordinary extended resource
+name, so a workload can request it in `resources.limits` without naming a
+`ResourceClaim` itself:
+
+```sh
+KUBE_CONTEXT=<v1.37-context> dra/hack/e2e-extended-resource.sh
+```
+
+The fixture maps `dra.example.com/widget`, requests one unit from its consumer
+container, verifies the CDI marker, discovers the scheduler-generated claim,
+asserts its driver-owned prepared status, and waits for that claim to be
+deleted with the consumer. This is v1.37-only validation: v1.36 exposes the
+field as beta, while the supported baseline deliberately remains independent
+of it.
+
 #### Verified local Apple Container runs
 
 The local native-arm64 Apple Container helper is named `k8s-versioned`. It is
@@ -285,10 +304,11 @@ mise run dra-validate-k8s
 
 The task builds the linux/arm64 fixture image once, starts each profile in
 turn, imports the image, applies and restarts the validation DaemonSet, waits
-for rollout, and invokes the existing smoke fixture. It verifies that each
-server is the expected patch version and has Rosetta disabled. Apple Container
-can assign a fresh guest IP on restart, so the task refreshes kube-proxy's API
-endpoint before exercising service networking. On either
+for rollout, and invokes the core smoke fixture. The v1.37 profile also runs
+the extended-resource smoke fixture. It verifies that each server is the
+expected patch version and has Rosetta disabled. Apple Container can assign a
+fresh guest IP on restart, so the task refreshes kube-proxy's API endpoint
+before exercising service networking. On either
 success or failure it stops the v1.37 profile and restores `dra-validation`
 (v1.36.1) as the sole running cluster. This is an opt-in local integration
 gate, not part of `mise run ci`. Set `DRA_E2E_SKIP_BUILD=1` only when the

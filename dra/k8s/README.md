@@ -32,6 +32,12 @@ the script executes the driver's real-RPC liveness probe and requires a
 `ResourceSlice` on every node that runs a driver pod. It therefore exercises
 all DaemonSet replicas when the target has multiple nodes.
 
+On Kubernetes v1.37, [`../hack/e2e-extended-resource.sh`](../hack/e2e-extended-resource.sh)
+adds the stable extended-resource path. It maps the fixture DeviceClass to
+`dra.example.com/widget`, then requests that resource through a container limit
+without a workload-authored ResourceClaim. Kubernetes generates the claim;
+the script verifies CDI preparation, driver status, and generated-claim cleanup.
+
 The `ClusterRole` is intentionally broader than a production driver needs:
 it can read `ResourceClaim`s cluster-wide and manage `ResourceSlice`s
 cluster-wide. Upstream's DRA example uses a Validating Admission Policy to
