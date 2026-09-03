@@ -11,7 +11,7 @@ application needs:
 
 ```toml
 [dependencies]
-k8s-device-plugin = { version = "0.0.4", default-features = false, features = ["dra"] }
+k8s-device-plugin = { version = "0.0.5", default-features = false, features = ["dra"] }
 ```
 
 The common types are available at the crate root:
@@ -31,7 +31,7 @@ the DRA runtime:
 
 ```toml
 [dependencies]
-k8s-device-plugin = { version = "0.0.4", default-features = false, features = ["dra", "resource-health"] }
+k8s-device-plugin = { version = "0.0.5", default-features = false, features = ["dra", "resource-health"] }
 ```
 
 Start with the workspace [getting-started guide](../docs/getting-started.md)
