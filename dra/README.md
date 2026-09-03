@@ -26,7 +26,9 @@ Extended-resource allocation is additionally supported on Kubernetes v1.37,
 where it is stable. Device taints and other optional DRA APIs remain outside
 the v1.36 baseline. The checked-in DaemonSet is a validation fixture, not a
 deployment template. See the
-[DRA design](../docs/dra-design.md) for the complete boundary and roadmap.
+[DRA design](../docs/dra-design.md) for the complete boundary and roadmap, and
+[the extended-resource guide](../docs/dra-extended-resources.md) for a complete
+driver-author and workload-consumer walkthrough.
 
 ## Compatibility and dependency override
 
@@ -257,7 +259,9 @@ container, verifies the CDI marker, discovers the scheduler-generated claim,
 asserts its driver-owned prepared status, and waits for that claim to be
 deleted with the consumer. This is v1.37-only validation: v1.36 exposes the
 field as beta, while the supported baseline deliberately remains independent
-of it.
+of it. For production-oriented manifests, generated-claim inspection, the
+classic/DRA node boundary, and a migration sequence, read
+[Consume DRA devices as extended resources](../docs/dra-extended-resources.md).
 
 #### Verified local Apple Container runs
 

@@ -262,9 +262,11 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
    and v1.36 node-aware RBAC. Kubernetes v1.37 extended-resource allocation
    is covered by a separate fixture: it maps a `DeviceClass` to an extended
    resource and proves the generated-claim CDI path without a workload-authored
-   `ResourceClaim`. Remaining Phase 4 scope is `v1beta1` compatibility (only
-   if a target cluster needs pre-1.34 support) and a deployable `dra-example`
-   crate mirroring `example/`.
+   `ResourceClaim`. The [extended-resource guide](dra-extended-resources.md)
+   documents the driver implementation, consumer manifests, operational
+   inspection, and classic/DRA migration boundary. Remaining Phase 4 scope is
+   `v1beta1` compatibility (only if a target cluster needs pre-1.34 support)
+   and a deployable `dra-example` crate mirroring `example/`.
 
 ## Deployment note: no rolling updates in Phase 1
 

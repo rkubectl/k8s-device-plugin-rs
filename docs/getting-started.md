@@ -8,11 +8,15 @@ protocols.
 |---|---|---|
 | Kubelet assigns a fixed extended resource such as `example.com/widget` directly to a container. | Classic Device Plugin API | [`lib/examples/example_plugin.rs`](../lib/examples/example_plugin.rs) and the deployable [`example/`](../example/README.md) crate. |
 | Scheduler selects devices through `DeviceClass` and `ResourceClaim`; kubelet prepares the selected claim on the node. | Dynamic Resource Allocation (DRA) | [`dra/examples/minimal_driver.rs`](../dra/examples/minimal_driver.rs) and the [`dra/k8s/`](../dra/k8s/README.md) validation deployment. |
+| Existing workloads need the ordinary `resources.limits` interface, while the platform needs DRA inventory and preparation. Kubernetes v1.37+. | DRA extended-resource allocation | [`docs/dra-extended-resources.md`](dra-extended-resources.md) and [`dra/hack/e2e-extended-resource.yaml`](../dra/hack/e2e-extended-resource.yaml). |
 
-The classic runtime is the shortest path for a fixed extended resource. Choose
-DRA only when workloads need claim-based, scheduler-visible device selection.
-Do not run both runtimes against the same hardware unless the backend owns a
-clear, non-overlapping allocation boundary.
+The classic runtime remains the shortest path for compatibility with older
+clusters. On Kubernetes v1.37+, DRA can also retain the familiar extended
+resource request interface through a `DeviceClass` mapping. Choose an explicit
+`ResourceClaim` when a workload needs rich device selection, configuration, or
+claim sharing. Do not run classic and DRA providers for the same extended
+resource against the same hardware on a node; they must own non-overlapping
+allocation boundaries.
 
 ## Add the framework
 
@@ -81,6 +85,23 @@ smoke test can prove container attachment. It is intentionally not a hardware
 driver. Its Kubernetes manifests are a validation fixture, not production
 RBAC; use the [production deployment contract](../dra/k8s/README.md#production-deployment-contract)
 when creating a real DaemonSet.
+
+### Consume a DRA driver as an extended resource (Kubernetes v1.37+)
+
+The same driver can serve workloads that request a normal container resource,
+without requiring workload authors to write `ResourceClaim` YAML. A cluster
+operator maps a `DeviceClass` to an extended-resource name; Kubernetes creates
+and deletes the backing claim for each consumer. The complete guide includes
+the driver-author checklist, `DeviceClass` and Pod manifests, generated-claim
+inspection, migration boundary, and runnable smoke test:
+
+```sh
+KUBE_CONTEXT=<v1.37-context> dra/hack/e2e-extended-resource.sh
+```
+
+Read [Consume DRA devices as extended resources](dra-extended-resources.md)
+before enabling the mapping. It is GA in Kubernetes v1.37, while this
+workspace's v1.36 baseline intentionally uses the explicit-claim path.
 
 ### Validate the first DRA deployment
 

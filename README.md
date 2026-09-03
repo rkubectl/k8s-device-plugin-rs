@@ -153,6 +153,11 @@ chooses the right runtime and leads through the first DRA deployment; the
 [Phase 1 design](docs/dra-design.md) records supported scope, the compatibility
 override required by downstream consumers, and the roadmap.
 
+On Kubernetes v1.37+, DRA can additionally expose its selected devices through
+ordinary container extended-resource limits. The [extended-resource guide](docs/dra-extended-resources.md)
+shows both sides: adapting the runnable Rust DRA driver and consuming it from a
+Pod without hand-authoring a `ResourceClaim`.
+
 ## Observability
 
 The framework emits structured [`tracing`](https://docs.rs/tracing) events and spans — never raw `println!`/`eprintln!` — covering the registration lifecycle and every RPC handler. It doesn't install a subscriber itself (see `obs-library-facade`); your binary chooses one. The example plugin installs a plain formatting subscriber filtered by `RUST_LOG`:

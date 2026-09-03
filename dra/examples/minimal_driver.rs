@@ -4,6 +4,15 @@
 //! `dra/k8s/`. It exposes a harmless CDI environment marker instead of a real
 //! hardware device, so a consumer pod can prove the complete DRA path without
 //! requiring a host device node.
+//!
+//! ## Extended-resource consumption
+//!
+//! This driver's `ResourcePool` and `ClaimPreparer` implementations are the
+//! same whether a workload declares an explicit `ResourceClaim` or requests a
+//! Kubernetes v1.37 DRA extended resource. In the latter case, a `DeviceClass`
+//! maps this driver's devices to `dra.example.com/widget`, and Kubernetes
+//! creates the backing claim for the Pod. The complete driver-author and
+//! workload-consumer guide is in `docs/dra-extended-resources.md`.
 
 use std::collections::BTreeMap;
 use std::env;
