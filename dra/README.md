@@ -90,10 +90,17 @@ larger than Kubernetes' 10 KiB limit.
 
 The publisher validates the `ClaimRef` UID and the exact
 `pool`/`device`/`shareID` against the current allocation before sending an
-update. It only applies entries for its own driver, never removes omitted
+update. It only changes entries for its own driver, never removes omitted
 entries, and returns `Unchanged` without a write when the supplied entries are
-already current. Server-side apply keeps status list entries owned by other
-drivers intact. Treat authorization failures as configuration errors instead
+already current. A JSON merge patch retains the current list and replaces or
+adds only the supplied entries, using `metadata.resourceVersion` as a
+precondition so concurrent updates cannot be overwritten. A conflict triggers
+a fresh read and full UID/allocation revalidation, up to three patch attempts;
+an exhausted conflict is returned to the caller. `with_field_manager` controls
+update attribution, not server-side apply ownership. Do not mix SSA and this
+publisher for the same status entries. Omitted entries are not a deletion
+request; their removal remains part of the claim lifecycle.
+Treat authorization failures as configuration errors instead
 of retrying them: a node-local driver needs `get,patch` on
 `resourceclaims/status` plus `associated-node:patch` on the synthetic
 `resourceclaims/driver` subresource, restricted with `resourceNames` to its
@@ -125,6 +132,10 @@ watch ends that RPC with `Unavailable`, allowing kubelet to reconnect and
 start a fresh monitor session. A feature-enabled driver that does not call
 `with_resource_health` explicitly returns `Unimplemented`, so kubelet stops
 opening health watches for it.
+
+Disconnecting kubelet cancels and reaps the reporter even if it is idle.
+Reporters must be cancellation-safe: keep cleanup in owned guards and avoid
+detached background work that outlives the watch future.
 
 The DRA resource-health protocol is optional on the Kubernetes side as well.
 For the v1.36 baseline, `ResourceHealthStatus` is beta and enabled by default;

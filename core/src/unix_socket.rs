@@ -30,6 +30,9 @@ fn lock_path(socket_path: &Path) -> PathBuf {
 /// or the replacement bind fails.
 pub fn bind_unix_listener(socket_path: &Path) -> io::Result<UnixListener> {
     let lock_path = lock_path(socket_path);
+    // Keep this pathname after releasing the lock. Unlinking it would let a
+    // newcomer lock a new inode while an existing waiter holds the old one,
+    // defeating startup serialization.
     let startup_lock = File::options()
         .read(true)
         .write(true)

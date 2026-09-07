@@ -17,6 +17,7 @@ use kube::api::PatchParams;
 use serde_json::Value;
 
 const FIELD_MANAGER: &str = "k8s-device-plugin-rs";
+const MAX_PATCH_ATTEMPTS: usize = 3;
 const MAX_DATA_BYTES: usize = 10 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -125,6 +126,8 @@ pub enum ClaimDeviceStatusPublishOutcome {
 /// A safe failure while validating or publishing a device-status report.
 #[derive(Debug, thiserror::Error)]
 pub enum ClaimDeviceStatusError {
+    #[error("ResourceClaim {namespace}/{name} has no resourceVersion for a conditional update")]
+    MissingResourceVersion { namespace: String, name: String },
     #[error(
         "ResourceClaim {namespace}/{name} uid mismatch: expected {expected_uid}, found {found_uid}"
     )]
@@ -174,8 +177,9 @@ pub enum ClaimDeviceStatusError {
 /// monitor and call [`Self::publish`] whenever its durable device information
 /// changes. Publication is an upsert: entries omitted from one call are left
 /// untouched. The publisher verifies the claim UID and every allocation key
-/// before applying a status update, then uses server-side apply so a different
-/// driver's list entries are not replaced.
+/// before merging a status update. A resource-version precondition prevents
+/// concurrent updates from being lost, including other drivers' entries.
+/// Conflicts are reread and revalidated, with at most three patch attempts.
 #[derive(Clone)]
 pub struct ClaimDeviceStatusPublisher {
     client: Client,
@@ -201,8 +205,10 @@ impl ClaimDeviceStatusPublisher {
         }
     }
 
-    /// Changes the server-side apply field manager. This is useful when one
-    /// backend exposes independently managed status sources.
+    /// Changes the field manager recorded for status updates.
+    ///
+    /// This is attribution, not server-side apply ownership: publication uses
+    /// a conditional merge patch and preserves entries omitted from the call.
     #[must_use]
     pub fn with_field_manager(mut self, field_manager: impl Into<String>) -> Self {
         self.field_manager = field_manager.into();
@@ -226,42 +232,85 @@ impl ClaimDeviceStatusPublisher {
         }
 
         let api: Api<ResourceClaim> = Api::namespaced(self.client.clone(), &claim.namespace);
-        let resource_claim = api
-            .get(&claim.name)
-            .await
-            .map_err(ClaimDeviceStatusError::Kubernetes)?;
-        let found_uid = resource_claim.metadata.uid.as_deref().unwrap_or_default();
-        if found_uid != claim.uid {
-            return Err(ClaimDeviceStatusError::ClaimIdentityMismatch {
-                namespace: claim.namespace.clone(),
-                name: claim.name.clone(),
-                expected_uid: claim.uid.clone(),
-                found_uid: found_uid.to_string(),
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let resource_claim = api
+                .get(&claim.name)
+                .await
+                .map_err(ClaimDeviceStatusError::Kubernetes)?;
+            let found_uid = resource_claim.metadata.uid.as_deref().unwrap_or_default();
+            if found_uid != claim.uid {
+                return Err(ClaimDeviceStatusError::ClaimIdentityMismatch {
+                    namespace: claim.namespace.clone(),
+                    name: claim.name.clone(),
+                    expected_uid: claim.uid.clone(),
+                    found_uid: found_uid.to_string(),
+                });
+            }
+
+            self.validate_allocations(claim, &resource_claim, &desired)?;
+            if self.statuses_are_current(&resource_claim, &desired) {
+                return Ok(ClaimDeviceStatusPublishOutcome::Unchanged);
+            }
+
+            let resource_version = resource_claim
+                .metadata
+                .resource_version
+                .as_deref()
+                .filter(|version| !version.is_empty())
+                .ok_or_else(|| ClaimDeviceStatusError::MissingResourceVersion {
+                    namespace: claim.namespace.clone(),
+                    name: claim.name.clone(),
+                })?;
+            let mut devices = resource_claim
+                .status
+                .as_ref()
+                .and_then(|status| status.devices.clone())
+                .unwrap_or_default();
+            for desired_status in desired.values() {
+                if let Some(current) = devices.iter_mut().find(|current| {
+                    current.driver == desired_status.driver
+                        && current.pool == desired_status.pool
+                        && current.device == desired_status.device
+                        && current.share_id == desired_status.share_id
+                }) {
+                    current.clone_from(desired_status);
+                } else {
+                    devices.push(desired_status.clone());
+                }
+            }
+
+            // SSA omits previously owned entries when given only a partial upsert.
+            // Use an optimistic-concurrency merge patch instead; the version check
+            // protects the complete devices array from concurrent writers.
+            // https://kubernetes.io/docs/reference/using-api/api-concepts/#updates-to-existing-resources
+            let patch = serde_json::json!({
+                "apiVersion": "resource.k8s.io/v1",
+                "kind": "ResourceClaim",
+                "metadata": {
+                    "name": claim.name,
+                    "uid": claim.uid,
+                    "resourceVersion": resource_version,
+                },
+                "status": {
+                    "devices": devices,
+                },
             });
+            let patch_params = PatchParams {
+                field_manager: Some(self.field_manager.clone()),
+                ..PatchParams::default()
+            };
+            match api
+                .patch_status(&claim.name, &patch_params, &Patch::Merge(&patch))
+                .await
+            {
+                Ok(_) => return Ok(ClaimDeviceStatusPublishOutcome::Updated),
+                Err(kube::Error::Api(error))
+                    if error.code == 409 && attempt < MAX_PATCH_ATTEMPTS => {}
+                Err(error) => return Err(ClaimDeviceStatusError::Kubernetes(error)),
+            }
         }
-
-        self.validate_allocations(claim, &resource_claim, &desired)?;
-        if self.statuses_are_current(&resource_claim, &desired) {
-            return Ok(ClaimDeviceStatusPublishOutcome::Unchanged);
-        }
-
-        let patch = serde_json::json!({
-            "apiVersion": "resource.k8s.io/v1",
-            "kind": "ResourceClaim",
-            "metadata": {
-                "name": claim.name,
-                "uid": claim.uid,
-            },
-            "status": {
-                "devices": desired.into_values().collect::<Vec<_>>(),
-            },
-        });
-        let patch_params = PatchParams::apply(&self.field_manager);
-        api.patch_status(&claim.name, &patch_params, &Patch::Apply(&patch))
-            .await
-            .map_err(ClaimDeviceStatusError::Kubernetes)?;
-
-        Ok(ClaimDeviceStatusPublishOutcome::Updated)
     }
 
     fn desired_statuses(
@@ -375,7 +424,7 @@ mod tests {
     }
 
     fn allocated_claim(status_devices: Value) -> Value {
-        resource_claim_json(
+        let mut claim = resource_claim_json(
             "claim",
             "default",
             "claim-uid",
@@ -394,7 +443,9 @@ mod tests {
                 },
                 "devices": status_devices,
             }),
-        )
+        );
+        claim["metadata"]["resourceVersion"] = json!("1");
+        claim
     }
 
     fn status() -> ClaimDeviceStatus {
@@ -447,7 +498,7 @@ mod tests {
                     .expect("patch content type")
                     .to_str()
                     .expect("content type text")
-                    .starts_with("application/apply-patch+yaml")
+                    .starts_with("application/merge-patch+json")
             );
             let body = patch
                 .into_body()
@@ -457,6 +508,7 @@ mod tests {
                 .to_bytes();
             let patch: Value = serde_json::from_slice(&body).expect("decode patch");
             assert_eq!(patch["metadata"]["uid"], "claim-uid");
+            assert_eq!(patch["metadata"]["resourceVersion"], "1");
             assert_eq!(
                 patch["status"]["devices"]
                     .as_array()
@@ -568,6 +620,203 @@ mod tests {
         assert!(matches!(
             duplicate,
             Err(ClaimDeviceStatusError::DuplicateDeviceStatus(_))
+        ));
+    }
+
+    async fn read_patch(request: http::Request<Body>) -> Value {
+        assert_eq!(request.method(), http::Method::PATCH);
+        assert_eq!(
+            request.headers()[http::header::CONTENT_TYPE],
+            "application/merge-patch+json"
+        );
+        let bytes = request
+            .into_body()
+            .collect()
+            .await
+            .expect("read patch")
+            .to_bytes();
+        serde_json::from_slice(&bytes).expect("decode patch")
+    }
+
+    fn conflict_response() -> http::Response<Body> {
+        response(
+            409,
+            json!({"status": "Failure", "reason": "Conflict", "code": 409}),
+        )
+    }
+
+    #[tokio::test]
+    async fn successive_upserts_preserve_omitted_foreign_and_shared_entries() {
+        let (client, mut handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER);
+        let responder = tokio::spawn(async move {
+            let preserved = json!([
+                {"driver": DRIVER, "pool": "widget-pool", "device": "widget-1", "data": {"keep": true}},
+                {"driver": "other.example.com", "pool": "widget-pool", "device": "widget-0", "data": {"foreign": true}},
+                {"driver": DRIVER, "pool": "widget-pool", "device": "widget-0", "shareID": "00000000-0000-0000-0000-000000000001", "data": {"shared": true}}
+            ]);
+            let mut current = allocated_claim(preserved.clone());
+            // Model the array-replacement semantics of JSON merge patch, not SSA.
+            for version in 1..=2 {
+                let (_get, send) = handle.next_request().await.expect("claim read");
+                send.send_response(response(200, current.clone()));
+                let (patch, send) = handle.next_request().await.expect("status patch");
+                let patch = read_patch(patch).await;
+                assert_eq!(patch["metadata"]["resourceVersion"], version.to_string());
+                let devices = patch["status"]["devices"].as_array().expect("devices");
+                assert_eq!(
+                    &devices[..3],
+                    preserved.as_array().expect("preserved entries")
+                );
+                assert_eq!(devices.len(), 4);
+                assert_eq!(
+                    devices[3]["data"]["phase"],
+                    if version == 1 { "prepared" } else { "ready" }
+                );
+                current["status"]["devices"] = patch["status"]["devices"].clone();
+                current["metadata"]["resourceVersion"] = json!((version + 1).to_string());
+                send.send_response(response(200, current.clone()));
+            }
+        });
+        publisher
+            .publish(&claim_ref(), [status()])
+            .await
+            .expect("first upsert");
+        let mut updated = status();
+        updated.data = Some(json!({"phase": "ready"}));
+        publisher
+            .publish(&claim_ref(), [updated])
+            .await
+            .expect("second upsert");
+        responder.await.expect("responder finishes");
+    }
+
+    #[tokio::test]
+    async fn conflict_rereads_and_preserves_concurrent_foreign_update() {
+        let (client, mut handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER);
+        let responder = tokio::spawn(async move {
+            let (_get, send) = handle.next_request().await.expect("initial read");
+            send.send_response(response(200, allocated_claim(Value::Null)));
+            let (patch, send) = handle.next_request().await.expect("initial patch");
+            assert_eq!(read_patch(patch).await["metadata"]["resourceVersion"], "1");
+            send.send_response(conflict_response());
+            let foreign = json!({"driver": "other.example.com", "pool": "p", "device": "d", "data": {"new": true}});
+            let mut current = allocated_claim(json!([foreign.clone()]));
+            current["metadata"]["resourceVersion"] = json!("2");
+            let (_get, send) = handle.next_request().await.expect("reread after conflict");
+            send.send_response(response(200, current.clone()));
+            let (patch, send) = handle.next_request().await.expect("retry patch");
+            let patch = read_patch(patch).await;
+            assert_eq!(patch["metadata"]["resourceVersion"], "2");
+            assert_eq!(patch["status"]["devices"][0], foreign);
+            assert_eq!(
+                patch["status"]["devices"]
+                    .as_array()
+                    .expect("devices")
+                    .len(),
+                2
+            );
+            send.send_response(response(200, current));
+        });
+        publisher
+            .publish(&claim_ref(), [status()])
+            .await
+            .expect("conflict retry succeeds");
+        responder.await.expect("responder finishes");
+    }
+
+    #[tokio::test]
+    async fn conflict_revalidates_uid_and_allocation_before_retry() {
+        for replaced in [false, true] {
+            let (client, mut handle) = mock_kube_client();
+            let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER);
+            let responder = tokio::spawn(async move {
+                let (_get, send) = handle.next_request().await.expect("initial read");
+                send.send_response(response(200, allocated_claim(Value::Null)));
+                let (_patch, send) = handle.next_request().await.expect("initial patch");
+                send.send_response(conflict_response());
+                let mut current = allocated_claim(Value::Null);
+                if replaced {
+                    current["metadata"]["uid"] = json!("replacement-uid");
+                } else {
+                    current["status"]["allocation"] = Value::Null;
+                }
+                let (_get, send) = handle.next_request().await.expect("reread");
+                send.send_response(response(200, current));
+                handle
+            });
+            let error = publisher
+                .publish(&claim_ref(), [status()])
+                .await
+                .expect_err("reject stale allocation");
+            if replaced {
+                assert!(matches!(
+                    error,
+                    ClaimDeviceStatusError::ClaimIdentityMismatch { .. }
+                ));
+            } else {
+                assert!(matches!(
+                    error,
+                    ClaimDeviceStatusError::DriverNotAllocated { .. }
+                ));
+            }
+            let mut handle = responder.await.expect("responder finishes");
+            assert!(
+                tokio::time::timeout(std::time::Duration::from_millis(20), handle.next_request())
+                    .await
+                    .is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn conflict_retries_are_bounded() {
+        let (client, mut handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER);
+        let responder = tokio::spawn(async move {
+            for _ in 0..MAX_PATCH_ATTEMPTS {
+                let (_get, send) = handle.next_request().await.expect("claim read");
+                send.send_response(response(200, allocated_claim(Value::Null)));
+                let (_patch, send) = handle.next_request().await.expect("patch attempt");
+                send.send_response(conflict_response());
+            }
+        });
+        assert!(matches!(publisher.publish(&claim_ref(), [status()]).await,
+            Err(ClaimDeviceStatusError::Kubernetes(kube::Error::Api(error))) if error.code == 409));
+        responder.await.expect("responder finishes");
+    }
+
+    #[tokio::test]
+    async fn missing_resource_version_refuses_unconditional_patch() {
+        let (client, mut handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER);
+        let responder = tokio::spawn(async move {
+            let mut current = allocated_claim(Value::Null);
+            current["metadata"]["resourceVersion"] = Value::Null;
+            let (_get, send) = handle.next_request().await.expect("claim read");
+            send.send_response(response(200, current));
+        });
+        assert!(matches!(
+            publisher.publish(&claim_ref(), [status()]).await,
+            Err(ClaimDeviceStatusError::MissingResourceVersion { .. })
+        ));
+        responder.await.expect("responder finishes");
+    }
+
+    #[tokio::test]
+    async fn status_data_equality_ignores_json_whitespace_and_key_order() {
+        let (client, _handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER);
+        let mut desired = status();
+        desired.data = Some(serde_json::from_str(r#"{ "b": 2, "a": 1 }"#).expect("valid JSON"));
+        let current = serde_json::from_value(allocated_claim(json!([{
+            "driver": DRIVER, "pool": "widget-pool", "device": "widget-0", "data": {"a": 1, "b": 2}
+        }])))
+        .expect("valid claim");
+        assert!(publisher.statuses_are_current(
+            &current,
+            &publisher.desired_statuses([desired]).expect("valid status")
         ));
     }
 }

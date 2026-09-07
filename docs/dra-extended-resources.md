@@ -141,7 +141,7 @@ spec:
 ```
 
 The scheduler selects one matching DRA device and Kubernetes records the
-generated claim name in `.spec.resourceClaims[0].resourceClaimName`. Normal
+generated claim name in `.status.extendedResourceClaimStatus.resourceClaimName`. Normal
 ResourceClaim allocation, reservation, kubelet preparation, CDI injection, and
 unpreparation follow from there.
 
@@ -171,7 +171,7 @@ it. The following commands stop immediately if Kubernetes has not recorded one:
 namespace=default
 pod=widget-consumer
 claim_name="$(kubectl -n "$namespace" get pod "$pod" \
-  -o jsonpath='{.spec.resourceClaims[0].resourceClaimName}')"
+  -o jsonpath='{.status.extendedResourceClaimStatus.resourceClaimName}')"
 test -n "$claim_name"
 
 kubectl -n "$namespace" get resourceclaim "$claim_name" -o yaml

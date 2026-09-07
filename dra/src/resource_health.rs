@@ -63,6 +63,11 @@ impl DraResourceHealthService {
 
             loop {
                 tokio::select! {
+                    _ = responses_tx.closed() => {
+                        watch.abort();
+                        let _ = watch.await;
+                        return;
+                    },
                     report = reports_rx.recv() => match report {
                         Some(report) => {
                             if responses_tx.send(Ok(report_to_wire(report))).await.is_err() {
@@ -72,7 +77,17 @@ impl DraResourceHealthService {
                             }
                         }
                         None => {
-                            send_watch_completion(&responses_tx, watch.await).await;
+                            // A reporter can drop its sender before finishing
+                            // cleanup. Keep observing client cancellation here.
+                            tokio::select! {
+                                _ = responses_tx.closed() => {
+                                    watch.abort();
+                                    let _ = watch.await;
+                                },
+                                result = &mut watch => {
+                                    send_watch_completion(&responses_tx, result).await;
+                                },
+                            }
                             return;
                         }
                     },
@@ -164,6 +179,70 @@ mod tests {
     use tower::service_fn;
 
     use super::*;
+
+    struct IdleReporter {
+        started: tokio::sync::Notify,
+        stopped: Arc<tokio::sync::Notify>,
+        drop_sender: bool,
+    }
+
+    struct NotifyOnDrop(Arc<tokio::sync::Notify>);
+
+    impl Drop for NotifyOnDrop {
+        fn drop(&mut self) {
+            self.0.notify_one();
+        }
+    }
+
+    #[tonic::async_trait]
+    impl ResourceHealthReporter for IdleReporter {
+        async fn watch_resource_health(
+            &self,
+            reports: mpsc::Sender<ResourceHealthReport>,
+        ) -> Result<(), ResourceHealthError> {
+            let _stopped = NotifyOnDrop(Arc::clone(&self.stopped));
+            let reports = if self.drop_sender {
+                drop(reports);
+                None
+            } else {
+                Some(reports)
+            };
+            self.started.notify_one();
+            std::future::pending::<()>().await;
+            drop(reports);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn dropping_idle_stream_reaps_reporter_even_after_report_channel_closes() {
+        for drop_sender in [false, true] {
+            let reporter = Arc::new(IdleReporter {
+                started: tokio::sync::Notify::new(),
+                stopped: Arc::new(tokio::sync::Notify::new()),
+                drop_sender,
+            });
+            let service = DraResourceHealthService::new(Arc::clone(&reporter));
+            // Repeated disconnections must not accumulate idle monitors.
+            for _ in 0..3 {
+                let stream = service.watch_stream().expect("start health stream");
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(1),
+                    reporter.started.notified(),
+                )
+                .await
+                .expect("reporter starts");
+                tokio::task::yield_now().await;
+                drop(stream);
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(1),
+                    reporter.stopped.notified(),
+                )
+                .await
+                .expect("idle reporter is dropped after disconnect");
+            }
+        }
+    }
 
     #[derive(Debug, Default)]
     struct ReconnectingReporter {

@@ -236,8 +236,10 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
   source of truth.
 - **`ClaimDeviceStatusPublisher`** — an explicit backend-owned publisher for
   allocated-device configuration and diagnostics. It validates a claim UID and
-  each driver/pool/device/share allocation key before server-side applying the
-  caller's owned status entries, which preserves other drivers' entries. The
+  each driver/pool/device/share allocation key before merging the caller's
+  status entries into the current list. A resource-version precondition and
+  bounded conflict retries preserve omitted and other drivers' entries under
+  concurrent updates. Each retry revalidates identity and allocation. The
   backend may call it from preparation or a separate monitor; it is neither
   inferred from `ResourcePool` nor coupled to resource-health streaming. On
   Kubernetes v1.36 it relies on the default-on beta
@@ -258,8 +260,8 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
 3. **Phase 3 (implemented, opt-in)** — `DRAResourceHealth` streaming with
    independent backend reports, bounded forwarding, and reconnect behavior.
 4. **Phase 4 (partially implemented)** — driver-owned ResourceClaim device
-   status publishing with allocation validation, idempotent server-side apply,
-   and v1.36 node-aware RBAC. Kubernetes v1.37 extended-resource allocation
+   status publishing with allocation validation, idempotent conditional merge
+   patches, and v1.36 node-aware RBAC. Kubernetes v1.37 extended-resource allocation
    is covered by a separate fixture: it maps a `DeviceClass` to an extended
    resource and proves the generated-claim CDI path without a workload-authored
    `ResourceClaim`. The [extended-resource guide](dra-extended-resources.md)

@@ -21,7 +21,14 @@ run = "cargo clippy --workspace --all-targets -- -D warnings"
 
 [tasks.ci]
 description = "Run the full CI checklist locally: fmt, clippy, test"
-depends = ["fmt", "clippy", "test"]
+depends = ["fmt", "clippy", "test", "dra-ci-resource-health"]
+
+[tasks.dra-ci-resource-health]
+description = "Lint and test the opt-in DRA resource-health feature and examples"
+run = [
+    "cargo clippy --locked -p k8s-device-plugin-dra --all-targets --features resource-health -- -D warnings",
+    "cargo test --locked -p k8s-device-plugin-dra --all-targets --features resource-health",
+]
 
 [tasks.dra-validate-k8s]
 description = "Serially validate the DRA fixture on local Kubernetes v1.36.1 and v1.37.0"

@@ -54,6 +54,8 @@ impl ClaimResolver {
 
     /// Configures bounded retries for transient API reads. A zero attempt
     /// count is clamped to one, preserving a prompt terminal result.
+    /// Retries HTTP 408/429/5xx and recognized transport failures, not
+    /// authorization, missing claims, decoding, or configuration errors.
     #[must_use]
     pub fn with_retry_policy(mut self, max_attempts: usize, retry_delay: Duration) -> Self {
         self.max_attempts = max_attempts.max(1);
@@ -69,7 +71,7 @@ impl ClaimResolver {
             attempt += 1;
             match api.get(&claim_ref.name).await {
                 Ok(claim) => break claim,
-                Err(err) if attempt < self.max_attempts => {
+                Err(err) if attempt < self.max_attempts && is_transient_read_error(&err) => {
                     tracing::debug!(
                         attempt,
                         claim = %format_args!("{}/{}", claim_ref.namespace, claim_ref.name),
@@ -144,6 +146,38 @@ impl ClaimResolver {
             .into_iter()
             .map(|(_, claim_ref, result)| (claim_ref, result))
             .collect()
+    }
+}
+
+fn is_transient_read_error(error: &kube::Error) -> bool {
+    match error {
+        kube::Error::Api(status) => matches!(status.code, 408 | 429 | 500..=599),
+        kube::Error::HyperError(_) => true,
+        kube::Error::Service(error) => {
+            let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error.as_ref());
+            while let Some(error) = source {
+                if let Some(error) = error.downcast_ref::<kube::Error>() {
+                    return is_transient_read_error(error);
+                }
+                if let Some(error) = error.downcast_ref::<std::io::Error>() {
+                    return matches!(
+                        error.kind(),
+                        std::io::ErrorKind::TimedOut
+                            | std::io::ErrorKind::Interrupted
+                            | std::io::ErrorKind::WouldBlock
+                            | std::io::ErrorKind::ConnectionRefused
+                            | std::io::ErrorKind::ConnectionReset
+                            | std::io::ErrorKind::ConnectionAborted
+                            | std::io::ErrorKind::NotConnected
+                            | std::io::ErrorKind::BrokenPipe
+                            | std::io::ErrorKind::UnexpectedEof
+                    );
+                }
+                source = error.source();
+            }
+            false
+        }
+        _ => false,
     }
 }
 

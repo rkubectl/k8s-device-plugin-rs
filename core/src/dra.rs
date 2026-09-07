@@ -238,6 +238,9 @@ pub enum ResourceHealthError {
 /// `Ok(())` or an error ends that RPC with `Unavailable`, allowing kubelet to
 /// reconnect and start a new watch. This trait is available only with the
 /// `resource-health` feature.
+/// The runtime cancels this future when kubelet disconnects, including while
+/// idle. Implement cancellation-safe cleanup with owned guards; do not leave
+/// detached work running after this future is dropped.
 #[cfg(feature = "resource-health")]
 #[async_trait]
 pub trait ResourceHealthReporter: Send + Sync {

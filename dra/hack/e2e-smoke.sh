@@ -48,8 +48,11 @@ kubectl_run -n "$NAMESPACE" wait --for=condition=Ready "pod/$CONSUMER" --timeout
 
 if [ "$GENERATED_CLAIM" = 1 ]; then
     CLAIM_NAME=$(kubectl_run -n "$NAMESPACE" get "pod/$CONSUMER" \
-        -o jsonpath='{.spec.resourceClaims[0].resourceClaimName}')
-    test -n "$CLAIM_NAME"
+        -o jsonpath='{.status.extendedResourceClaimStatus.resourceClaimName}')
+    if [ -z "$CLAIM_NAME" ]; then
+        printf 'pod %s has no status.extendedResourceClaimStatus.resourceClaimName\n' "$CONSUMER" >&2
+        exit 1
+    fi
 fi
 
 kubectl_run -n "$NAMESPACE" logs "pod/$CONSUMER" | grep -F 'DRA_E2E_DEVICE=widget-0'

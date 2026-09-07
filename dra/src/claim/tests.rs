@@ -255,3 +255,79 @@ async fn resolve_all_honors_the_concurrency_bound_and_request_order() {
     assert_eq!(results[0].0.name, "claim-a");
     assert_eq!(results[1].0.name, "claim-b");
 }
+
+#[tokio::test]
+async fn resolve_retries_only_transient_http_errors_and_respects_attempt_limit() {
+    for (code, attempts) in [
+        (401, 1),
+        (403, 1),
+        (404, 1),
+        (422, 1),
+        (408, 3),
+        (429, 3),
+        (500, 3),
+        (503, 3),
+    ] {
+        let (resolver, mut handle) = mock_resolver();
+        let resolver = resolver.with_retry_policy(3, Duration::ZERO);
+        let server = tokio::spawn(async move {
+            for _ in 0..attempts {
+                let (_request, send) = handle.next_request().await.expect("expected attempt");
+                send.send_response(
+                    http::Response::builder()
+                        .status(code)
+                        .body(Body::from(
+                            serde_json::to_vec(
+                                &json!({"status": "Failure", "reason": "TestError", "code": code}),
+                            )
+                            .expect("serialize error"),
+                        ))
+                        .expect("error response"),
+                );
+            }
+            handle
+        });
+        let claim = ClaimRef {
+            namespace: "default".into(),
+            name: "claim".into(),
+            uid: "uid".into(),
+        };
+        let error = tokio::time::timeout(Duration::from_secs(1), resolver.resolve(&claim))
+            .await
+            .expect("resolution terminates without further requests")
+            .expect_err("API failure");
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("after {attempts} attempt(s)")),
+            "{error}"
+        );
+        let mut handle = server.await.expect("server finishes");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), handle.next_request())
+                .await
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn retry_classification_excludes_decoding_and_permanent_io_errors() {
+    let decode_error =
+        serde_json::from_str::<serde_json::Value>("invalid").expect_err("invalid JSON");
+    assert!(!is_transient_read_error(&kube::Error::SerdeError(
+        decode_error
+    )));
+    for (kind, retry) in [
+        (std::io::ErrorKind::TimedOut, true),
+        (std::io::ErrorKind::ConnectionReset, true),
+        (std::io::ErrorKind::ConnectionRefused, true),
+        (std::io::ErrorKind::PermissionDenied, false),
+        (std::io::ErrorKind::InvalidInput, false),
+    ] {
+        assert_eq!(
+            is_transient_read_error(&kube::Error::Service(Box::new(std::io::Error::from(kind)))),
+            retry
+        );
+    }
+}
