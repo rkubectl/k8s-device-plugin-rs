@@ -10,6 +10,12 @@ repository.workspace = true
 license.workspace = true
 
 
+[package.metadata.release]
+pre-release-replacements = [
+    { file = "README.md", search = 'version = "[0-9]+\.[0-9]+\.[0-9]+(?:-[^"]+)?"', replace = 'version = "{{version}}"', exactly = 2 },
+]
+
+
 [dependencies]
 k8s-device-plugin-core.workspace = true
 k8s-device-plugin-dra = { workspace = true, optional = true }

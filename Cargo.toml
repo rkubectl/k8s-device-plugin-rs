@@ -71,6 +71,23 @@ unused_qualifications = "warn"
 # warnings = "deny"
 
 
+[workspace.metadata.release]
+# Every public workspace crate inherits `workspace.package.version`; keep the
+# release transaction equally unified.
+allow-branch = ["main"]
+shared-version = true
+dependent-version = "upgrade"
+consolidate-commits = true
+pre-release-commit-message = "Release v{{version}}"
+tag-prefix = ""
+tag-name = "v{{version}}"
+tag-message = "Release v{{version}}"
+# A release source commit must be tagged and pushed before crates.io receives
+# it. Publish is therefore an explicit, subsequent `cargo release publish`
+# step from that exact tag.
+publish = false
+
+
 [patch.crates-io]
 # kubelet's grpc-go Unix-socket client sends a percent-encoded socket path as
 # :authority. Upstream h2 rejects it before Tonic can dispatch the gRPC call.

@@ -23,6 +23,11 @@ run = "cargo clippy --workspace --all-targets -- -D warnings"
 description = "Run the full CI checklist locally: fmt, clippy, test"
 depends = ["fmt", "clippy", "test", "dra-ci-resource-health"]
 
+[tasks.release-preflight]
+description = "Run CI and preview the next patch release without changing Git or crates.io"
+depends = ["ci"]
+run = "cargo release patch --workspace --exclude k8s-device-plugin-example --no-confirm"
+
 [tasks.dra-ci-resource-health]
 description = "Lint and test the opt-in DRA resource-health feature and examples"
 run = [
