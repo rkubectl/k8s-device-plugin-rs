@@ -13,7 +13,7 @@
 #   docker buildx build --platform linux/amd64,linux/arm64 \
 #       -f example/Dockerfile -t k8s-device-plugin-example .
 
-ARG RUST_VERSION=1.90
+ARG RUST_VERSION=1.98
 
 FROM rust:${RUST_VERSION}-slim AS builder
 ARG TARGETARCH
