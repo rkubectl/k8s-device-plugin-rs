@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: accelerator-pair-dra-driver
+  namespace: accelerator-pair-example
+  labels:
+    app: accelerator-pair-dra-driver
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Do not assume seamless DRA-plugin upgrades are supported.
+      maxSurge: 0
+  selector:
+    matchLabels:
+      app: accelerator-pair-dra-driver
+  template:
+    metadata:
+      labels:
+        app: accelerator-pair-dra-driver
+    spec:
+      serviceAccountName: accelerator-pair-dra-driver
+      priorityClassName: system-node-critical
+      containers:
+        - name: driver
+          image: accelerator-pair-dra-example:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsUser: 0
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: DRIVER_NAME
+              value: accelerator.example.com
+            - name: POOL_NAME
+              value: accelerator-pairs
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: RUST_LOG
+              value: info
+          startupProbe:
+            exec:
+              command: ["/usr/local/bin/k8s-device-plugin-dra-liveness"]
+            periodSeconds: 2
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command: ["/usr/local/bin/k8s-device-plugin-dra-liveness"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["/usr/local/bin/k8s-device-plugin-dra-liveness"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: plugins-registry
+              mountPath: /var/lib/kubelet/plugins_registry
+            - name: plugins
+              mountPath: /var/lib/kubelet/plugins/accelerator.example.com
+            - name: cdi
+              mountPath: /var/run/cdi
+      volumes:
+        - name: plugins-registry
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+            type: Directory
+        - name: plugins
+          hostPath:
+            path: /var/lib/kubelet/plugins/accelerator.example.com
+            type: DirectoryOrCreate
+        - name: cdi
+          hostPath:
+            path: /var/run/cdi
+            type: DirectoryOrCreate

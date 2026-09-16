@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: accelerator-pair-statefulset
+  namespace: accelerator-pair-example
+spec:
+  serviceName: accelerator-pair-statefulset
+  replicas: 1
+  selector:
+    matchLabels:
+      app: accelerator-pair-statefulset
+  template:
+    metadata:
+      labels:
+        app: accelerator-pair-statefulset
+    spec:
+      containers:
+        - name: worker
+          image: busybox:1.37
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              test -n "$ACCELERATOR_PAIR"
+              test -n "$ACCELERATOR_PAIR_MEMBERS"
+              test "$ACCELERATOR_INTERCONNECT" = "nvlink"
+              echo "pair=$ACCELERATOR_PAIR members=$ACCELERATOR_PAIR_MEMBERS fabric=$ACCELERATOR_INTERCONNECT"
+              sleep 3600
+          resources:
+            claims:
+              - name: accelerator-pair
+      resourceClaims:
+        - name: accelerator-pair
+          resourceClaimTemplateName: accelerator-connected-pair

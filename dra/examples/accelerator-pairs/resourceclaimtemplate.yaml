@@ -1,0 +1,19 @@
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: accelerator-connected-pair
+  namespace: accelerator-pair-example
+spec:
+  spec:
+    devices:
+      requests:
+        - name: accelerator-pair
+          exactly:
+            deviceClassName: accelerator-connected-pair
+            allocationMode: ExactCount
+            count: 1
+            selectors:
+              - cel:
+                  expression: |-
+                    device.attributes["accelerator.example.com"].kind == "connected-pair" &&
+                    device.attributes["accelerator.example.com"].interconnect == "nvlink"

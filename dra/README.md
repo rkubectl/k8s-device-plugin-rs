@@ -173,6 +173,14 @@ idempotence checks. Cargo compiles and tests it directly:
 cargo test -p k8s-device-plugin-dra --example minimal_driver
 ```
 
+For a topology-aware accelerator backend, see
+[`examples/accelerator_pair_driver.rs`](examples/accelerator_pair_driver.rs)
+and its self-contained
+[Deployment and StatefulSet manifests](examples/accelerator-pairs/README.md).
+It models a valid hardware-linked pair as one allocatable DRA device, which is
+the safe representation when independently selecting two cards cannot prove
+their direct interconnect.
+
 The example reads these environment variables:
 
 | Variable | Default | Meaning |

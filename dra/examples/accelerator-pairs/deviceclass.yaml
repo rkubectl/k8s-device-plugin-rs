@@ -1,0 +1,14 @@
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: accelerator-connected-pair
+spec:
+  # The class and template each require a bundle. Individual accelerator cards
+  # are deliberately not published, so this cannot be relaxed into an
+  # arbitrary two-card allocation by changing a workload count.
+  selectors:
+    - cel:
+        expression: |-
+          device.driver == "accelerator.example.com" &&
+          device.attributes["accelerator.example.com"].kind == "connected-pair" &&
+          device.attributes["accelerator.example.com"].interconnect == "nvlink"

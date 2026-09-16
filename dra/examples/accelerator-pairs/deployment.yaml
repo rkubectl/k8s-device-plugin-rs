@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: accelerator-pair-deployment
+  namespace: accelerator-pair-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: accelerator-pair-deployment
+  template:
+    metadata:
+      labels:
+        app: accelerator-pair-deployment
+    spec:
+      containers:
+        - name: worker
+          image: busybox:1.37
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              test -n "$ACCELERATOR_PAIR"
+              test -n "$ACCELERATOR_PAIR_MEMBERS"
+              test "$ACCELERATOR_INTERCONNECT" = "nvlink"
+              echo "pair=$ACCELERATOR_PAIR members=$ACCELERATOR_PAIR_MEMBERS fabric=$ACCELERATOR_INTERCONNECT"
+              sleep 3600
+          resources:
+            claims:
+              - name: accelerator-pair
+      resourceClaims:
+        - name: accelerator-pair
+          resourceClaimTemplateName: accelerator-connected-pair

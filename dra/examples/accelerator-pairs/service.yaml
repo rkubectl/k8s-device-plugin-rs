@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: accelerator-pair-statefulset
+  namespace: accelerator-pair-example
+spec:
+  clusterIP: None
+  selector:
+    app: accelerator-pair-statefulset

@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - daemonset.yaml
+  - deviceclass.yaml
+  - resourceclaimtemplate.yaml
+  - deployment.yaml
+  - service.yaml
+  - statefulset.yaml
+
+images:
+  - name: accelerator-pair-dra-example
+    newName: accelerator-pair-dra-example
+    newTag: latest

@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: accelerator-pair-dra-driver
+  namespace: accelerator-pair-example
+---
+# Validation-only RBAC. A production deployment must add cluster-owned
+# admission control which restricts ResourceSlice mutations to this driver
+# and the local node; see this directory's README.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: accelerator-pair-dra-driver
+rules:
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceclaims"]
+    verbs: ["get"]
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceslices"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: accelerator-pair-dra-driver
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: accelerator-pair-dra-driver
+subjects:
+  - kind: ServiceAccount
+    name: accelerator-pair-dra-driver
+    namespace: accelerator-pair-example
