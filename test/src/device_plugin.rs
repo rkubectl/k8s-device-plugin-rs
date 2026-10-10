@@ -1,18 +1,10 @@
-use std::path::Path;
-use std::path::PathBuf;
-
-use hyper_util::rt::TokioIo;
-use k8s_device_plugin_proto::v1beta1;
-use tokio::net::UnixStream;
 use tokio_stream::StreamExt as _;
-use tonic::transport::Channel;
-use tonic::transport::Endpoint;
-use tonic::transport::Uri;
-use tower::service_fn;
+
+use super::*;
 
 #[derive(Debug)]
 pub struct MockDevicePluginClient {
-    inner: v1beta1::DevicePluginClient<Channel>,
+    inner: v1beta1::DevicePluginClient<transport::Channel>,
 }
 
 impl MockDevicePluginClient {
@@ -21,14 +13,14 @@ impl MockDevicePluginClient {
         let socket_path = PathBuf::from(path.as_ref());
         let connector_path = socket_path.clone();
 
-        let endpoint = Endpoint::try_from("http://[::]:50051").map_err(|err| {
+        let endpoint = transport::Endpoint::try_from("http://[::]:50051").map_err(|err| {
             tonic::Status::internal(format!("failed to build device plugin endpoint: {err}"))
         })?;
 
         let channel = endpoint
-            .connect_with_connector(service_fn(move |_: Uri| {
+            .connect_with_connector(service_fn(move |_| {
                 let path = connector_path.clone();
-                async move { UnixStream::connect(path).await.map(TokioIo::new) }
+                async move { net::UnixStream::connect(path).await.map(TokioIo::new) }
             }))
             .await
             .map_err(|err| {

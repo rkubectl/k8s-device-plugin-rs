@@ -1,18 +1,15 @@
 //! Optional `DRAResourceHealth.NodeWatchResources` service.
 
-use std::fmt;
-use std::sync::Arc;
-
 use k8s_device_plugin_core::DraDeviceHealth;
 use k8s_device_plugin_core::ResourceHealthError;
 use k8s_device_plugin_core::ResourceHealthReport;
-use k8s_device_plugin_core::ResourceHealthReporter;
 use k8s_device_plugin_core::ResourceHealthStatus;
-use k8s_device_plugin_proto::dra::health::v1alpha1;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::Code;
-use tonic::Status;
+
+use dra::health::v1alpha1 as healthv1;
+
+use super::*;
 
 const REPORT_BUFFER_CAPACITY: usize = 16;
 
@@ -47,12 +44,13 @@ impl DraResourceHealthService {
 
     fn watch_stream(
         &self,
-    ) -> Result<ReceiverStream<tonic::Result<v1alpha1::NodeWatchResourcesResponse>>, Status> {
-        let Some(reporter) = self.reporter.as_ref() else {
-            return Err(Status::unimplemented(
+    ) -> Result<ReceiverStream<tonic::Result<healthv1::NodeWatchResourcesResponse>>, tonic::Status>
+    {
+        let reporter = self.reporter.as_ref().ok_or_else(|| {
+            tonic::Status::unimplemented(
                 "resource health reporting is not supported by this backend",
-            ));
-        };
+            )
+        })?;
         let (reports_tx, mut reports_rx) = mpsc::channel(REPORT_BUFFER_CAPACITY);
         let (responses_tx, responses_rx) = mpsc::channel(REPORT_BUFFER_CAPACITY);
         let reporter = Arc::clone(reporter);
@@ -111,20 +109,20 @@ impl DraResourceHealthService {
     }
 }
 
-fn report_to_wire(report: ResourceHealthReport) -> v1alpha1::NodeWatchResourcesResponse {
-    v1alpha1::NodeWatchResourcesResponse {
+fn report_to_wire(report: ResourceHealthReport) -> healthv1::NodeWatchResourcesResponse {
+    healthv1::NodeWatchResourcesResponse {
         devices: report.devices.into_iter().map(device_to_wire).collect(),
     }
 }
 
-fn device_to_wire(device: DraDeviceHealth) -> v1alpha1::DeviceHealth {
+fn device_to_wire(device: DraDeviceHealth) -> healthv1::DeviceHealth {
     let health = match device.health {
-        ResourceHealthStatus::Unknown => v1alpha1::HealthStatus::Unknown,
-        ResourceHealthStatus::Healthy => v1alpha1::HealthStatus::Healthy,
-        ResourceHealthStatus::Unhealthy => v1alpha1::HealthStatus::Unhealthy,
+        ResourceHealthStatus::Unknown => healthv1::HealthStatus::Unknown,
+        ResourceHealthStatus::Healthy => healthv1::HealthStatus::Healthy,
+        ResourceHealthStatus::Unhealthy => healthv1::HealthStatus::Unhealthy,
     };
-    v1alpha1::DeviceHealth {
-        device: Some(v1alpha1::DeviceIdentifier {
+    healthv1::DeviceHealth {
+        device: Some(healthv1::DeviceIdentifier {
             pool_name: device.pool_name,
             device_name: device.device_name,
         }),
@@ -136,8 +134,8 @@ fn device_to_wire(device: DraDeviceHealth) -> v1alpha1::DeviceHealth {
 }
 
 async fn send_watch_completion(
-    responses: &mpsc::Sender<tonic::Result<v1alpha1::NodeWatchResourcesResponse>>,
-    result: Result<Result<(), ResourceHealthError>, tokio::task::JoinError>,
+    responses: &mpsc::Sender<tonic::Result<healthv1::NodeWatchResourcesResponse>>,
+    result: Result<Result<(), ResourceHealthError>, task::JoinError>,
 ) {
     let message = match result {
         Ok(Ok(())) => "resource health reporter stopped".to_string(),
@@ -145,18 +143,18 @@ async fn send_watch_completion(
         Err(err) => format!("resource health reporter panicked: {err}"),
     };
     let _ = responses
-        .send(Err(Status::new(Code::Unavailable, message)))
+        .send(Err(tonic::Status::new(tonic::Code::Unavailable, message)))
         .await;
 }
 
 #[tonic::async_trait]
-impl v1alpha1::DraResourceHealth for DraResourceHealthService {
+impl healthv1::DraResourceHealth for DraResourceHealthService {
     type NodeWatchResourcesStream =
-        ReceiverStream<tonic::Result<v1alpha1::NodeWatchResourcesResponse>>;
+        ReceiverStream<tonic::Result<healthv1::NodeWatchResourcesResponse>>;
 
     async fn node_watch_resources(
         &self,
-        _request: tonic::Request<v1alpha1::NodeWatchResourcesRequest>,
+        _request: tonic::Request<healthv1::NodeWatchResourcesRequest>,
     ) -> tonic::Result<tonic::Response<Self::NodeWatchResourcesStream>> {
         Ok(tonic::Response::new(self.watch_stream()?))
     }
@@ -164,18 +162,12 @@ impl v1alpha1::DraResourceHealth for DraResourceHealthService {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-    use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
     use hyper_util::rt::TokioIo;
     use tempfile::TempDir;
-    use tokio::net::UnixStream;
     use tokio_stream::wrappers::UnixListenerStream;
-    use tonic::transport::Channel;
-    use tonic::transport::Endpoint;
-    use tonic::transport::Uri;
     use tower::service_fn;
 
     use super::*;
@@ -226,20 +218,14 @@ mod tests {
             // Repeated disconnections must not accumulate idle monitors.
             for _ in 0..3 {
                 let stream = service.watch_stream().expect("start health stream");
-                tokio::time::timeout(
-                    std::time::Duration::from_secs(1),
-                    reporter.started.notified(),
-                )
-                .await
-                .expect("reporter starts");
-                tokio::task::yield_now().await;
+                tokio::time::timeout(Duration::from_secs(1), reporter.started.notified())
+                    .await
+                    .expect("reporter starts");
+                task::yield_now().await;
                 drop(stream);
-                tokio::time::timeout(
-                    std::time::Duration::from_secs(1),
-                    reporter.stopped.notified(),
-                )
-                .await
-                .expect("idle reporter is dropped after disconnect");
+                tokio::time::timeout(Duration::from_secs(1), reporter.stopped.notified())
+                    .await
+                    .expect("idle reporter is dropped after disconnect");
             }
         }
     }
@@ -280,36 +266,34 @@ mod tests {
 
     async fn connect(
         socket_path: &Path,
-    ) -> tonic::Result<v1alpha1::DraResourceHealthClient<Channel>> {
+    ) -> tonic::Result<healthv1::DraResourceHealthClient<transport::Channel>> {
         let socket_path = socket_path.to_path_buf();
         let connector_path = socket_path.clone();
-        let endpoint = Endpoint::try_from("http://[::]:50051")
-            .map_err(|err| Status::internal(format!("build resource-health endpoint: {err}")))?;
+        let endpoint = transport::Endpoint::try_from("http://[::]:50051").map_err(|err| {
+            tonic::Status::internal(format!("build resource-health endpoint: {err}"))
+        })?;
         let channel = endpoint
-            .connect_with_connector(service_fn(move |_: Uri| {
+            .connect_with_connector(service_fn(move |_| {
                 let path = connector_path.clone();
-                async move { UnixStream::connect(path).await.map(TokioIo::new) }
+                async move { net::UnixStream::connect(path).await.map(TokioIo::new) }
             }))
             .await
             .map_err(|err| {
-                Status::unavailable(format!(
+                tonic::Status::unavailable(format!(
                     "failed to connect to resource-health socket {}: {err}",
                     socket_path.display()
                 ))
             })?;
-        Ok(v1alpha1::DraResourceHealthClient::new(channel))
+        Ok(healthv1::DraResourceHealthClient::new(channel))
     }
 
-    fn start_server(
-        service: DraResourceHealthService,
-    ) -> (std::path::PathBuf, TempDir, tokio::task::JoinHandle<()>) {
+    fn start_server(service: DraResourceHealthService) -> (PathBuf, TempDir, task::JoinHandle<()>) {
         let socket_dir = TempDir::new().expect("create resource-health socket directory");
         let socket_path = socket_dir.path().join("plugin.sock");
-        let listener =
-            tokio::net::UnixListener::bind(&socket_path).expect("bind resource-health socket");
+        let listener = net::UnixListener::bind(&socket_path).expect("bind resource-health socket");
         let incoming = UnixListenerStream::new(listener);
-        let server = tonic::transport::Server::builder()
-            .add_service(v1alpha1::DraResourceHealthServer::new(service));
+        let server = transport::Server::builder()
+            .add_service(healthv1::DraResourceHealthServer::new(service));
         let handle = tokio::spawn(async move {
             let _ = server.serve_with_incoming(incoming).await;
         });
@@ -324,7 +308,7 @@ mod tests {
         let mut client = connect(&socket_path).await.expect("connect health client");
 
         let mut first = client
-            .node_watch_resources(v1alpha1::NodeWatchResourcesRequest {})
+            .node_watch_resources(healthv1::NodeWatchResourcesRequest {})
             .await
             .expect("start first health watch")
             .into_inner();
@@ -335,9 +319,9 @@ mod tests {
             .expect("first health report");
         assert_eq!(first_update.devices.len(), 1);
         assert_eq!(
-            v1alpha1::HealthStatus::try_from(first_update.devices[0].health)
+            healthv1::HealthStatus::try_from(first_update.devices[0].health)
                 .expect("known health enum"),
-            v1alpha1::HealthStatus::Healthy
+            healthv1::HealthStatus::Healthy
         );
         assert_eq!(
             first
@@ -345,11 +329,11 @@ mod tests {
                 .await
                 .expect_err("stopped reporter ends the health stream")
                 .code(),
-            Code::Unavailable
+            tonic::Code::Unavailable
         );
 
         let mut second = client
-            .node_watch_resources(v1alpha1::NodeWatchResourcesRequest {})
+            .node_watch_resources(healthv1::NodeWatchResourcesRequest {})
             .await
             .expect("reconnect health watch")
             .into_inner();
@@ -359,9 +343,9 @@ mod tests {
             .expect("second health stream response")
             .expect("second health report");
         assert_eq!(
-            v1alpha1::HealthStatus::try_from(second_update.devices[0].health)
+            healthv1::HealthStatus::try_from(second_update.devices[0].health)
                 .expect("known health enum"),
-            v1alpha1::HealthStatus::Unhealthy
+            healthv1::HealthStatus::Unhealthy
         );
         assert_eq!(reporter.sessions.load(Ordering::SeqCst), 2);
         handle.abort();
@@ -374,11 +358,11 @@ mod tests {
         let mut client = connect(&socket_path).await.expect("connect health client");
         assert_eq!(
             client
-                .node_watch_resources(v1alpha1::NodeWatchResourcesRequest {})
+                .node_watch_resources(healthv1::NodeWatchResourcesRequest {})
                 .await
                 .expect_err("unsupported backend rejects health watches")
                 .code(),
-            Code::Unimplemented
+            tonic::Code::Unimplemented
         );
         handle.abort();
     }

@@ -7,20 +7,46 @@
 //! `DraPlugin::run` lifecycle harness. See `docs/dra-design.md` for the
 //! full design and phasing.
 
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::fmt;
 use std::io;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
+use k8s_device_plugin_core::AllocatedDevice;
+use k8s_device_plugin_core::AttributeValue;
+use k8s_device_plugin_core::ClaimPreparer;
+use k8s_device_plugin_core::ClaimRef;
 use k8s_device_plugin_core::DraDriver;
+use k8s_device_plugin_core::PoolDevice;
+use k8s_device_plugin_core::PrepareError;
+use k8s_device_plugin_core::PreparedDevice;
+use k8s_device_plugin_core::ResolvedClaim;
 #[cfg(feature = "resource-health")]
 use k8s_device_plugin_core::ResourceHealthReporter;
-use k8s_device_plugin_proto::dra::KUBELET_PLUGINS_PATH;
-use k8s_device_plugin_proto::dra::KUBELET_PLUGINS_REGISTRY_PATH;
-use kube::Client;
-use tokio::task::JoinHandle;
+use k8s_device_plugin_core::ResourcePool;
+use k8s_device_plugin_proto::dra;
+use kube::api;
+use serde_json as json;
+use tokio::net;
+use tokio::task;
 use tonic::transport;
 
+use k8s_openapi::api::core::v1 as corev1;
+use k8s_openapi::api::resource::v1 as resourcev1;
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity as K8sQuantity;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1 as metav1;
+
 pub use claim::ClaimResolver;
+pub use device_status::ClaimDeviceStatus;
+pub use device_status::ClaimDeviceStatusError;
+pub use device_status::ClaimDeviceStatusKey;
+pub use device_status::ClaimDeviceStatusPublishOutcome;
+pub use device_status::ClaimDeviceStatusPublisher;
+pub use ext::KubeClientExt;
 pub use health::DraPluginLivenessProbe;
 pub use registration::DraRegistrationServer;
 #[cfg(feature = "resource-health")]
@@ -30,6 +56,7 @@ pub use service::DraPluginService;
 
 mod claim;
 mod device_status;
+mod ext;
 mod health;
 mod registration;
 #[cfg(feature = "resource-health")]
@@ -37,15 +64,9 @@ mod resource_health;
 mod resourceslice;
 mod service;
 
-pub use device_status::ClaimDeviceStatus;
-pub use device_status::ClaimDeviceStatusError;
-pub use device_status::ClaimDeviceStatusKey;
-pub use device_status::ClaimDeviceStatusPublishOutcome;
-pub use device_status::ClaimDeviceStatusPublisher;
-
 fn component_error(
     component: &str,
-    result: Result<Result<(), transport::Error>, tokio::task::JoinError>,
+    result: Result<Result<(), transport::Error>, task::JoinError>,
 ) -> io::Error {
     match result {
         Ok(Ok(())) => io::Error::other(format!("{component} exited unexpectedly")),
@@ -54,7 +75,7 @@ fn component_error(
     }
 }
 
-fn publisher_error(result: Result<(), tokio::task::JoinError>) -> io::Error {
+fn publisher_error(result: Result<(), task::JoinError>) -> io::Error {
     match result {
         Ok(()) => io::Error::other("ResourceSlice publisher exited unexpectedly"),
         Err(join_err) => io::Error::other(format!("ResourceSlice publisher panicked: {join_err}")),
@@ -66,9 +87,9 @@ fn publisher_error(result: Result<(), tokio::task::JoinError>) -> io::Error {
 /// [`JoinHandle`] detaches its task, so each losing branch must be aborted
 /// explicitly instead of relying on normal scope cleanup.
 async fn wait_for_component_exit(
-    mut registration_handle: JoinHandle<Result<(), transport::Error>>,
-    mut service_handle: JoinHandle<Result<(), transport::Error>>,
-    mut publisher_handle: JoinHandle<()>,
+    mut registration_handle: task::JoinHandle<Result<(), transport::Error>>,
+    mut service_handle: task::JoinHandle<Result<(), transport::Error>>,
+    mut publisher_handle: task::JoinHandle<()>,
 ) -> io::Result<()> {
     tokio::select! {
         result = &mut registration_handle => {
@@ -114,7 +135,7 @@ impl DraPlugin {
     /// wiring of both belongs to a future deployable `dra-example` binary
     /// -- explicitly deferred past Phase 1 in `docs/dra-design.md`.
     pub fn new<D: DraDriver + 'static>(
-        client: Client,
+        client: kube::Client,
         driver_name: impl Into<String>,
         node_name: impl Into<String>,
         driver: D,
@@ -140,7 +161,7 @@ impl DraPlugin {
     /// the `ResourcePool` inventory snapshot.
     #[cfg(feature = "resource-health")]
     pub fn with_resource_health<D: DraDriver + ResourceHealthReporter + 'static>(
-        client: Client,
+        client: kube::Client,
         driver_name: impl Into<String>,
         node_name: impl Into<String>,
         driver: D,
@@ -164,11 +185,11 @@ impl DraPlugin {
 
     #[cfg(test)]
     fn for_test<D: DraDriver + 'static>(
-        client: Client,
+        client: kube::Client,
         driver_name: impl Into<String>,
         node_name: impl Into<String>,
         driver: D,
-        registration_socket_path: std::path::PathBuf,
+        registration_socket_path: PathBuf,
     ) -> Self {
         let driver_name = driver_name.into();
         let driver = Arc::new(driver);
@@ -211,8 +232,8 @@ impl DraPlugin {
     /// would leave it either way, so explicit delete-on-graceful-shutdown
     /// only covers a subset of exits for no real benefit.
     pub async fn run(self) -> io::Result<()> {
-        let plugin_dir = Path::new(KUBELET_PLUGINS_PATH).join(&self.driver_name);
-        tokio::fs::create_dir_all(KUBELET_PLUGINS_REGISTRY_PATH).await?;
+        let plugin_dir = Path::new(dra::KUBELET_PLUGINS_PATH).join(&self.driver_name);
+        tokio::fs::create_dir_all(dra::KUBELET_PLUGINS_REGISTRY_PATH).await?;
         tokio::fs::create_dir_all(&plugin_dir).await?;
         self.run_at(&plugin_dir.join("plugin.sock")).await
     }
@@ -235,6 +256,10 @@ impl DraPlugin {
 
         wait_for_component_exit(registration_handle, service_handle, publisher_handle).await
     }
+}
+
+fn default<T: Default>() -> T {
+    T::default()
 }
 
 #[cfg(test)]

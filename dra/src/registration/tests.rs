@@ -1,9 +1,5 @@
-use std::fmt;
-use std::io;
-use std::sync::Arc;
 use std::sync::Mutex;
 
-use k8s_device_plugin_proto::dra::DRA_PLUGIN_SERVICE;
 use k8s_device_plugin_test::dra_registration::MockRegistrationClient;
 use tempfile::TempDir;
 use tracing::Level;
@@ -46,7 +42,7 @@ async fn get_info_returns_configured_plugin_info() {
     );
     assert_eq!(
         info.supported_versions,
-        vec![DRA_PLUGIN_SERVICE.to_string()]
+        vec![dra::DRA_PLUGIN_SERVICE.to_string()]
     );
 
     handle.abort();

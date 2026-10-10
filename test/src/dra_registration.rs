@@ -1,20 +1,6 @@
-use std::path::Path;
-use std::path::PathBuf;
-use std::sync::Arc;
-
-use hyper_util::rt::TokioIo;
 use k8s_device_plugin_proto::dra::registration;
-use tempfile::TempDir;
-use tokio::net::UnixListener;
-use tokio::net::UnixStream;
-use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
-use tokio_stream::wrappers::UnixListenerStream;
-use tonic::transport;
-use tonic::transport::Channel;
-use tonic::transport::Endpoint;
-use tonic::transport::Uri;
-use tower::service_fn;
+
+use super::*;
 
 /// A mock kubelet pluginwatcher: connects to a `Registration` socket and
 /// calls `GetInfo`/`NotifyRegistrationStatus`, playing the client role
@@ -25,7 +11,7 @@ use tower::service_fn;
 /// is the client.
 #[derive(Debug)]
 pub struct MockRegistrationClient {
-    inner: registration::RegistrationClient<Channel>,
+    inner: registration::RegistrationClient<transport::Channel>,
 }
 
 impl MockRegistrationClient {
@@ -33,14 +19,14 @@ impl MockRegistrationClient {
         let socket_path = PathBuf::from(path.as_ref());
         let connector_path = socket_path.clone();
 
-        let endpoint = Endpoint::try_from("http://[::]:50051").map_err(|err| {
+        let endpoint = transport::Endpoint::try_from("http://[::]:50051").map_err(|err| {
             tonic::Status::internal(format!("failed to build registration endpoint: {err}"))
         })?;
 
         let channel = endpoint
-            .connect_with_connector(service_fn(move |_: Uri| {
+            .connect_with_connector(service_fn(move |_| {
                 let path = connector_path.clone();
-                async move { UnixStream::connect(path).await.map(TokioIo::new) }
+                async move { net::UnixStream::connect(path).await.map(TokioIo::new) }
             }))
             .await
             .map_err(|err| {
@@ -113,7 +99,7 @@ pub struct MockRegistrationServer {
     _socket_dir: TempDir,
     socket_path: PathBuf,
     notifications: Arc<Mutex<Vec<registration::RegistrationStatus>>>,
-    server_handle: JoinHandle<Result<(), transport::Error>>,
+    server_handle: task::JoinHandle<Result<(), transport::Error>>,
 }
 
 impl MockRegistrationServer {
@@ -142,7 +128,7 @@ pub fn start_mock_registration_server(
     let socket_path = socket_dir.path().join("plugin-reg.sock");
     let notifications = Arc::clone(&fake.notifications);
 
-    let listener = UnixListener::bind(&socket_path).expect("bind unix socket");
+    let listener = net::UnixListener::bind(&socket_path).expect("bind unix socket");
     let incoming = UnixListenerStream::new(listener);
     let server =
         transport::Server::builder().add_service(registration::RegistrationServer::new(fake));

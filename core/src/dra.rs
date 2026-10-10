@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use super::*;
 
 #[cfg(feature = "resource-health")]

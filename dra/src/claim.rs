@@ -1,17 +1,9 @@
 //! `ResourceClaim` resolver (claim reference -> `ResolvedClaim`) — see
 //! beads issue 9uf.6.
 
-use std::fmt;
-use std::time::Duration;
-
 use futures::StreamExt;
-use k8s_device_plugin_core::AllocatedDevice;
-use k8s_device_plugin_core::ClaimRef;
-use k8s_device_plugin_core::PrepareError;
-use k8s_device_plugin_core::ResolvedClaim;
-use k8s_openapi::api::resource::v1::ResourceClaim;
-use kube::Api;
-use kube::Client;
+
+use super::*;
 
 const DEFAULT_MAX_CONCURRENT_RESOLVES: usize = 16;
 const DEFAULT_MAX_ATTEMPTS: usize = 3;
@@ -22,7 +14,7 @@ const DEFAULT_RETRY_DELAY: Duration = Duration::from_millis(50);
 /// real `ResourceClaim` object's `status.allocation` from the API server.
 #[derive(Clone)]
 pub struct ClaimResolver {
-    client: Client,
+    client: kube::Client,
     max_concurrent_resolves: usize,
     max_attempts: usize,
     retry_delay: Duration,
@@ -35,7 +27,7 @@ impl fmt::Debug for ClaimResolver {
 }
 
 impl ClaimResolver {
-    pub fn new(client: Client) -> Self {
+    pub fn new(client: kube::Client) -> Self {
         Self {
             client,
             max_concurrent_resolves: DEFAULT_MAX_CONCURRENT_RESOLVES,
@@ -65,7 +57,7 @@ impl ClaimResolver {
 
     /// Resolves one claim reference to what the scheduler actually allocated.
     pub async fn resolve(&self, claim_ref: &ClaimRef) -> Result<ResolvedClaim, PrepareError> {
-        let api: Api<ResourceClaim> = Api::namespaced(self.client.clone(), &claim_ref.namespace);
+        let api = self.client.resource_claims(claim_ref);
         let mut attempt = 0;
         let claim = loop {
             attempt += 1;
@@ -159,18 +151,18 @@ fn is_transient_read_error(error: &kube::Error) -> bool {
                 if let Some(error) = error.downcast_ref::<kube::Error>() {
                     return is_transient_read_error(error);
                 }
-                if let Some(error) = error.downcast_ref::<std::io::Error>() {
+                if let Some(error) = error.downcast_ref::<io::Error>() {
                     return matches!(
                         error.kind(),
-                        std::io::ErrorKind::TimedOut
-                            | std::io::ErrorKind::Interrupted
-                            | std::io::ErrorKind::WouldBlock
-                            | std::io::ErrorKind::ConnectionRefused
-                            | std::io::ErrorKind::ConnectionReset
-                            | std::io::ErrorKind::ConnectionAborted
-                            | std::io::ErrorKind::NotConnected
-                            | std::io::ErrorKind::BrokenPipe
-                            | std::io::ErrorKind::UnexpectedEof
+                        io::ErrorKind::TimedOut
+                            | io::ErrorKind::Interrupted
+                            | io::ErrorKind::WouldBlock
+                            | io::ErrorKind::ConnectionRefused
+                            | io::ErrorKind::ConnectionReset
+                            | io::ErrorKind::ConnectionAborted
+                            | io::ErrorKind::NotConnected
+                            | io::ErrorKind::BrokenPipe
+                            | io::ErrorKind::UnexpectedEof
                     );
                 }
                 source = error.source();

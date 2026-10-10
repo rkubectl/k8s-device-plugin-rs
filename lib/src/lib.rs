@@ -4,12 +4,13 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::net::UnixListener;
-use tokio::task::JoinHandle;
+use hyper_util::rt::TokioIo;
+use tokio::net;
+use tokio::task;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport;
-use tonic::transport::Channel;
+use tower::service_fn;
 
 use k8s_device_plugin_proto as proto;
 pub use proto::v1beta1;
@@ -242,7 +243,7 @@ impl DevicePlugin {
             .map_err(io::Error::other)
     }
 
-    fn spawn_server(&self) -> io::Result<JoinHandle<Result<(), transport::Error>>> {
+    fn spawn_server(&self) -> io::Result<task::JoinHandle<Result<(), transport::Error>>> {
         let incoming: UnixListenerStream = self.setup_listener()?;
         let svc = self.service();
         let router = transport::Server::builder().add_service(svc);
@@ -274,7 +275,7 @@ impl DevicePlugin {
 
     fn setup_listener(&self) -> io::Result<UnixListenerStream> {
         let listener = k8s_device_plugin_core::bind_unix_listener(Path::new(&self.endpoint))?;
-        UnixListener::from_std(listener).map(UnixListenerStream::new)
+        net::UnixListener::from_std(listener).map(UnixListenerStream::new)
     }
 
     fn service(&self) -> v1beta1::DevicePluginServer<DevicePluginService> {

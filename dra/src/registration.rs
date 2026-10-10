@@ -10,24 +10,16 @@
 //! reconnects on its own, so this type's only job is to keep the socket
 //! bound and answer whenever asked.
 
-use std::io;
-use std::path::Path;
-use std::path::PathBuf;
-
-use k8s_device_plugin_proto::dra::DRA_PLUGIN_SERVICE;
-use k8s_device_plugin_proto::dra::KUBELET_PLUGINS_REGISTRY_PATH;
-use k8s_device_plugin_proto::dra::registration;
-use tokio::net::UnixListener;
-use tokio::task::JoinHandle;
 use tokio_stream::wrappers::UnixListenerStream;
-use tonic::transport;
+
+use super::*;
 
 const REGISTRATION_SOCKET_SUFFIX: &str = "-reg.sock";
 
 #[derive(Debug)]
 pub struct DraRegistrationServer {
     socket_path: PathBuf,
-    plugin_info: registration::PluginInfo,
+    plugin_info: dra::registration::PluginInfo,
 }
 
 impl DraRegistrationServer {
@@ -36,12 +28,12 @@ impl DraRegistrationServer {
     /// computed here, so this type stays decoupled from that one.
     pub fn new(driver_name: &str, plugin_endpoint: &str) -> Self {
         let socket_name = Self::socket_name(driver_name);
-        let socket_path = Path::new(KUBELET_PLUGINS_REGISTRY_PATH).join(socket_name);
-        let plugin_info = registration::PluginInfo {
+        let socket_path = Path::new(dra::KUBELET_PLUGINS_REGISTRY_PATH).join(socket_name);
+        let plugin_info = dra::registration::PluginInfo {
             r#type: "DRAPlugin".to_string(),
             name: driver_name.to_string(),
             endpoint: plugin_endpoint.to_string(),
-            supported_versions: vec![DRA_PLUGIN_SERVICE.to_string()],
+            supported_versions: vec![dra::DRA_PLUGIN_SERVICE.to_string()],
         };
         Self {
             socket_path,
@@ -51,11 +43,11 @@ impl DraRegistrationServer {
 
     #[cfg(test)]
     pub(crate) fn for_test(driver_name: &str, plugin_endpoint: &str, socket_path: PathBuf) -> Self {
-        let plugin_info = registration::PluginInfo {
+        let plugin_info = dra::registration::PluginInfo {
             r#type: "DRAPlugin".to_string(),
             name: driver_name.to_string(),
             endpoint: plugin_endpoint.to_string(),
-            supported_versions: vec![DRA_PLUGIN_SERVICE.to_string()],
+            supported_versions: vec![dra::DRA_PLUGIN_SERVICE.to_string()],
         };
         Self {
             socket_path,
@@ -65,7 +57,7 @@ impl DraRegistrationServer {
 
     pub(crate) fn socket_name(driver_name: &str) -> String {
         let budget = k8s_device_plugin_core::MAX_SOCKET_PATH_LEN
-            .saturating_sub(KUBELET_PLUGINS_REGISTRY_PATH.len())
+            .saturating_sub(dra::KUBELET_PLUGINS_REGISTRY_PATH.len())
             .saturating_sub(REGISTRATION_SOCKET_SUFFIX.len());
         k8s_device_plugin_core::sanitize_socket_name(driver_name, budget)
             + REGISTRATION_SOCKET_SUFFIX
@@ -83,57 +75,59 @@ impl DraRegistrationServer {
     }
 
     /// Binds the registration socket and spawns the gRPC server.
-    pub async fn spawn(&self) -> io::Result<JoinHandle<Result<(), transport::Error>>> {
+    pub async fn spawn(&self) -> io::Result<task::JoinHandle<Result<(), transport::Error>>> {
         let incoming = self.setup_listener().await?;
         let service = RegistrationService {
             plugin_info: self.plugin_info.clone(),
         };
         let router = transport::Server::builder()
-            .add_service(registration::RegistrationServer::new(service));
+            .add_service(dra::registration::RegistrationServer::new(service));
         Ok(tokio::spawn(router.serve_with_incoming(incoming)))
     }
 
     async fn setup_listener(&self) -> io::Result<UnixListenerStream> {
         let socket_path = self.socket_path.clone();
-        let listener = tokio::task::spawn_blocking(move || {
-            k8s_device_plugin_core::bind_unix_listener(&socket_path)
-        })
-        .await
-        .map_err(io::Error::other)??;
-        UnixListener::from_std(listener).map(UnixListenerStream::new)
+        let listener =
+            task::spawn_blocking(move || k8s_device_plugin_core::bind_unix_listener(&socket_path))
+                .await
+                .map_err(io::Error::other)??;
+        net::UnixListener::from_std(listener).map(UnixListenerStream::new)
     }
 }
 
 #[derive(Debug)]
 struct RegistrationService {
-    plugin_info: registration::PluginInfo,
+    plugin_info: dra::registration::PluginInfo,
 }
 
 #[tonic::async_trait]
-impl registration::Registration for RegistrationService {
+impl dra::registration::Registration for RegistrationService {
     async fn get_info(
         &self,
-        _request: tonic::Request<registration::InfoRequest>,
-    ) -> tonic::Result<tonic::Response<registration::PluginInfo>> {
+        _request: tonic::Request<dra::registration::InfoRequest>,
+    ) -> tonic::Result<tonic::Response<dra::registration::PluginInfo>> {
         Ok(tonic::Response::new(self.plugin_info.clone()))
     }
 
     async fn notify_registration_status(
         &self,
-        request: tonic::Request<registration::RegistrationStatus>,
-    ) -> tonic::Result<tonic::Response<registration::RegistrationStatusResponse>> {
+        request: tonic::Request<dra::registration::RegistrationStatus>,
+    ) -> tonic::Result<tonic::Response<dra::registration::RegistrationStatusResponse>> {
         let status = request.into_inner();
         if status.plugin_registered {
-            tracing::info!(driver_name = %self.plugin_info.name, "registered with kubelet");
+            tracing::info!(
+                driver_name = self.plugin_info.name,
+                "registered with kubelet"
+            );
         } else {
             tracing::error!(
-                driver_name = %self.plugin_info.name,
-                error = %status.error,
+                driver_name = self.plugin_info.name,
+                status.error,
                 "kubelet rejected registration"
             );
         }
         Ok(tonic::Response::new(
-            registration::RegistrationStatusResponse {},
+            dra::registration::RegistrationStatusResponse {},
         ))
     }
 }

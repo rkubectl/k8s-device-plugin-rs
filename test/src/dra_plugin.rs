@@ -1,20 +1,13 @@
-use std::path::Path;
-use std::path::PathBuf;
-
-use hyper_util::rt::TokioIo;
 use k8s_device_plugin_proto::dra::v1;
-use tokio::net::UnixStream;
-use tonic::transport::Channel;
-use tonic::transport::Endpoint;
-use tonic::transport::Uri;
-use tower::service_fn;
+
+use super::*;
 
 /// A mock kubelet DRA manager: connects to a `DRAPlugin` socket and calls
 /// `NodePrepareResources`/`NodeUnprepareResources`, mirroring
 /// [`crate::device_plugin::MockDevicePluginClient`] for the classic plugin.
 #[derive(Debug)]
 pub struct MockDraPluginClient {
-    inner: v1::DraPluginClient<Channel>,
+    inner: v1::DraPluginClient<transport::Channel>,
 }
 
 impl MockDraPluginClient {
@@ -23,14 +16,14 @@ impl MockDraPluginClient {
         let socket_path = PathBuf::from(path.as_ref());
         let connector_path = socket_path.clone();
 
-        let endpoint = Endpoint::try_from("http://[::]:50051").map_err(|err| {
+        let endpoint = transport::Endpoint::try_from("http://[::]:50051").map_err(|err| {
             tonic::Status::internal(format!("failed to build DRA plugin endpoint: {err}"))
         })?;
 
         let channel = endpoint
-            .connect_with_connector(service_fn(move |_: Uri| {
+            .connect_with_connector(service_fn(move |_| {
                 let path = connector_path.clone();
-                async move { UnixStream::connect(path).await.map(TokioIo::new) }
+                async move { net::UnixStream::connect(path).await.map(TokioIo::new) }
             }))
             .await
             .map_err(|err| {
@@ -71,11 +64,6 @@ impl MockDraPluginClient {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::path::PathBuf;
-
-    use tempfile::TempDir;
-    use tokio_stream::wrappers::UnixListenerStream;
-    use tonic::transport;
 
     use super::*;
 
@@ -144,10 +132,10 @@ mod tests {
         }
     }
 
-    fn start_fake_plugin() -> (PathBuf, TempDir, tokio::task::JoinHandle<()>) {
+    fn start_fake_plugin() -> (PathBuf, TempDir, task::JoinHandle<()>) {
         let socket_dir = TempDir::new().expect("create temp dir for plugin socket");
         let socket_path = socket_dir.path().join("plugin.sock");
-        let listener = tokio::net::UnixListener::bind(&socket_path).expect("bind unix socket");
+        let listener = net::UnixListener::bind(&socket_path).expect("bind unix socket");
         let incoming = UnixListenerStream::new(listener);
         let server =
             transport::Server::builder().add_service(v1::DraPluginServer::new(FakeDraPlugin));

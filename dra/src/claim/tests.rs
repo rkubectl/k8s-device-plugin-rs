@@ -2,8 +2,6 @@ use k8s_device_plugin_test::kube_mock::allocated_status;
 use k8s_device_plugin_test::kube_mock::mock_kube_client;
 use k8s_device_plugin_test::kube_mock::resource_claim_json;
 use kube::client::Body;
-use serde_json::json;
-use std::time::Duration;
 
 use super::*;
 
@@ -22,7 +20,7 @@ fn mock_resolver() -> (
 fn respond_once(
     mut handle: k8s_device_plugin_test::kube_mock::MockKubeHandle,
     body: serde_json::Value,
-) -> tokio::task::JoinHandle<http::Request<Body>> {
+) -> task::JoinHandle<http::Request<Body>> {
     tokio::spawn(async move {
         let (request, send) = handle.next_request().await.expect("request sent");
         let bytes = serde_json::to_vec(&body).expect("serialize response body");
@@ -95,7 +93,7 @@ async fn resolve_rejects_claim_without_allocation() {
         uid: "claim-uid-0".to_string(),
         name: "my-claim".to_string(),
     };
-    let body = resource_claim_json("my-claim", "default", "claim-uid-0", json!({}));
+    let body = resource_claim_json("my-claim", "default", "claim-uid-0", json::json!({}));
     let server = respond_once(handle, body);
 
     let err = resolver
@@ -181,7 +179,7 @@ async fn resolve_retries_a_transient_api_failure() {
             http::Response::builder()
                 .status(500)
                 .body(Body::from(
-                    serde_json::to_vec(&json!({
+                    serde_json::to_vec(&json::json!({
                         "status": "Failure",
                         "reason": "InternalError",
                         "code": 500,
@@ -278,7 +276,7 @@ async fn resolve_retries_only_transient_http_errors_and_respects_attempt_limit()
                         .status(code)
                         .body(Body::from(
                             serde_json::to_vec(
-                                &json!({"status": "Failure", "reason": "TestError", "code": code}),
+                                &json::json!({"status": "Failure", "reason": "TestError", "code": code}),
                             )
                             .expect("serialize error"),
                         ))
@@ -319,14 +317,14 @@ fn retry_classification_excludes_decoding_and_permanent_io_errors() {
         decode_error
     )));
     for (kind, retry) in [
-        (std::io::ErrorKind::TimedOut, true),
-        (std::io::ErrorKind::ConnectionReset, true),
-        (std::io::ErrorKind::ConnectionRefused, true),
-        (std::io::ErrorKind::PermissionDenied, false),
-        (std::io::ErrorKind::InvalidInput, false),
+        (io::ErrorKind::TimedOut, true),
+        (io::ErrorKind::ConnectionReset, true),
+        (io::ErrorKind::ConnectionRefused, true),
+        (io::ErrorKind::PermissionDenied, false),
+        (io::ErrorKind::InvalidInput, false),
     ] {
         assert_eq!(
-            is_transient_read_error(&kube::Error::Service(Box::new(std::io::Error::from(kind)))),
+            is_transient_read_error(&kube::Error::Service(Box::new(io::Error::from(kind)))),
             retry
         );
     }

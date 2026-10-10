@@ -1,9 +1,4 @@
-use k8s_device_plugin_core::AllocationError;
-use k8s_device_plugin_core::ContainerAllocation;
-use k8s_device_plugin_core::Device;
-use k8s_device_plugin_core::DeviceAllocator;
-use k8s_device_plugin_core::DeviceDiscovery;
-use k8s_device_plugin_core::K8sDevicePlugin;
+use super::*;
 
 /// A [`K8sDevicePlugin`] backend for the simplest common case: a fixed device
 /// list known at startup, with no ongoing discovery or health tracking.

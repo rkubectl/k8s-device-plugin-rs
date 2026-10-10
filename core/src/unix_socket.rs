@@ -1,12 +1,11 @@
 //! Safe startup for filesystem Unix-domain sockets.
 
 use std::fs;
-use std::fs::File;
 use std::io;
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
-use std::path::Path;
-use std::path::PathBuf;
+
+use super::*;
 
 fn lock_path(socket_path: &Path) -> PathBuf {
     let mut lock_path = socket_path.as_os_str().to_os_string();
@@ -33,7 +32,7 @@ pub fn bind_unix_listener(socket_path: &Path) -> io::Result<UnixListener> {
     // Keep this pathname after releasing the lock. Unlinking it would let a
     // newcomer lock a new inode while an existing waiter holds the old one,
     // defeating startup serialization.
-    let startup_lock = File::options()
+    let startup_lock = fs::File::options()
         .read(true)
         .write(true)
         .create(true)
@@ -82,8 +81,6 @@ fn recover_or_refuse_active_socket(socket_path: &Path) -> io::Result<UnixListene
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::net::UnixStream;
-    use std::sync::Arc;
     use std::sync::Barrier;
     use std::sync::mpsc;
     use std::thread;

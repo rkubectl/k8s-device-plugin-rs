@@ -1,8 +1,6 @@
-use std::io;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-use k8s_device_plugin_core::ResolvedClaim;
 use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
 use k8s_device_plugin_test::kube_mock::MockKubeHandle;
 use k8s_device_plugin_test::kube_mock::allocated_status;
@@ -75,7 +73,7 @@ impl FakeClaimPreparer {
     fn failing(fail_uid: &str) -> Self {
         Self {
             fail_uid: Some(fail_uid.to_string()),
-            ..Default::default()
+            ..default()
         }
     }
 }
@@ -122,8 +120,8 @@ impl ClaimPreparer for FakeClaimPreparer {
     }
 }
 
-fn wire_claim(name: &str, uid: &str) -> v1::Claim {
-    v1::Claim {
+fn wire_claim(name: &str, uid: &str) -> dra::v1::Claim {
+    dra::v1::Claim {
         namespace: "default".to_string(),
         uid: uid.to_string(),
         name: name.to_string(),

@@ -1,15 +1,7 @@
-use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 
-use k8s_device_plugin_proto::v1beta1;
-use tempfile::TempDir;
-use tokio::net::UnixListener;
-use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
-use tokio_stream::wrappers::UnixListenerStream;
-use tonic::transport;
+use super::*;
 
 #[derive(Debug, Default)]
 pub struct FakeRegistration {
@@ -45,7 +37,7 @@ pub struct MockRegistrationServer {
     _socket_dir: TempDir,
     socket_path: PathBuf,
     requests: Arc<Mutex<Vec<v1beta1::RegisterRequest>>>,
-    server_handle: JoinHandle<Result<(), transport::Error>>,
+    server_handle: task::JoinHandle<Result<(), transport::Error>>,
 }
 
 impl MockRegistrationServer {
@@ -88,7 +80,7 @@ fn start_server(fake: FakeRegistration) -> MockRegistrationServer {
     let socket_path = socket_dir.path().join(v1beta1::KUBELET_SOCKET);
     let requests = Arc::clone(&fake.requests);
 
-    let listener = UnixListener::bind(&socket_path).expect("bind unix socket");
+    let listener = net::UnixListener::bind(&socket_path).expect("bind unix socket");
     let incoming = UnixListenerStream::new(listener);
     let server = transport::Server::builder().add_service(v1beta1::RegistrationServer::new(fake));
     let server_handle = tokio::spawn(server.serve_with_incoming(incoming));

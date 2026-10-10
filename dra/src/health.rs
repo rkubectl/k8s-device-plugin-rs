@@ -1,22 +1,9 @@
 //! Liveness probing for node-local DRA plugin sockets.
 
-use std::io;
-use std::path::Path;
-use std::path::PathBuf;
-use std::time::Duration;
-
 use hyper_util::rt::TokioIo;
-use k8s_device_plugin_proto::dra::KUBELET_PLUGINS_PATH;
-use k8s_device_plugin_proto::dra::KUBELET_PLUGINS_REGISTRY_PATH;
-use k8s_device_plugin_proto::dra::registration;
-use k8s_device_plugin_proto::dra::v1;
-use tokio::net::UnixStream;
-use tonic::transport::Channel;
-use tonic::transport::Endpoint;
-use tonic::transport::Uri;
 use tower::service_fn;
 
-use crate::DraRegistrationServer;
+use super::*;
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -36,10 +23,10 @@ impl DraPluginLivenessProbe {
     /// Creates a probe for the standard kubelet paths of `driver_name`.
     #[must_use]
     pub fn new(driver_name: &str) -> Self {
-        let plugin_socket_path = Path::new(KUBELET_PLUGINS_PATH)
+        let plugin_socket_path = Path::new(dra::KUBELET_PLUGINS_PATH)
             .join(driver_name)
             .join("plugin.sock");
-        let registration_socket_path = Path::new(KUBELET_PLUGINS_REGISTRY_PATH)
+        let registration_socket_path = Path::new(dra::KUBELET_PLUGINS_REGISTRY_PATH)
             .join(DraRegistrationServer::socket_name(driver_name));
         Self::with_socket_paths(registration_socket_path, plugin_socket_path)
     }
@@ -69,9 +56,10 @@ impl DraPluginLivenessProbe {
     /// fails.
     pub async fn check(&self) -> io::Result<()> {
         let registration_channel = connect(&self.registration_socket_path, "registration").await?;
-        let mut registration_client = registration::RegistrationClient::new(registration_channel);
+        let mut registration_client =
+            dra::registration::RegistrationClient::new(registration_channel);
         let info = registration_client
-            .get_info(tonic::Request::new(registration::InfoRequest {}))
+            .get_info(tonic::Request::new(dra::registration::InfoRequest {}))
             .await
             .map_err(|error| rpc_error("registration GetInfo", error))?
             .into_inner();
@@ -100,9 +88,9 @@ impl DraPluginLivenessProbe {
         }
 
         let plugin_channel = connect(&self.plugin_socket_path, "DRAPlugin").await?;
-        let mut plugin_client = v1::DraPluginClient::new(plugin_channel);
+        let mut plugin_client = dra::v1::DraPluginClient::new(plugin_channel);
         plugin_client
-            .node_prepare_resources(tonic::Request::new(v1::NodePrepareResourcesRequest {
+            .node_prepare_resources(tonic::Request::new(dra::v1::NodePrepareResourcesRequest {
                 claims: Vec::new(),
             }))
             .await
@@ -111,18 +99,22 @@ impl DraPluginLivenessProbe {
     }
 }
 
-async fn connect(socket_path: &Path, service: &str) -> io::Result<Channel> {
+async fn connect(socket_path: &Path, service: &str) -> io::Result<transport::Channel> {
     let socket_path = socket_path.to_path_buf();
     let connector_path = socket_path.clone();
-    let endpoint = Endpoint::try_from("http://[::]:50051")
+    let endpoint = transport::Endpoint::try_from("http://[::]:50051")
         .map_err(|error| io::Error::other(format!("build {service} probe endpoint: {error}")))?
         .connect_timeout(PROBE_TIMEOUT)
         .timeout(PROBE_TIMEOUT);
 
     endpoint
-        .connect_with_connector(service_fn(move |_: Uri| {
+        .connect_with_connector(service_fn(move |_| {
             let socket_path = connector_path.clone();
-            async move { UnixStream::connect(socket_path).await.map(TokioIo::new) }
+            async move {
+                net::UnixStream::connect(socket_path)
+                    .await
+                    .map(TokioIo::new)
+            }
         }))
         .await
         .map_err(|error| {

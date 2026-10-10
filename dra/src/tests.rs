@@ -1,17 +1,5 @@
-use std::collections::BTreeMap;
 use std::future;
-use std::io;
-use std::time::Duration;
 
-use k8s_device_plugin_core::ClaimPreparer;
-use k8s_device_plugin_core::ClaimRef;
-use k8s_device_plugin_core::PoolDevice;
-use k8s_device_plugin_core::PrepareError;
-use k8s_device_plugin_core::PreparedDevice;
-use k8s_device_plugin_core::ResolvedClaim;
-use k8s_device_plugin_core::ResourcePool;
-use k8s_device_plugin_proto::dra::DRA_PLUGIN_SERVICE;
-use k8s_device_plugin_proto::dra::v1;
 use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
 use k8s_device_plugin_test::dra_registration::MockRegistrationClient;
 use k8s_device_plugin_test::kube_mock::allocated_status;
@@ -20,7 +8,6 @@ use k8s_device_plugin_test::kube_mock::node_json;
 use k8s_device_plugin_test::kube_mock::resource_claim_json;
 use k8s_device_plugin_test::kube_mock::respond;
 use kube::client::Body;
-use serde_json::json;
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 
@@ -87,8 +74,8 @@ impl Drop for NotifyOnDrop {
     }
 }
 
-fn wire_claim(name: &str, uid: &str) -> v1::Claim {
-    v1::Claim {
+fn wire_claim(name: &str, uid: &str) -> dra::v1::Claim {
+    dra::v1::Claim {
         namespace: "default".to_string(),
         uid: uid.to_string(),
         name: name.to_string(),
@@ -128,7 +115,7 @@ async fn run_spawns_all_three_components_and_they_work() {
     respond(
         &mut kube_handle,
         200,
-        &json!({
+        &json::json!({
             "apiVersion": "resource.k8s.io/v1",
             "kind": "ResourceSliceList",
             "items": [],
@@ -141,7 +128,7 @@ async fn run_spawns_all_three_components_and_they_work() {
         .expect("create request sent");
     assert_eq!(create_request.method(), http::Method::POST);
     send.send_response(http::Response::new(Body::from(
-        serde_json::to_vec(&json!({})).unwrap(),
+        serde_json::to_vec(&json::json!({})).unwrap(),
     )));
 
     // Registration server came up: GetInfo answers correctly.
@@ -153,7 +140,7 @@ async fn run_spawns_all_three_components_and_they_work() {
     assert_eq!(info.name, "example.com");
     assert_eq!(
         info.supported_versions,
-        vec![DRA_PLUGIN_SERVICE.to_string()]
+        vec![dra::DRA_PLUGIN_SERVICE.to_string()]
     );
 
     // DRAPlugin gRPC service came up and can resolve+prepare a claim
@@ -256,7 +243,7 @@ async fn run_at_stops_registration_when_service_startup_fails() {
         .expect_err("service bind should fail when its parent directory is absent");
     assert_eq!(err.kind(), io::ErrorKind::NotFound);
     assert!(
-        tokio::net::UnixStream::connect(&registration_socket_path)
+        net::UnixStream::connect(&registration_socket_path)
             .await
             .is_err(),
         "registration server must not survive a service startup failure"

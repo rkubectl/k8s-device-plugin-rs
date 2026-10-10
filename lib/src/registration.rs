@@ -1,15 +1,8 @@
 use super::*;
-use hyper_util::rt::TokioIo;
-use std::path::Path;
-
-use tokio::net::UnixStream;
-use tonic::transport::Endpoint;
-use tonic::transport::Uri;
-use tower::service_fn;
 
 #[derive(Debug)]
 pub struct RegistrationClient {
-    inner: v1beta1::RegistrationClient<Channel>,
+    inner: v1beta1::RegistrationClient<transport::Channel>,
 }
 
 impl RegistrationClient {
@@ -18,16 +11,16 @@ impl RegistrationClient {
         let connector_path = socket_path.clone();
 
         // The URI host is ignored for Unix Domain Socket transport.
-        let endpoint = Endpoint::try_from("http://[::]:50051").map_err(|err| {
+        let endpoint = transport::Endpoint::try_from("http://[::]:50051").map_err(|err| {
             tonic::Status::internal(format!(
                 "failed to build kubelet registration endpoint: {err}"
             ))
         })?;
 
         let channel = endpoint
-            .connect_with_connector(service_fn(move |_: Uri| {
+            .connect_with_connector(service_fn(move |_| {
                 let path = connector_path.clone();
-                async move { UnixStream::connect(path).await.map(TokioIo::new) }
+                async move { net::UnixStream::connect(path).await.map(TokioIo::new) }
             }))
             .await
             .map_err(|err| {

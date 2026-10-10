@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use http_body_util::BodyExt;
 use k8s_device_plugin_test::kube_mock::MockKubeHandle;
 use k8s_device_plugin_test::kube_mock::device_json;
@@ -8,7 +6,6 @@ use k8s_device_plugin_test::kube_mock::node_json;
 use k8s_device_plugin_test::kube_mock::resource_slice_json;
 use k8s_device_plugin_test::kube_mock::respond;
 use kube::client::Body;
-use serde_json::json;
 
 use super::*;
 
@@ -32,7 +29,7 @@ fn mock_publisher(resource_pool: StaticPool) -> (ResourceSlicePublisher, MockKub
 }
 
 fn resource_slice_list(items: Vec<serde_json::Value>) -> serde_json::Value {
-    json!({
+    json::json!({
         "apiVersion": "resource.k8s.io/v1",
         "kind": "ResourceSliceList",
         "items": items,
@@ -44,7 +41,7 @@ fn owned_slice(
     generation: i64,
     pool_name: &str,
     slice_count: i64,
-    devices: Vec<serde_json::Value>,
+    devices: Vec<json::Value>,
 ) -> serde_json::Value {
     let mut slice = resource_slice_json(
         name,
@@ -54,8 +51,8 @@ fn owned_slice(
         pool_name,
         devices,
     );
-    slice["spec"]["pool"]["resourceSliceCount"] = json!(slice_count);
-    slice["metadata"]["ownerReferences"] = json!([{
+    slice["spec"]["pool"]["resourceSliceCount"] = json::json!(slice_count);
+    slice["metadata"]["ownerReferences"] = json::json!([{
         "apiVersion": "v1",
         "kind": "Node",
         "name": "node-0",
@@ -273,7 +270,8 @@ async fn publish_once_completes_new_generation_before_deleting_stale_slices() {
             http::Response::builder()
                 .status(200)
                 .body(Body::from(
-                    serde_json::to_vec(&json!({ "status": "Success" })).expect("serialize status"),
+                    serde_json::to_vec(&json::json!({ "status": "Success" }))
+                        .expect("serialize status"),
                 ))
                 .expect("build delete response"),
         );

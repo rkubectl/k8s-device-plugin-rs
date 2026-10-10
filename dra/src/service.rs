@@ -1,31 +1,12 @@
 //! `DRAPlugin` gRPC service (`NodePrepareResources`/`NodeUnprepareResources`)
 //! — see beads issue 9uf.7.
 
-use std::collections::BTreeMap;
-use std::fmt;
-use std::io;
-use std::path::Path;
-use std::path::PathBuf;
-use std::sync::Arc;
-
-use k8s_device_plugin_core::ClaimPreparer;
-use k8s_device_plugin_core::ClaimRef;
-use k8s_device_plugin_core::PrepareError;
-use k8s_device_plugin_core::PreparedDevice;
-#[cfg(feature = "resource-health")]
-use k8s_device_plugin_core::ResourceHealthReporter;
-use k8s_device_plugin_proto::dra::KUBELET_PLUGINS_PATH;
-use k8s_device_plugin_proto::dra::v1;
-use tokio::net::UnixListener;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::UnixListenerStream;
-use tonic::transport;
 
-use crate::claim::ClaimResolver;
-#[cfg(feature = "resource-health")]
-use crate::resource_health::DraResourceHealthService;
+use super::*;
 
-fn claim_from_wire(claim: &v1::Claim) -> ClaimRef {
+fn claim_from_wire(claim: &dra::v1::Claim) -> ClaimRef {
     ClaimRef {
         namespace: claim.namespace.clone(),
         uid: claim.uid.clone(),
@@ -33,8 +14,8 @@ fn claim_from_wire(claim: &v1::Claim) -> ClaimRef {
     }
 }
 
-fn prepared_device_to_wire(device: PreparedDevice) -> v1::Device {
-    v1::Device {
+fn prepared_device_to_wire(device: PreparedDevice) -> dra::v1::Device {
+    dra::v1::Device {
         request_names: device.request_names,
         pool_name: device.pool_name,
         device_name: device.device_name,
@@ -45,13 +26,13 @@ fn prepared_device_to_wire(device: PreparedDevice) -> v1::Device {
 
 fn node_prepare_response(
     result: Result<Vec<PreparedDevice>, PrepareError>,
-) -> v1::NodePrepareResourceResponse {
+) -> dra::v1::NodePrepareResourceResponse {
     match result {
-        Ok(devices) => v1::NodePrepareResourceResponse {
+        Ok(devices) => dra::v1::NodePrepareResourceResponse {
             devices: devices.into_iter().map(prepared_device_to_wire).collect(),
             error: String::new(),
         },
-        Err(err) => v1::NodePrepareResourceResponse {
+        Err(err) => dra::v1::NodePrepareResourceResponse {
             devices: vec![],
             error: err.to_string(),
         },
@@ -62,19 +43,18 @@ fn node_prepare_response(
 /// lifecycle harness (`DraPlugin::new`, crate root), which needs the same
 /// path to advertise as the registration server's `GetInfo.endpoint`.
 pub(crate) fn plugin_socket_path(driver_name: &str) -> PathBuf {
-    Path::new(KUBELET_PLUGINS_PATH)
+    Path::new(dra::KUBELET_PLUGINS_PATH)
         .join(driver_name)
         .join("plugin.sock")
 }
 
 async fn setup_listener(socket_path: &Path) -> io::Result<UnixListenerStream> {
     let socket_path = socket_path.to_path_buf();
-    let listener = tokio::task::spawn_blocking(move || {
-        k8s_device_plugin_core::bind_unix_listener(&socket_path)
-    })
-    .await
-    .map_err(io::Error::other)??;
-    UnixListener::from_std(listener).map(UnixListenerStream::new)
+    let listener =
+        task::spawn_blocking(move || k8s_device_plugin_core::bind_unix_listener(&socket_path))
+            .await
+            .map_err(io::Error::other)??;
+    net::UnixListener::from_std(listener).map(UnixListenerStream::new)
 }
 
 /// Adapter between the wire-level `dra.v1.DRAPlugin` gRPC service and a
@@ -136,23 +116,21 @@ impl DraPluginService {
         let incoming = setup_listener(socket_path).await?;
         let mut router = transport::Server::builder();
         #[cfg(feature = "resource-health")]
-        let router = router.add_service(
-            k8s_device_plugin_proto::dra::health::v1alpha1::DraResourceHealthServer::new(
-                self.health.clone(),
-            ),
-        );
-        let router = router.add_service(v1::DraPluginServer::new(self));
+        let router = router.add_service(dra::health::v1alpha1::DraResourceHealthServer::new(
+            self.health.clone(),
+        ));
+        let router = router.add_service(dra::v1::DraPluginServer::new(self));
         Ok(tokio::spawn(router.serve_with_incoming(incoming)))
     }
 }
 
 #[tonic::async_trait]
-impl v1::DraPlugin for DraPluginService {
+impl dra::v1::DraPlugin for DraPluginService {
     #[tracing::instrument(skip(self, request))]
     async fn node_prepare_resources(
         &self,
-        request: tonic::Request<v1::NodePrepareResourcesRequest>,
-    ) -> tonic::Result<tonic::Response<v1::NodePrepareResourcesResponse>> {
+        request: tonic::Request<dra::v1::NodePrepareResourcesRequest>,
+    ) -> tonic::Result<tonic::Response<dra::v1::NodePrepareResourcesResponse>> {
         let claim_refs: Vec<ClaimRef> = request
             .into_inner()
             .claims
@@ -210,16 +188,16 @@ impl v1::DraPlugin for DraPluginService {
             })
             .collect();
 
-        Ok(tonic::Response::new(v1::NodePrepareResourcesResponse {
-            claims,
-        }))
+        Ok(tonic::Response::new(
+            dra::v1::NodePrepareResourcesResponse { claims },
+        ))
     }
 
     #[tracing::instrument(skip(self, request))]
     async fn node_unprepare_resources(
         &self,
-        request: tonic::Request<v1::NodeUnprepareResourcesRequest>,
-    ) -> tonic::Result<tonic::Response<v1::NodeUnprepareResourcesResponse>> {
+        request: tonic::Request<dra::v1::NodeUnprepareResourcesRequest>,
+    ) -> tonic::Result<tonic::Response<dra::v1::NodeUnprepareResourcesResponse>> {
         let claim_refs: Vec<ClaimRef> = request
             .into_inner()
             .claims
@@ -234,18 +212,20 @@ impl v1::DraPlugin for DraPluginService {
                     .unprepare(&claim_ref)
                     .await
                     .err()
-                    .map(|err| err.to_string())
-                    .unwrap_or_default();
-                (claim_ref.uid, v1::NodeUnprepareResourceResponse { error })
+                    .map_or_default(|err| err.to_string());
+                (
+                    claim_ref.uid,
+                    dra::v1::NodeUnprepareResourceResponse { error },
+                )
             }
         }))
         .await
         .into_iter()
         .collect();
 
-        Ok(tonic::Response::new(v1::NodeUnprepareResourcesResponse {
-            claims,
-        }))
+        Ok(tonic::Response::new(
+            dra::v1::NodeUnprepareResourcesResponse { claims },
+        ))
     }
 }
 

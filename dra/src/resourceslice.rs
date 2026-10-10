@@ -1,30 +1,8 @@
 //! Authoritative `ResourceSlice` publisher.
 
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
-use std::fmt;
-use std::sync::Arc;
-use std::time::Duration;
+use kube::Resource as _;
 
-use k8s_device_plugin_core::AttributeValue;
-use k8s_device_plugin_core::PoolDevice;
-use k8s_device_plugin_core::ResourcePool;
-use k8s_openapi::api::core::v1::Node;
-use k8s_openapi::api::resource::v1::Device as WireDevice;
-use k8s_openapi::api::resource::v1::DeviceAttribute;
-use k8s_openapi::api::resource::v1::DeviceCapacity;
-use k8s_openapi::api::resource::v1::ResourcePool as WireResourcePool;
-use k8s_openapi::api::resource::v1::ResourceSlice;
-use k8s_openapi::api::resource::v1::ResourceSliceSpec;
-use k8s_openapi::apimachinery::pkg::api::resource::Quantity as WireQuantity;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
-use kube::Api;
-use kube::Client;
-use kube::api::DeleteParams;
-use kube::api::ListParams;
-use kube::api::PostParams;
-use tokio::task::JoinHandle;
+use super::*;
 
 /// Devices change far less often than a device's health status, so this
 /// defaults meaningfully longer than `DevicePluginService`'s 5s health-poll
@@ -45,28 +23,28 @@ fn slice_name(driver_name: &str, node_name: &str, pool_name: &str, index: usize)
     }
 }
 
-fn attribute_value_to_wire(value: &AttributeValue) -> DeviceAttribute {
+fn attribute_value_to_wire(value: &AttributeValue) -> resourcev1::DeviceAttribute {
     match value {
-        AttributeValue::String(s) => DeviceAttribute {
+        AttributeValue::String(s) => resourcev1::DeviceAttribute {
             string: Some(s.clone()),
-            ..Default::default()
+            ..default()
         },
-        AttributeValue::Int(i) => DeviceAttribute {
+        AttributeValue::Int(i) => resourcev1::DeviceAttribute {
             int: Some(*i),
-            ..Default::default()
+            ..default()
         },
-        AttributeValue::Bool(b) => DeviceAttribute {
+        AttributeValue::Bool(b) => resourcev1::DeviceAttribute {
             bool: Some(*b),
-            ..Default::default()
+            ..default()
         },
-        AttributeValue::Version(v) => DeviceAttribute {
+        AttributeValue::Version(v) => resourcev1::DeviceAttribute {
             version: Some(v.clone()),
-            ..Default::default()
+            ..default()
         },
     }
 }
 
-fn pool_device_to_wire(device: &PoolDevice) -> WireDevice {
+fn pool_device_to_wire(device: &PoolDevice) -> resourcev1::Device {
     // Omit empty maps entirely: the API server normalizes empty optional
     // maps to None, and retaining Some({}) would cause endless updates.
     let attributes = (!device.attributes.is_empty()).then(|| {
@@ -83,24 +61,24 @@ fn pool_device_to_wire(device: &PoolDevice) -> WireDevice {
             .map(|(name, quantity)| {
                 (
                     name.clone(),
-                    DeviceCapacity {
+                    resourcev1::DeviceCapacity {
                         request_policy: None,
-                        value: WireQuantity(quantity.0.to_string()),
+                        value: K8sQuantity(quantity.0.to_string()),
                     },
                 )
             })
             .collect()
     });
-    WireDevice {
+    resourcev1::Device {
         name: device.name.clone(),
         attributes,
         capacity,
-        ..Default::default()
+        ..default()
     }
 }
 
 /// Returns devices in the stable order used for comparison and publication.
-fn canonicalize_devices(mut devices: Vec<WireDevice>) -> Vec<WireDevice> {
+fn canonicalize_devices(mut devices: Vec<resourcev1::Device>) -> Vec<resourcev1::Device> {
     devices.sort_by(|left, right| left.name.cmp(&right.name));
     devices
 }
@@ -111,7 +89,7 @@ fn canonicalize_devices(mut devices: Vec<WireDevice>) -> Vec<WireDevice> {
 /// takes one full snapshot, publishes every desired slice before deleting
 /// stale ones, and keeps generation/count coherent across split slices.
 pub struct ResourceSlicePublisher {
-    client: Client,
+    client: kube::Client,
     driver_name: String,
     node_name: String,
     resource_pool: Arc<dyn ResourcePool>,
@@ -129,7 +107,7 @@ impl fmt::Debug for ResourceSlicePublisher {
 
 impl ResourceSlicePublisher {
     pub fn new<P: ResourcePool + 'static>(
-        client: Client,
+        client: kube::Client,
         driver_name: impl Into<String>,
         node_name: impl Into<String>,
         resource_pool: P,
@@ -166,13 +144,12 @@ impl ResourceSlicePublisher {
     /// have no desired slices, so their existing slices are deleted.
     pub async fn publish_once(&self) -> kube::Result<()> {
         let owner = self.owner_reference().await?;
-        let api: Api<ResourceSlice> = Api::all(self.client.clone());
-        let existing = api
-            .list(&ListParams::default().fields(&format!(
-                "spec.driver={},spec.nodeName={}",
-                self.driver_name, self.node_name
-            )))
-            .await?;
+        let resource_slices = self.client.resource_slices();
+        let lp = api::ListParams::default().fields(&format!(
+            "spec.driver={},spec.nodeName={}",
+            self.driver_name, self.node_name
+        ));
+        let existing = resource_slices.list(&lp).await?;
         let mut existing = existing
             .items
             // A proxy or test server may ignore field selectors. Never let
@@ -186,43 +163,48 @@ impl ResourceSlicePublisher {
             .collect::<BTreeMap<_, _>>();
 
         for (pool_name, devices) in self.resource_pool.devices().await {
-            self.reconcile_pool(&api, &owner, &mut existing, &pool_name, &devices)
-                .await?;
+            self.reconcile_pool(
+                &resource_slices,
+                &owner,
+                &mut existing,
+                &pool_name,
+                &devices,
+            )
+            .await?;
         }
 
         // Desired slices were created or updated first. Deleting the
         // leftovers last avoids a deliberate incomplete pool state.
+        let dp = api::DeleteParams::default();
         for (name, _) in existing {
-            api.delete(&name, &DeleteParams::default()).await?;
+            resource_slices.delete(&name, &dp).await?;
         }
         Ok(())
     }
 
-    async fn owner_reference(&self) -> kube::Result<OwnerReference> {
-        let api: Api<Node> = Api::all(self.client.clone());
+    async fn owner_reference(&self) -> kube::Result<metav1::OwnerReference> {
+        let api = self.client.nodes();
         let node = api.get(&self.node_name).await?;
-        let uid = node.metadata.uid.ok_or_else(|| {
-            kube::Error::Api(
-                kube::core::Status::failure("node object is missing a UID", "Invalid")
-                    .with_code(422)
-                    .boxed(),
-            )
-        })?;
-        Ok(OwnerReference {
-            api_version: "v1".to_string(),
-            kind: "Node".to_string(),
-            name: self.node_name.clone(),
-            uid,
-            controller: Some(true),
-            block_owner_deletion: Some(false),
-        })
+        node.owner_ref(&())
+            .map(|owner_ref| metav1::OwnerReference {
+                controller: Some(true),
+                block_owner_deletion: Some(false),
+                ..owner_ref
+            })
+            .ok_or_else(|| {
+                kube::Error::Api(
+                    kube::core::Status::failure("node object is missing a UID", "Invalid")
+                        .with_code(422)
+                        .boxed(),
+                )
+            })
     }
 
     async fn reconcile_pool(
         &self,
-        api: &Api<ResourceSlice>,
-        owner: &OwnerReference,
-        existing: &mut BTreeMap<String, ResourceSlice>,
+        api: &api::Api<resourcev1::ResourceSlice>,
+        owner: &metav1::OwnerReference,
+        existing: &mut BTreeMap<String, resourcev1::ResourceSlice>,
         pool_name: &str,
         devices: &[PoolDevice],
     ) -> kube::Result<()> {
@@ -239,7 +221,7 @@ impl ResourceSlicePublisher {
 
         let chunks = wire_devices
             .chunks(MAX_DEVICES_PER_SLICE)
-            .map(<[WireDevice]>::to_vec)
+            .map(<[resourcev1::Device]>::to_vec)
             .collect::<Vec<_>>();
         if chunks.is_empty() {
             return Ok(());
@@ -260,34 +242,35 @@ impl ResourceSlicePublisher {
 
         for (index, devices) in chunks.into_iter().enumerate() {
             let name = slice_name(&self.driver_name, &self.node_name, pool_name, index);
-            let desired = ResourceSlice {
-                metadata: ObjectMeta {
+            let desired = resourcev1::ResourceSlice {
+                metadata: metav1::ObjectMeta {
                     name: Some(name.clone()),
                     owner_references: Some(vec![owner.clone()]),
-                    ..Default::default()
+                    ..default()
                 },
-                spec: ResourceSliceSpec {
+                spec: resourcev1::ResourceSliceSpec {
                     driver: self.driver_name.clone(),
                     node_name: Some(self.node_name.clone()),
-                    pool: WireResourcePool {
+                    pool: resourcev1::ResourcePool {
                         name: pool_name.to_string(),
                         generation,
                         resource_slice_count: slice_count,
                     },
                     devices: Some(devices),
-                    ..Default::default()
+                    ..default()
                 },
             };
 
+            let pp = api::PostParams::default();
             match existing.remove(&name) {
                 Some(current) if resource_slice_matches(&current, &desired) => {}
                 Some(mut current) => {
                     current.metadata.owner_references = desired.metadata.owner_references;
                     current.spec = desired.spec;
-                    api.replace(&name, &PostParams::default(), &current).await?;
+                    api.replace(&name, &pp, &current).await?;
                 }
                 None => {
-                    api.create(&PostParams::default(), &desired).await?;
+                    api.create(&pp, &desired).await?;
                 }
             }
         }
@@ -296,7 +279,7 @@ impl ResourceSlicePublisher {
 
     /// Publishes once immediately, then re-publishes every poll interval.
     /// Failures use a bounded exponential delay and success resets it.
-    pub fn spawn(self) -> JoinHandle<()> {
+    pub fn spawn(self) -> task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut failed_attempts = 0_u32;
             loop {
@@ -331,7 +314,10 @@ fn invalid_pool_error(pool_name: &str, reason: &str) -> kube::Error {
     )
 }
 
-fn resource_slice_matches(current: &ResourceSlice, desired: &ResourceSlice) -> bool {
+fn resource_slice_matches(
+    current: &resourcev1::ResourceSlice,
+    desired: &resourcev1::ResourceSlice,
+) -> bool {
     let mut current_spec = current.spec.clone();
     current_spec.devices = current_spec.devices.map(canonicalize_devices);
     current_spec == desired.spec
@@ -339,11 +325,11 @@ fn resource_slice_matches(current: &ResourceSlice, desired: &ResourceSlice) -> b
 }
 
 fn pool_generation(
-    existing: &[(&String, &ResourceSlice)],
+    existing: &[(&String, &resourcev1::ResourceSlice)],
     driver_name: &str,
     node_name: &str,
     pool_name: &str,
-    desired_chunks: &[Vec<WireDevice>],
+    desired_chunks: &[Vec<resourcev1::Device>],
 ) -> kube::Result<i64> {
     let expected = desired_chunks
         .iter()

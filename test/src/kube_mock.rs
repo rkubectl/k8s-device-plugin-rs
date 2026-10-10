@@ -7,18 +7,17 @@
 //! `src/mock_tests.rs` uses: a [`tower_test::mock`] pair backing a real
 //! [`kube::Client`], so callers never need a live cluster.
 
-use kube::Client;
 use kube::client::Body;
-use serde_json::json;
+use serde_json as json;
 
 pub type MockKubeHandle = tower_test::mock::Handle<http::Request<Body>, http::Response<Body>>;
 
 /// Builds a [`kube::Client`] backed by a mock HTTP service, and the
 /// [`MockKubeHandle`] used to script its responses.
-pub fn mock_kube_client() -> (Client, MockKubeHandle) {
+pub fn mock_kube_client() -> (kube::Client, MockKubeHandle) {
     let (mock_service, handle) =
         tower_test::mock::pair::<http::Request<Body>, http::Response<Body>>();
-    let client = Client::new(mock_service, "default");
+    let client = kube::Client::new(mock_service, "default");
     (client, handle)
 }
 
@@ -28,10 +27,10 @@ pub fn mock_kube_client() -> (Client, MockKubeHandle) {
 pub async fn respond(
     handle: &mut MockKubeHandle,
     status: u16,
-    body: &serde_json::Value,
+    body: &json::Value,
 ) -> http::Request<Body> {
     let (request, send) = handle.next_request().await.expect("request sent");
-    let bytes = serde_json::to_vec(body).expect("serialize response body");
+    let bytes = json::to_vec(body).expect("serialize response body");
     let response = http::Response::builder()
         .status(status)
         .body(Body::from(bytes))
@@ -42,8 +41,8 @@ pub async fn respond(
 
 /// A minimal `v1.Node` object, for `ClaimResolver`/`ResourceSlicePublisher`
 /// owner-reference lookups.
-pub fn node_json(name: &str, uid: &str) -> serde_json::Value {
-    json!({
+pub fn node_json(name: &str, uid: &str) -> json::Value {
+    json::json!({
         "apiVersion": "v1",
         "kind": "Node",
         "metadata": { "name": name, "uid": uid },
@@ -51,8 +50,8 @@ pub fn node_json(name: &str, uid: &str) -> serde_json::Value {
 }
 
 /// A `Status` object matching what the API server returns for a 404.
-pub fn not_found_json() -> serde_json::Value {
-    json!({
+pub fn not_found_json() -> json::Value {
+    json::json!({
         "kind": "Status",
         "apiVersion": "v1",
         "status": "Failure",
@@ -68,9 +67,9 @@ pub fn resource_claim_json(
     name: &str,
     namespace: &str,
     uid: &str,
-    status: serde_json::Value,
-) -> serde_json::Value {
-    json!({
+    status: json::Value,
+) -> json::Value {
+    json::json!({
         "apiVersion": "resource.k8s.io/v1",
         "kind": "ResourceClaim",
         "metadata": { "name": name, "namespace": namespace, "uid": uid },
@@ -81,8 +80,8 @@ pub fn resource_claim_json(
 
 /// A `ResourceClaimStatus.allocation` with one allocated device, for use
 /// with [`resource_claim_json`].
-pub fn allocated_status(pool: &str, device: &str, request: &str) -> serde_json::Value {
-    json!({
+pub fn allocated_status(pool: &str, device: &str, request: &str) -> json::Value {
+    json::json!({
         "allocation": {
             "devices": {
                 "results": [
@@ -100,9 +99,9 @@ pub fn resource_slice_json(
     node_name: &str,
     generation: i64,
     pool_name: &str,
-    devices: Vec<serde_json::Value>,
-) -> serde_json::Value {
-    json!({
+    devices: Vec<json::Value>,
+) -> json::Value {
+    json::json!({
         "apiVersion": "resource.k8s.io/v1",
         "kind": "ResourceSlice",
         "metadata": { "name": name },
@@ -117,6 +116,6 @@ pub fn resource_slice_json(
 
 /// A minimal `resource.k8s.io/v1` `Device` entry, for use with
 /// [`resource_slice_json`].
-pub fn device_json(name: &str) -> serde_json::Value {
-    json!({ "name": name })
+pub fn device_json(name: &str) -> json::Value {
+    json::json!({ "name": name })
 }

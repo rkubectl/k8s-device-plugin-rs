@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::io;
 use std::path::PathBuf;
 
 use tempfile::TempDir;
