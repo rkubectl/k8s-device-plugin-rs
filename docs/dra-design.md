@@ -376,6 +376,20 @@ invalid authorities and preserves normal `PROTOCOL_ERROR` handling for other
 malformed values. The override is required for real kubelet interoperability,
 not for Tonic-to-Tonic tests.
 
+The fork now tracks upstream `h2` v0.4.20 on the
+`uds-authority-compat-0.4.20` branch. The original compatibility revision is
+preserved; the refreshed branch adds focused authority regression coverage
+and [maintenance notes](https://github.com/rkubectl/h2/blob/e80d915d7468bc7009d3d38acfcaebc83b747f4b/UDS-COMPAT.md).
+
+On 2026-10-10, the refreshed pin passed the fork's separate library/doc and
+integration suites, strict library Clippy, and workspace CI. A native ARM64
+image passed real kubelet registration, RPC liveness, ResourceSlice publication,
+claim preparation, CDI injection, and unpreparation on Kubernetes v1.36.1 and
+v1.37.0. The v1.37.0 extended-resource fixture also passed generated-claim
+cleanup. Both profiles had `rosetta=false`; validation restored v1.36.1 as the
+sole running cluster. The matrix used guarded `k8s-versioned` restarts through
+its `CONTAINER` override to repair kubeconfig endpoints after VM IP changes.
+
 Cargo patches apply only at the workspace/application root. Building this
 repository uses the override automatically; an application consuming the DRA
 crate from Git or crates.io must repeat the exact pinned `[patch.crates-io]`

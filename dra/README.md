@@ -46,8 +46,12 @@ repeat the following block, then regenerate its lockfile (for example with
 
 ```toml
 [patch.crates-io]
-h2 = { git = "https://github.com/rkubectl/h2", rev = "852915ba20501b2a0d39bd54ab4521cde8ee54c9" }
+h2 = { git = "https://github.com/rkubectl/h2", rev = "e80d915d7468bc7009d3d38acfcaebc83b747f4b" }
 ```
+
+The fork is based on upstream `h2` v0.4.20. Its
+[maintenance notes](https://github.com/rkubectl/h2/blob/e80d915d7468bc7009d3d38acfcaebc83b747f4b/UDS-COMPAT.md)
+record the patch provenance and regression checks.
 
 The exact pin in the [workspace Cargo manifest](https://github.com/rkubectl/k8s-device-plugin-rs/blob/main/Cargo.toml)
 is authoritative. Do not change it independently; the deferred upstream-cleanup
