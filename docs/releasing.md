@@ -55,8 +55,16 @@ git describe --exact-match --tags HEAD
 Publish only after the tag check succeeds:
 
 ```bash
-cargo release publish --workspace --exclude k8s-device-plugin-example --execute --no-confirm
+cargo release publish --workspace --exclude k8s-device-plugin-example \
+    --config release-publish.toml --execute --no-confirm
 ```
+
+The publication-only config explicitly sets `publish = true`. Without that
+override, the workspace's `publish = false` also disables the separate publish
+step, which can exit successfully without uploading any crates. Keep the
+override limited to this step so the source tag is pushed before publication.
+For an older tag that predates `release-publish.toml`, pass an absolute path to
+that config in the maintenance checkout; do not modify the tagged sources.
 
 `cargo-release` processes workspace packages in dependency order and skips a
 version that crates.io already has, so the command can safely resume an

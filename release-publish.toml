@@ -1,0 +1,3 @@
+# Use only with the separate `cargo release publish` step after verifying the
+# exact pushed source tag. The workspace keeps automatic publication disabled.
+publish = true
