@@ -56,6 +56,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: proto/hack/check-without-protoc.sh
 
+  dra-matrix:
+    name: DRA matrix orchestration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: python3 dra/hack/test-validate-k8s-versions.py
+
   docker:
     name: Docker build (example)
     runs-on: ubuntu-latest

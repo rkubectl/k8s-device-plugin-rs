@@ -440,6 +440,44 @@ all dependency versions are unchanged. No live cluster tests were rerun. The
 last recorded kubelet validation remains the 2026-10-10 v1.36.1/v1.37.0 run
 above.
 
+### Guarded matrix validation (2026-10-23)
+
+Task `k8s-device-plugin-rs-m4z` moved every matrix start and restoration to
+`container k8s-versioned start --name`, including already-running profiles.
+The installed helper was `1.6.0-k8s-versioned` (`9a1b26b`) with Container
+CLI/server 1.6.0. The helper owns guest/host kubeconfig recovery, kube-proxy
+reconciliation, and stable node/DNS readiness. The matrix now preserves
+failure codes, reports failed restoration, refuses concurrent restoration
+when stopping v1.37 fails, and prints driver logs before stopping profiles.
+Twelve VM-free orchestration/failure tests passed and run in CI.
+
+The accepted live run used a fixed copy of the checked-in matrix (SHA-256
+`4b4e55e6ae16849704d2459d629a84b1299328c49cb2ff6e7544a891bb4ff500`)
+and the freshly built native linux/arm64 fixture. Both Pods' image IDs matched
+the fresh image config digest
+`sha256:dc36d7836b501c069acd900f0da933d11f26b073fdac26f76141dc30698d5ab1`.
+Build/import use the canonical
+`docker.io/library/k8s-device-plugin-dra-example:latest` reference, avoiding
+ambiguity with a separately stored older short-name image.
+
+The v1.36.1 profile moved from `192.168.64.23` to `.24`; v1.37.0 moved
+from `.22` to `.25`. Both completed real kubelet registration, RPC liveness,
+ResourceSlice publication, claim preparation, CDI injection, and unpreparation.
+The v1.37 extended-resource fixture also completed generated-claim cleanup.
+Captured driver logs contain prepare/unprepare events for all three claims.
+The matrix exited successfully and restored v1.36.1 at `.26`, Ready with a
+passing driver RPC probe, as the only running VM after stopping the build
+helper. All seven profiles, including both validation targets, reported
+`rosetta=false`. No Rosetta or feature-gate changes were needed.
+
+An earlier exploratory run was discarded: the host had distinct old short-name
+and fresh canonical image entries, and editing the executing shell script
+caused a trailing command error. Its cleanup restored the baseline; the
+accepted rerun above used a fixed script snapshot and verified Pod digests.
+See the [implementation plan](plans/m4z-guarded-restarts.md) for the checked
+failure and restoration contract. This run also supplies fresh kubelet
+validation for the v0.1.0 dependency/protox changes and retained h2 snapshot.
+
 ## Open risks / things to verify against a real cluster before Phase 1 is "done"
 
 - RBAC scope needed for the `ResourceSlice`/`ResourceClaim` API client

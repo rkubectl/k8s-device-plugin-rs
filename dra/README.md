@@ -303,7 +303,8 @@ classic/DRA node boundary, and a migration sequence, read
 #### Verified local Apple Container runs
 
 The local native-arm64 Apple Container helper is named `k8s-versioned`. It is
-host tooling derived from Apple Container 1.3.1, not a project dependency. It
+host tooling, not a project dependency (the installed helper was verified at
+`1.6.0-k8s-versioned` on 2026-10-23). It
 pins `kindest/node` images for Kubernetes v1.36.1 and v1.37.0, passes the
 selected image version to kubeadm, persists the kind restart configuration,
 and always provisions with Rosetta disabled. A Homebrew upgrade of `container`
@@ -343,14 +344,30 @@ Run both local profiles without keeping them running together:
 mise run dra-validate-k8s
 ```
 
-The task builds the linux/arm64 fixture image once, starts each profile in
+The task builds the linux/arm64 fixture image once using the canonical
+`docker.io/library/k8s-device-plugin-dra-example:latest` reference for both
+build and import, avoiding a stale short-name alias in the host store. It
+starts each profile in
 turn, imports the image, applies and restarts the validation DaemonSet, waits
 for rollout, and invokes the core smoke fixture. The v1.37 profile also runs
 the extended-resource smoke fixture. It verifies that each server is the
 expected patch version and has Rosetta disabled. Apple Container can assign a
-fresh guest IP on restart, so the task refreshes kube-proxy's API endpoint
-before exercising service networking. On either
-success or failure it stops the v1.37 profile and restores `dra-validation`
-(v1.36.1) as the sole running cluster. This is an opt-in local integration
-gate, not part of `mise run ci`. Set `DRA_E2E_SKIP_BUILD=1` only when the
-current local `k8s-device-plugin-dra-example` image has already been built.
+fresh guest IP on restart. Every start, including an already-running VM and
+baseline restoration, goes through `container k8s-versioned start --name`.
+The maintained helper validates the native profile, repairs the guest
+`admin.conf` endpoint, reconciles kube-proxy's endpoint, waits for stable node
+and DNS readiness, and refreshes the host kubeconfig before returning.
+
+The matrix prints driver logs before stopping a profile, including on smoke
+failure, so prepare/unprepare events remain available in the run output.
+After preflight, success or failure triggers restoration: stop the v1.37
+profile, then restore `dra-validation` (v1.36.1) and verify its server version.
+If stopping v1.37 fails, restoration does not start v1.36 concurrently. A
+restoration failure makes an otherwise successful run fail; an earlier error
+keeps its original exit code. Preflight failures leave cluster state alone.
+
+This is an opt-in local integration gate. Its VM-free orchestration and
+failure-path tests run in CI and via `mise run dra-test-matrix`; the live
+matrix is not part of `mise run ci`. Set `DRA_E2E_SKIP_BUILD=1` only when the
+current local `docker.io/library/k8s-device-plugin-dra-example:latest` image
+has already been built.
