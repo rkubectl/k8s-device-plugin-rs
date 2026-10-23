@@ -24,23 +24,23 @@ For a particular version rather than the next patch, substitute that version
 in the preview command:
 
 ```bash
-cargo release 0.0.7 --workspace --exclude k8s-device-plugin-example --no-confirm
+cargo release 0.0.8 --workspace --exclude k8s-device-plugin-example --no-confirm
 ```
 
 `cargo-release` is dry-run by default. Verify that the preview changes the
-shared version, all internal dependency constraints, and the two facade-crate
-README snippets.
+shared version, all internal dependency constraints, the two facade-crate
+README snippets, and the two getting-started dependency examples.
 
 ## Tag and push the release sources
 
 After the preview is correct, repeat the release with `--execute`:
 
 ```bash
-cargo release 0.0.7 --workspace --exclude k8s-device-plugin-example --execute --no-confirm
+cargo release 0.0.8 --workspace --exclude k8s-device-plugin-example --execute --no-confirm
 ```
 
 The workspace configuration permits releases only from `main`, makes one
-release commit, creates annotated tag `v0.0.7`, and pushes the commit and tag
+release commit, creates annotated tag `v0.0.8`, and pushes the commit and tag
 to `origin`. It deliberately disables the tool's automatic publish stage.
 
 Confirm the checked-out source is exactly the pushed tag before publishing:
@@ -75,9 +75,9 @@ Finally update the corresponding Beads issue, export it, and commit that audit
 record separately:
 
 ```bash
-brr close <issue-id> --reason "Released v0.0.7"
+brr close <issue-id> --reason "Released v0.0.8"
 brr sync --flush-only
 git add .beads/issues.jsonl
-git commit -m "Record v0.0.7 publication"
+git commit -m "Record v0.0.8 publication"
 git push
 ```
