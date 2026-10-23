@@ -11,11 +11,12 @@ Beads task: `k8s-device-plugin-rs-o0r`.
 
 ## Assessment and decision
 
-The current `proto/build.rs` calls `tonic_prost_build::Builder::compile_protos`
-three times depending on features. Its four proto3 inputs have no imports;
-the DRA input includes proto3 optional fields. CI installs `protobuf-compiler`
-in two jobs, all three Docker builders install it, and both the root and proto
-READMEs describe it as a prerequisite.
+Before this migration, `proto/build.rs` called
+`tonic_prost_build::Builder::compile_protos` three times depending on features.
+Its four proto3 inputs have no imports;
+the DRA input includes proto3 optional fields. CI installed `protobuf-compiler`
+in two jobs, all three Docker builders installed it, and both the root and proto
+READMEs described it as a prerequisite.
 
 Use `protox` 0.10 as a build dependency. The published 0.10.0 manifest requires
 Rust 1.85, below this workspace's 1.98 MSRV, and uses Prost/Prost Types 0.14,
@@ -113,5 +114,39 @@ MSRV change are outside this task.
 
 ## Execution evidence
 
-Assessment and baseline captured before implementation. Validation results
-will be recorded after execution.
+Completed on 2026-10-23:
+
+- All four generated Rust files are byte-for-byte identical to the protoc
+  36.2 baseline. No schema, public API, wire output, or submodule revision
+  changed. No live-cluster smoke run was needed for unchanged generated code.
+- `RUSTC_WRAPPER= proto/hack/check-without-protoc.sh` passed from an empty
+  temporary target directory for classic-only, `dra`, and `dra-health`.
+  The PATH/`PROTOC` sentinel was never invoked, and `PROTOC_INCLUDE` pointed
+  to a nonexistent directory. The original pre-migration build executable
+  failed and tripped the sentinel as a negative control.
+- Full `mise run ci` passed with the same external compiler guard: formatting,
+  strict workspace Clippy, 127 workspace tests, strict resource-health Clippy,
+  and 56 resource-health/example tests. Socket tests ran outside the restrictive
+  sandbox. Existing manifest warnings about an unused workspace dependency and
+  commented proto lint inheritance remain outside this task.
+- Changing the DRA schema's timestamp triggered regeneration; emitted rerun
+  directives covered `build.rs` and all four schemas. The check restored the
+  original source timestamp and verified its content hash was unchanged.
+- `cargo package --locked -p k8s-device-plugin-proto --all-features
+  --allow-dirty` passed build verification with the guard. The resulting crate
+  includes all four schema sources and the normalized `protox` build dependency;
+  the repository-only `hack/` checker is excluded. Nothing was published.
+- The lockfile adds nine compiler/parser/diagnostic build dependencies and
+  retains every existing package version, including the exact h2 tag source.
+- CI YAML parses, the checker passes shell syntax validation, and the diff
+  passes whitespace checks. CI and all three Dockerfiles no longer install a
+  protobuf compiler. Local container image builds were not rerun.
+
+Generated-source SHA-256 values (identical before and after):
+
+| Generated file | SHA-256 |
+|---|---|
+| `v1beta1.rs` | `29ad10c86ebfaaec143a77af5ad443e67286b49ae4293c79fd97930a68042bf9` |
+| `pluginregistration.rs` | `69571949b48e33c8b0e61e9cb34894d28fa7253ce6a1487bf1873256f7c4c4eb` |
+| `k8s.io.kubelet.pkg.apis.dra.v1.rs` | `8f1dca3ebd48733b28c9c8213a47aef7c14dd249ac5890c2618321873eb9a84d` |
+| `v1alpha1.rs` | `70e6ee9e4b41075258cc8e7ccc1dbc9e04bfbe735f838ac9d3a9d7cb09381f68` |

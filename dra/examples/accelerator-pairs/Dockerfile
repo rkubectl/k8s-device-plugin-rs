@@ -7,7 +7,7 @@ ARG RUST_VERSION=1.98
 FROM rust:${RUST_VERSION}-slim AS builder
 ARG TARGETARCH
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends protobuf-compiler musl-tools \
+    && apt-get install -y --no-install-recommends musl-tools \
     && rm -rf /var/lib/apt/lists/*
 RUN case "${TARGETARCH}" in \
         amd64) echo x86_64-unknown-linux-musl > /rust_target ;; \

@@ -39,6 +39,10 @@ run = [
 description = "Serially validate the DRA fixture on local Kubernetes v1.36.1 and v1.37.0"
 run = "dra/hack/validate-k8s-versions.sh"
 
+[tasks.proto-check-no-protoc]
+description = "Check all protocol features without invoking external protoc"
+run = "proto/hack/check-without-protoc.sh"
+
 [tasks.lint]
 description = "Lint with clippy"
 env = { RUST_BACKTRACE = "1" }  # env vars for the script

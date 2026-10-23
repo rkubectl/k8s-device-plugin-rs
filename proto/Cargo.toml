@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 description = "Generated Kubernetes device-plugin and DRA protocol bindings for Rust"
 readme = "README.md"
+exclude = ["hack/"]
 
 
 [features]
@@ -21,6 +22,7 @@ tonic-prost.workspace = true
 
 
 [build-dependencies]
+protox.workspace = true
 tonic-prost-build.workspace = true
 
 # [lints]

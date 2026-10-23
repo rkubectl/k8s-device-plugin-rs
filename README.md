@@ -185,7 +185,10 @@ mise run ci     # fmt --check, clippy -D warnings, test (via cargo-nextest)
 
 Or individually: `mise run fmt`, `mise run clippy`, `mise run test`.
 
-Building the `proto` crate requires `protoc` (the Protobuf compiler) on `PATH`.
+Protocol bindings are compiled with the Rust `protox` compiler; no external
+`protoc` installation is required. Git checkouts still need the
+`proto/kubelet` submodule. Run `mise run proto-check-no-protoc` to verify all
+protocol feature combinations with external compiler use explicitly blocked.
 
 ## Issue tracking
 
