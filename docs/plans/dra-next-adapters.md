@@ -125,3 +125,8 @@ References verified on 2026-10-23:
   records successful native readiness/failure lifecycles on both profiles,
   cooperative status publication, full CI, and baseline restoration.
   Node pinning uses the allocation selector and does not require NUMA.
+
+- `qt7.6.5` shared lifecycle acceptance passed on 2026-10-23. The
+  [Workload guide](../dra-workload-claims.md) records the isolated gated
+  profile and same-UID two-Pod lifecycle. No runtime change or NUMA
+  dependency was needed for Basic scheduling.

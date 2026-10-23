@@ -383,6 +383,10 @@ failure-path tests run in CI and via `mise run dra-test-matrix`; the live
 matrix is not part of `mise run ci`. Set `DRA_E2E_TAINTS=1` to include the
 opt-in [device-taint fixture](../docs/dra-device-taints.md) on both profiles,
 including administrator-rule checks on v1.37. Set `DRA_E2E_BINDING=1` to include
-the [binding-condition fixture](../docs/dra-binding-conditions.md). Set `DRA_E2E_SKIP_BUILD=1` only when the
+the [binding-condition fixture](../docs/dra-binding-conditions.md). For gated
+v1.37 PodGroup sharing, see [Workload ResourceClaims](../docs/dra-workload-claims.md)
+and `DRA_E2E_WORKLOAD=1` with the isolated advanced profile. Its configuration
+transforms are tested with `mise run dra-test-profile-config`.
+Set `DRA_E2E_SKIP_BUILD=1` only when the
 current local `docker.io/library/k8s-device-plugin-dra-example:latest` image
 has already been built.

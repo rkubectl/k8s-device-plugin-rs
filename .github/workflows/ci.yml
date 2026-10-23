@@ -57,11 +57,12 @@ jobs:
       - run: proto/hack/check-without-protoc.sh
 
   dra-matrix:
-    name: DRA matrix orchestration
+    name: DRA validation tooling
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - run: python3 dra/hack/test-validate-k8s-versions.py
+      - run: python3 dra/hack/test-configure-advanced-profile.py
 
   docker:
     name: Docker build (example)

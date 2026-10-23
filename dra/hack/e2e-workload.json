@@ -1,0 +1,177 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "resource.k8s.io/v1",
+      "kind": "DeviceClass",
+      "metadata": {
+        "name": "dra-example-workload"
+      },
+      "spec": {
+        "selectors": [
+          {
+            "cel": {
+              "expression": "device.driver == \"dra.example.com\""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "resource.k8s.io/v1",
+      "kind": "ResourceClaimTemplate",
+      "metadata": {
+        "name": "dra-example-workload",
+        "namespace": "k8s-device-plugin-dra-example"
+      },
+      "spec": {
+        "spec": {
+          "devices": {
+            "requests": [
+              {
+                "name": "widget",
+                "exactly": {
+                  "deviceClassName": "dra-example-workload"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "scheduling.k8s.io/v1beta1",
+      "kind": "Workload",
+      "metadata": {
+        "name": "dra-example-workload",
+        "namespace": "k8s-device-plugin-dra-example"
+      },
+      "spec": {
+        "podGroupTemplates": [
+          {
+            "name": "workers",
+            "schedulingPolicy": {
+              "basic": {}
+            },
+            "resourceClaims": [
+              {
+                "name": "widget",
+                "resourceClaimTemplateName": "dra-example-workload"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "scheduling.k8s.io/v1beta1",
+      "kind": "PodGroup",
+      "metadata": {
+        "name": "dra-example-workload",
+        "namespace": "k8s-device-plugin-dra-example"
+      },
+      "spec": {
+        "workloadRef": {
+          "workloadName": "dra-example-workload",
+          "templateName": "workers"
+        },
+        "schedulingPolicy": {
+          "basic": {}
+        },
+        "resourceClaims": [
+          {
+            "name": "widget",
+            "resourceClaimTemplateName": "dra-example-workload"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "dra-example-workload-1",
+        "namespace": "k8s-device-plugin-dra-example",
+        "labels": {
+          "app": "dra-example-workload"
+        }
+      },
+      "spec": {
+        "schedulingGroup": {
+          "podGroupName": "dra-example-workload"
+        },
+        "resourceClaims": [
+          {
+            "name": "widget",
+            "resourceClaimTemplateName": "dra-example-workload"
+          }
+        ],
+        "restartPolicy": "Never",
+        "terminationGracePeriodSeconds": 1,
+        "containers": [
+          {
+            "name": "consumer",
+            "image": "busybox:1.37",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-ec",
+              "test \"$DRA_E2E_DEVICE\" = \"widget-0\"\necho \"DRA_E2E_DEVICE=$DRA_E2E_DEVICE\"\nsleep 3600"
+            ],
+            "resources": {
+              "claims": [
+                {
+                  "name": "widget"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "dra-example-workload-2",
+        "namespace": "k8s-device-plugin-dra-example",
+        "labels": {
+          "app": "dra-example-workload"
+        }
+      },
+      "spec": {
+        "schedulingGroup": {
+          "podGroupName": "dra-example-workload"
+        },
+        "resourceClaims": [
+          {
+            "name": "widget",
+            "resourceClaimTemplateName": "dra-example-workload"
+          }
+        ],
+        "restartPolicy": "Never",
+        "terminationGracePeriodSeconds": 1,
+        "containers": [
+          {
+            "name": "consumer",
+            "image": "busybox:1.37",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-ec",
+              "test \"$DRA_E2E_DEVICE\" = \"widget-0\"\necho \"DRA_E2E_DEVICE=$DRA_E2E_DEVICE\"\nsleep 3600"
+            ],
+            "resources": {
+              "claims": [
+                {
+                  "name": "widget"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

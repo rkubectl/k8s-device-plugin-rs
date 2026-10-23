@@ -272,8 +272,9 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
    The selected advanced-adapter cycle now includes completed opt-in
    [device taints](dra-device-taints.md) and
    [binding conditions](dra-binding-conditions.md), with native acceptance
-   on both pinned profiles. Workload ResourceClaims and resource-pool status
-   are the next two selected tasks in [the tracked plan](plans/dra-next-adapters.md).
+   on both pinned profiles. [Workload ResourceClaims](dra-workload-claims.md)
+   also passed the shared lifecycle on an isolated gated v1.37 profile.
+   Resource-pool status is the final selected task in [the tracked plan](plans/dra-next-adapters.md).
 
 ## Deployment note: no rolling updates in Phase 1
 

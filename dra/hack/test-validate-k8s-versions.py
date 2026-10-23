@@ -80,13 +80,13 @@ class MatrixTests(unittest.TestCase):
             (root / 'state.json').write_text(json.dumps(state))
             script = root / 'validate-k8s-versions.sh'
             shutil.copyfile(Path(__file__).with_name(script.name), script)
-            for name in ['container', 'kubectl', 'e2e-smoke.sh', 'e2e-extended-resource.sh', 'e2e-taints.sh', 'e2e-binding.sh']:
+            for name in ['container', 'kubectl', 'e2e-smoke.sh', 'e2e-extended-resource.sh', 'e2e-taints.sh', 'e2e-binding.sh', 'e2e-workload.sh']:
                 path = root / name
                 path.write_text(FAKE_COMMAND)
                 path.chmod(0o755)
             env = dict(os.environ, MATRIX_TEST_ROOT=tmp, CONTAINER=str(root / 'container'),
                        KUBECTL=str(root / 'kubectl'), JQ=shutil.which('jq'),
-                       DRA_E2E_SKIP_BUILD='1', DRA_E2E_TAINTS='0', DRA_E2E_BINDING='0',
+                       DRA_E2E_SKIP_BUILD='1', DRA_E2E_TAINTS='0', DRA_E2E_BINDING='0', DRA_E2E_WORKLOAD='0',
                        DRA_E2E_IMAGE='docker.io/library/k8s-device-plugin-dra-example:latest',
                        DRA_E2E_V136_CLUSTER='dra-validation',
                        DRA_E2E_V137_CLUSTER='dra-validation-137')
@@ -156,6 +156,37 @@ class MatrixTests(unittest.TestCase):
                                               {'DRA_E2E_BINDING': '1'})
         self.assertEqual(result.returncode, 27, result.stderr)
         self.assert_baseline(state)
+
+    def test_workload_uses_only_v137(self):
+        result, calls, state = self.run_matrix(env_overrides={'DRA_E2E_WORKLOAD': '1'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([c for c in calls if c[0] == 'e2e-workload.sh'], [
+            ['e2e-workload.sh', 'dra-validation-137']])
+        self.assert_baseline(state)
+
+    def test_workload_failure_restores_baseline(self):
+        result, calls, state = self.run_matrix({'fail_smoke': 'e2e-workload.sh'},
+                                              {'DRA_E2E_WORKLOAD': '1'})
+        self.assertEqual(result.returncode, 27, result.stderr)
+        self.assert_baseline(state)
+
+    def test_workload_fixture_matches_group_and_pod_claim_references(self):
+        items = json.loads(Path(__file__).with_name('e2e-workload.json').read_text())['items']
+        group = next(x for x in items if x['kind'] == 'PodGroup')
+        workload = next(x for x in items if x['kind'] == 'Workload')
+        template = next(x for x in items if x['kind'] == 'ResourceClaimTemplate')
+        pods = [x for x in items if x['kind'] == 'Pod']
+        self.assertEqual(len(pods), 2)
+        group_claims = group['spec']['resourceClaims']
+        self.assertEqual(group_claims[0]['resourceClaimTemplateName'], template['metadata']['name'])
+        self.assertEqual(group['spec']['schedulingPolicy'], {'basic': {}})
+        for pod in pods:
+            self.assertEqual(pod['spec']['resourceClaims'], group_claims)
+            self.assertEqual(pod['spec']['schedulingGroup']['podGroupName'], group['metadata']['name'])
+        group_template = workload['spec']['podGroupTemplates'][0]
+        self.assertEqual(group_template['resourceClaims'], group_claims)
+        self.assertEqual(group['spec']['workloadRef'], {
+            'workloadName': workload['metadata']['name'], 'templateName': group_template['name']})
 
     def test_start_failure_preserved_and_baseline_restored(self):
         result, calls, state = self.run_matrix({'fail_start': 'dra-validation-137'})
