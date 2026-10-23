@@ -13,6 +13,8 @@ const DEFAULT_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
 
 /// Kubernetes limits a `ResourceSlice` to 128 ordinary devices.
 const MAX_DEVICES_PER_SLICE: usize = 128;
+const MAX_DEVICES_PER_TAINTED_SLICE: usize = 64;
+const MAX_TAINTS_PER_DEVICE: usize = 16;
 
 fn slice_name(driver_name: &str, node_name: &str, pool_name: &str, index: usize) -> String {
     let base = format!("{driver_name}-{node_name}-{pool_name}");
@@ -77,10 +79,110 @@ fn pool_device_to_wire(device: &PoolDevice) -> resourcev1::Device {
     }
 }
 
+fn inventory_device_to_wire(
+    inventory: &InventoryDevice,
+    pool_name: &str,
+) -> kube::Result<resourcev1::Device> {
+    if inventory.taints.len() > MAX_TAINTS_PER_DEVICE {
+        return Err(invalid_pool_error(
+            pool_name,
+            "has a device with more than 16 taints",
+        ));
+    }
+    let mut identities = BTreeSet::new();
+    let taints = inventory
+        .taints
+        .iter()
+        .map(|taint| {
+            if !identities.insert((&taint.key, taint.effect.as_str())) {
+                return Err(invalid_pool_error(
+                    pool_name,
+                    "has duplicate device taint keys/effects",
+                ));
+            }
+            let time_added = taint
+                .time_added
+                .map(|seconds| {
+                    k8s_openapi::jiff::Timestamp::from_second(seconds)
+                        .map(metav1::Time)
+                        .map_err(|_| {
+                            invalid_pool_error(pool_name, "has an invalid taint timestamp")
+                        })
+                })
+                .transpose()?;
+            Ok(resourcev1::DeviceTaint {
+                key: taint.key.clone(),
+                value: (!taint.value.is_empty()).then(|| taint.value.clone()),
+                effect: taint.effect.as_str().to_string(),
+                time_added,
+            })
+        })
+        .collect::<kube::Result<Vec<_>>>()?;
+    Ok(resourcev1::Device {
+        taints: (!taints.is_empty()).then_some(taints),
+        ..pool_device_to_wire(&inventory.device)
+    })
+}
+
 /// Returns devices in the stable order used for comparison and publication.
 fn canonicalize_devices(mut devices: Vec<resourcev1::Device>) -> Vec<resourcev1::Device> {
+    for device in &mut devices {
+        if let Some(taints) = &mut device.taints {
+            for taint in taints.iter_mut() {
+                if taint.value.as_deref() == Some("") {
+                    taint.value = None;
+                }
+            }
+            taints.sort_by(|left, right| {
+                (&left.key, &left.effect, &left.value).cmp(&(
+                    &right.key,
+                    &right.effect,
+                    &right.value,
+                ))
+            });
+            if taints.is_empty() {
+                device.taints = None;
+            }
+        }
+    }
     devices.sort_by(|left, right| left.name.cmp(&right.name));
     devices
+}
+
+/// Keep the API server's defaulted timestamp for an unchanged taint. Replacing
+/// it on each poll would reset toleration deadlines and continuously republish.
+fn preserve_taint_times(
+    desired: &mut [resourcev1::Device],
+    existing: &[(&String, &resourcev1::ResourceSlice)],
+) {
+    let mut current_devices = BTreeMap::new();
+    for (_, slice) in existing {
+        for device in slice.spec.devices.iter().flatten() {
+            let current = current_devices
+                .entry(&device.name)
+                .or_insert((slice.spec.pool.generation, device));
+            if slice.spec.pool.generation > current.0 {
+                *current = (slice.spec.pool.generation, device);
+            }
+        }
+    }
+    for device in desired {
+        let Some((_, current)) = current_devices.get(&device.name) else {
+            continue;
+        };
+        for taint in device.taints.iter_mut().flatten() {
+            if taint.time_added.is_none()
+                && let Some(previous) = current.taints.iter().flatten().find(|previous| {
+                    previous.key == taint.key
+                        && previous.effect == taint.effect
+                        && previous.value.as_deref().unwrap_or_default()
+                            == taint.value.as_deref().unwrap_or_default()
+                })
+            {
+                taint.time_added = previous.time_added.clone();
+            }
+        }
+    }
 }
 
 /// Reconciles a [`ResourcePool`]'s complete snapshot against the API server.
@@ -140,7 +242,7 @@ impl ResourceSlicePublisher {
 
     /// Reconciles the complete snapshot once.
     ///
-    /// Pools absent from [`ResourcePool::devices`] and pools with no devices
+    /// Pools absent from [`ResourcePool::inventory`] and pools with no devices
     /// have no desired slices, so their existing slices are deleted.
     pub async fn publish_once(&self) -> kube::Result<()> {
         let owner = self.owner_reference().await?;
@@ -162,7 +264,7 @@ impl ResourceSlicePublisher {
             .filter_map(|slice| slice.metadata.name.clone().map(|name| (name, slice)))
             .collect::<BTreeMap<_, _>>();
 
-        for (pool_name, devices) in self.resource_pool.devices().await {
+        for (pool_name, devices) in self.resource_pool.inventory().await {
             self.reconcile_pool(
                 &resource_slices,
                 &owner,
@@ -206,9 +308,13 @@ impl ResourceSlicePublisher {
         owner: &metav1::OwnerReference,
         existing: &mut BTreeMap<String, resourcev1::ResourceSlice>,
         pool_name: &str,
-        devices: &[PoolDevice],
+        devices: &[InventoryDevice],
     ) -> kube::Result<()> {
-        let wire_devices = canonicalize_devices(devices.iter().map(pool_device_to_wire).collect());
+        let wire_devices = devices
+            .iter()
+            .map(|device| inventory_device_to_wire(device, pool_name))
+            .collect::<kube::Result<Vec<_>>>()?;
+        let mut wire_devices = canonicalize_devices(wire_devices);
         if wire_devices
             .windows(2)
             .any(|pair| pair[0].name == pair[1].name)
@@ -219,17 +325,23 @@ impl ResourceSlicePublisher {
             ));
         }
 
+        let pool_existing = existing
+            .iter()
+            .filter(|(_, slice)| slice.spec.pool.name == pool_name)
+            .collect::<Vec<_>>();
+        preserve_taint_times(&mut wire_devices, &pool_existing);
+        let chunk_size = if wire_devices.iter().any(|device| device.taints.is_some()) {
+            MAX_DEVICES_PER_TAINTED_SLICE
+        } else {
+            MAX_DEVICES_PER_SLICE
+        };
         let chunks = wire_devices
-            .chunks(MAX_DEVICES_PER_SLICE)
+            .chunks(chunk_size)
             .map(<[resourcev1::Device]>::to_vec)
             .collect::<Vec<_>>();
         if chunks.is_empty() {
             return Ok(());
         }
-        let pool_existing = existing
-            .iter()
-            .filter(|(_, slice)| slice.spec.pool.name == pool_name)
-            .collect::<Vec<_>>();
         let generation = pool_generation(
             &pool_existing,
             &self.driver_name,

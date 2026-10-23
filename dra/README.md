@@ -207,7 +207,12 @@ The example reads these environment variables:
 | `POOL_NAME` | `widget-pool` | Resource pool advertised by the `ResourceSlice`. |
 | `DEVICE_NAMES` | `widget-0` | Comma-separated static device names. |
 | `NODE_NAME` | *(required)* | Kubernetes node that owns the published `ResourceSlice`. |
+| `DRA_EXAMPLE_TAINT_EFFECT` | *(unset)* | Optional fake-device maintenance policy: `None`, `NoSchedule`, or `NoExecute`. |
 | `RUST_LOG` | *(unset)* | Standard `tracing-subscriber` filter, for example `info`. |
+
+For explicit inventory policy, see [device taints](../docs/dra-device-taints.md):
+`ResourcePool::inventory()` adds opt-in `InventoryDevice` metadata while
+preserving existing backends and `PoolDevice` struct literals.
 
 For the opt-in resource-health protocol, see the standalone
 [`examples/resource_health_reporter.rs`](examples/resource_health_reporter.rs)
@@ -368,6 +373,8 @@ keeps its original exit code. Preflight failures leave cluster state alone.
 
 This is an opt-in local integration gate. Its VM-free orchestration and
 failure-path tests run in CI and via `mise run dra-test-matrix`; the live
-matrix is not part of `mise run ci`. Set `DRA_E2E_SKIP_BUILD=1` only when the
+matrix is not part of `mise run ci`. Set `DRA_E2E_TAINTS=1` to include the
+opt-in [device-taint fixture](../docs/dra-device-taints.md) on both profiles,
+including administrator-rule checks on v1.37. Set `DRA_E2E_SKIP_BUILD=1` only when the
 current local `docker.io/library/k8s-device-plugin-dra-example:latest` image
 has already been built.

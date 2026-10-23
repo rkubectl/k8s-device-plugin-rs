@@ -80,13 +80,15 @@ class MatrixTests(unittest.TestCase):
             (root / 'state.json').write_text(json.dumps(state))
             script = root / 'validate-k8s-versions.sh'
             shutil.copyfile(Path(__file__).with_name(script.name), script)
-            for name in ['container', 'kubectl', 'e2e-smoke.sh', 'e2e-extended-resource.sh']:
+            for name in ['container', 'kubectl', 'e2e-smoke.sh', 'e2e-extended-resource.sh', 'e2e-taints.sh']:
                 path = root / name
                 path.write_text(FAKE_COMMAND)
                 path.chmod(0o755)
             env = dict(os.environ, MATRIX_TEST_ROOT=tmp, CONTAINER=str(root / 'container'),
                        KUBECTL=str(root / 'kubectl'), JQ=shutil.which('jq'),
-                       DRA_E2E_SKIP_BUILD='1', DRA_E2E_V136_CLUSTER='dra-validation',
+                       DRA_E2E_SKIP_BUILD='1', DRA_E2E_TAINTS='0',
+                       DRA_E2E_IMAGE='docker.io/library/k8s-device-plugin-dra-example:latest',
+                       DRA_E2E_V136_CLUSTER='dra-validation',
                        DRA_E2E_V137_CLUSTER='dra-validation-137')
             env.update(env_overrides or {})
             result = subprocess.run(['bash', str(script)], env=env, capture_output=True, text=True)
@@ -115,6 +117,7 @@ class MatrixTests(unittest.TestCase):
         self.assertEqual([c for c in calls if c[0] == 'e2e-smoke.sh'], [
             ['e2e-smoke.sh', 'dra-validation'], ['e2e-smoke.sh', 'dra-validation-137']])
         self.assertEqual(sum(c[0] == 'e2e-extended-resource.sh' for c in calls), 1)
+        self.assertFalse(any(c[0] == 'e2e-taints.sh' for c in calls))
         for name in state['clusters']:
             logs = next(i for i, c in enumerate(calls) if c[:3] == ['kubectl', '--context', name] and 'logs' in c)
             stop = calls.index(['container', 'stop', name])
@@ -125,6 +128,19 @@ class MatrixTests(unittest.TestCase):
             'dra-validation': 'running', 'dra-validation-137': 'stopped'}})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(state['starts']['dra-validation'], 2)
+        self.assert_baseline(state)
+
+    def test_opt_in_taints_use_both_profile_contexts(self):
+        result, calls, state = self.run_matrix(env_overrides={'DRA_E2E_TAINTS': '1'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([c for c in calls if c[0] == 'e2e-taints.sh'], [
+            ['e2e-taints.sh', 'dra-validation'], ['e2e-taints.sh', 'dra-validation-137']])
+        self.assert_baseline(state)
+
+    def test_opt_in_taint_failure_restores_baseline(self):
+        result, calls, state = self.run_matrix({'fail_smoke': 'e2e-taints.sh'},
+                                              {'DRA_E2E_TAINTS': '1'})
+        self.assertEqual(result.returncode, 27, result.stderr)
         self.assert_baseline(state)
 
     def test_start_failure_preserved_and_baseline_restored(self):
@@ -177,6 +193,26 @@ class MatrixTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn('failed to restore', result.stderr)
         self.assertFalse(any(c[0] == 'e2e-smoke.sh' for c in calls))
+
+    def test_taint_fixture_transform_accepts_object_streams_and_lists(self):
+        objects = [
+            {'kind': 'DeviceClass', 'spec': {'selectors': ['keep']}},
+            {'kind': 'ResourceClaim', 'spec': {'devices': {'requests': [{'exactly': {
+                'deviceClassName': 'test-class', 'tolerations': [{'key': 'test'}]}}]}}},
+            {'kind': 'Pod', 'spec': {'tolerations': [{'key': 'node-taint'}]}},
+        ]
+        transform = Path(__file__).with_name('without-device-tolerations.jq')
+        for data in [json.dumps({'kind': 'List', 'items': objects}),
+                     '\n'.join(json.dumps(obj) for obj in objects)]:
+            with self.subTest(data=data):
+                result = subprocess.run(['jq', '-se', '-f', str(transform)],
+                                        input=data, text=True, capture_output=True, check=True)
+                actual = json.loads(result.stdout)
+                self.assertEqual(actual['kind'], 'List')
+                self.assertEqual(actual['items'][0], objects[0])
+                self.assertEqual(actual['items'][2], objects[2])
+                self.assertEqual(actual['items'][1]['spec']['devices']['requests'][0]['exactly'],
+                                 {'deviceClassName': 'test-class'})
 
     def test_preflight_failure_never_starts_or_stops(self):
         for overrides, env in [({'rosetta': True}, {}),

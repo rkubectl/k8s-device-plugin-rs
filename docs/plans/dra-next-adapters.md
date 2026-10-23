@@ -36,6 +36,23 @@ The installed k8s-openapi 0.28 schema targets v1.36; use explicit discovery or
 dynamic API access for v1.37-only API versions rather than assuming generated
 types cover them.
 
+## NUMA dependency review
+
+The maintainer authorized standard NUMA attributes wherever a selected
+capability depends on them. The selected generic paths use taint policies,
+claim readiness conditions, PodGroup claim references, and pool-status
+filters; none of the current widget fixtures requires NUMA co-placement.
+The core already publishes qualified integer attributes, so a backend with
+known locality can supply `resource.kubernetes.io/numaNode` through
+`PoolDevice::attribute(..., AttributeValue::Int(node))`. Unknown locality
+must remain absent, including a Linux sysfs value of -1; do not invent NUMA
+node 0 for the fake widget. Scalar NUMA attributes need no gate. List-form
+NUMA values require DRAListTypeAttributes and remain outside this cycle
+unless an actual selected adapter needs them. Recheck this decision when
+the binding controller and workload fixture are implemented.
+
+Reference: [Kubernetes standard DRA device attributes](https://kubernetes.io/docs/reference/node/dra-standard-device-attributes/).
+
 ## 1. Device taints
 
 Add pure core taint/effect types and inventory builders; publish them as
@@ -54,8 +71,11 @@ rules remain operator-owned and must not widen the driver's RBAC.
 ## 2. Device binding conditions
 
 Publish opt-in binding and failure-condition names with inventory metadata.
-Use the existing UID/allocation-checked ClaimDeviceStatusPublisher to report
-conditions from a separate controller/monitor before Pod binding; reporting
+Add an opt-in field-preserving operation to the existing UID/allocation-checked
+ClaimDeviceStatusPublisher so a node preparer reporting data cannot erase
+readiness conditions reported by a controller. Keep the existing complete-entry
+publication behavior available. Report conditions from a separate
+controller/monitor before Pod binding; reporting
 only from NodePrepareResources would deadlock scheduling. Supply a small
 validation controller and fixture proving allocation remains unbound until
 readiness, successful binding/CDI afterward, and failure-condition handling.
@@ -93,3 +113,10 @@ References verified on 2026-10-23:
 
 - https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
 - https://kubernetes.io/docs/concepts/resource-management/dynamic-resource-allocation/device-taints/
+
+## Progress
+
+- `qt7.6.3` completed on 2026-10-23. The [taint guide](../dra-device-taints.md#validation-evidence-2026-10-23)
+  records passing native v1.36.1/v1.37.0 acceptance, administrator rules,
+  full CI, and baseline restoration. The remaining children retain the
+  selected order; no NUMA dependency has been introduced by the taint path.

@@ -21,7 +21,10 @@ use std::io;
 use async_trait::async_trait;
 use k8s_device_plugin_core::ClaimPreparer;
 use k8s_device_plugin_core::ClaimRef;
+use k8s_device_plugin_core::DeviceTaint;
+use k8s_device_plugin_core::DeviceTaintEffect;
 use k8s_device_plugin_core::DraDriver;
+use k8s_device_plugin_core::InventoryDevice;
 use k8s_device_plugin_core::PoolDevice;
 use k8s_device_plugin_core::PrepareError;
 use k8s_device_plugin_core::PreparedDevice;
@@ -65,6 +68,7 @@ struct StaticDraDriver {
     pool: String,
     devices: Vec<PoolDevice>,
     status_publisher: Option<ClaimDeviceStatusPublisher>,
+    taint: Option<DeviceTaint>,
 }
 
 impl StaticDraDriver {
@@ -74,6 +78,7 @@ impl StaticDraDriver {
             pool,
             devices,
             status_publisher: None,
+            taint: None,
         }
     }
 
@@ -85,12 +90,33 @@ impl StaticDraDriver {
     fn has_device(&self, pool_name: &str, device_name: &str) -> bool {
         pool_name == self.pool && self.devices.iter().any(|device| device.name == device_name)
     }
+
+    fn with_taint(mut self, taint: Option<DeviceTaint>) -> Self {
+        self.taint = taint;
+        self
+    }
 }
 
 #[async_trait]
 impl ResourcePool for StaticDraDriver {
     async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
         BTreeMap::from([(self.pool.clone(), self.devices.clone())])
+    }
+
+    async fn inventory(&self) -> BTreeMap<String, Vec<InventoryDevice>> {
+        let devices = self
+            .devices
+            .iter()
+            .cloned()
+            .map(|device| {
+                let inventory = InventoryDevice::new(device);
+                match &self.taint {
+                    Some(taint) => inventory.with_taint(taint.clone()),
+                    None => inventory,
+                }
+            })
+            .collect();
+        BTreeMap::from([(self.pool.clone(), devices)])
     }
 }
 
@@ -182,6 +208,11 @@ async fn main() -> io::Result<()> {
     let driver_name = env_or_default("DRIVER_NAME", DEFAULT_DRIVER_NAME);
     let pool_name = env_or_default("POOL_NAME", DEFAULT_POOL_NAME);
     let devices = parse_device_names(&env_or_default("DEVICE_NAMES", DEFAULT_DEVICE_NAMES));
+    let taint = env::var("DRA_EXAMPLE_TAINT_EFFECT")
+        .ok()
+        .map(|value| parse_taint_effect(&value))
+        .transpose()?
+        .map(|effect| DeviceTaint::new("dra.example.com/maintenance", effect));
     let node_name = env::var("NODE_NAME")
         .map_err(|error| io::Error::other(format!("NODE_NAME must be set: {error}")))?;
 
@@ -202,7 +233,8 @@ async fn main() -> io::Result<()> {
         .map_err(io::Error::other)?;
     let status_publisher = ClaimDeviceStatusPublisher::new(client.clone(), driver_name.clone());
     let driver = StaticDraDriver::new(driver_name.clone(), pool_name, devices)
-        .with_status_publisher(status_publisher);
+        .with_status_publisher(status_publisher)
+        .with_taint(taint);
     let plugin = DraPlugin::new(client, driver_name.clone(), node_name, driver);
     plugin.run().await
 }
@@ -220,9 +252,31 @@ fn parse_device_names(names: &str) -> Vec<PoolDevice> {
         .collect()
 }
 
+fn parse_taint_effect(value: &str) -> io::Result<DeviceTaintEffect> {
+    match value {
+        "None" => Ok(DeviceTaintEffect::None),
+        "NoSchedule" => Ok(DeviceTaintEffect::NoSchedule),
+        "NoExecute" => Ok(DeviceTaintEffect::NoExecute),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "DRA_EXAMPLE_TAINT_EFFECT must be None, NoSchedule, or NoExecute",
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_taint_configuration_does_not_silently_disable_policy() {
+        assert!(parse_taint_effect("PreferNoSchedule").is_err());
+        assert!(parse_taint_effect("").is_err());
+        assert_eq!(
+            parse_taint_effect("NoExecute").unwrap(),
+            DeviceTaintEffect::NoExecute
+        );
+    }
 
     #[test]
     fn parse_device_names_splits_trims_and_drops_empty_values() {

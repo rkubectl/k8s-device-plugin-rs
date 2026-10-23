@@ -1,5 +1,10 @@
 use super::*;
 
+mod inventory;
+pub use inventory::DeviceTaint;
+pub use inventory::DeviceTaintEffect;
+pub use inventory::InventoryDevice;
+
 #[cfg(feature = "resource-health")]
 use tokio::sync::mpsc;
 
@@ -62,6 +67,24 @@ impl PoolDevice {
 pub trait ResourcePool: Send + Sync {
     /// Devices this driver currently offers, keyed by pool name.
     async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>>;
+
+    /// One complete publication snapshot, including optional device policies.
+    ///
+    /// The default preserves existing backends. Override this method when
+    /// publishing taints so devices and their policies come from the same
+    /// backend snapshot. The runtime calls this once per reconciliation.
+    async fn inventory(&self) -> BTreeMap<String, Vec<InventoryDevice>> {
+        self.devices()
+            .await
+            .into_iter()
+            .map(|(pool, devices)| {
+                (
+                    pool,
+                    devices.into_iter().map(InventoryDevice::from).collect(),
+                )
+            })
+            .collect()
+    }
 }
 
 /// Identifies a `ResourceClaim` API object, matching the wire-level
@@ -155,6 +178,10 @@ pub trait ClaimPreparer: Send + Sync {
 impl<T: ResourcePool + ?Sized> ResourcePool for Arc<T> {
     async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
         (**self).devices().await
+    }
+
+    async fn inventory(&self) -> BTreeMap<String, Vec<InventoryDevice>> {
+        (**self).inventory().await
     }
 }
 

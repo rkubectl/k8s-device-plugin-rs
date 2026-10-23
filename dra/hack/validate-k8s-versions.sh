@@ -17,6 +17,7 @@ V136_CLUSTER=${DRA_E2E_V136_CLUSTER:-dra-validation}
 V137_CLUSTER=${DRA_E2E_V137_CLUSTER:-dra-validation-137}
 SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-smoke.sh
 EXTENDED_RESOURCE_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-extended-resource.sh
+TAINT_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-taints.sh
 ACTIVE_CLUSTER=
 
 require_command() {
@@ -138,6 +139,9 @@ run_profile() {
     if [[ "$expected_version" == v1.37.0 ]]; then
         KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" "$EXTENDED_RESOURCE_SMOKE_SCRIPT"
     fi
+    if [[ ${DRA_E2E_TAINTS:-0} == 1 ]]; then
+        KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" JQ="$JQ" "$TAINT_SMOKE_SCRIPT"
+    fi
 
     capture_driver_logs "$cluster"
     stop_if_running "$cluster"
@@ -149,6 +153,9 @@ require_command "$KUBECTL"
 require_command "$JQ"
 test -x "$SMOKE_SCRIPT"
 test -x "$EXTENDED_RESOURCE_SMOKE_SCRIPT"
+if [[ ${DRA_E2E_TAINTS:-0} == 1 ]]; then
+    test -x "$TAINT_SMOKE_SCRIPT"
+fi
 
 if [[ "$V136_CLUSTER" == "$V137_CLUSTER" ]]; then
     printf 'validation profiles must have distinct names\n' >&2

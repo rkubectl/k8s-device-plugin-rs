@@ -311,3 +311,291 @@ fn retry_delay_is_bounded() {
         Duration::from_millis(50)
     );
 }
+
+struct TaintedInventory(Vec<InventoryDevice>);
+
+#[tonic::async_trait]
+impl ResourcePool for TaintedInventory {
+    async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
+        panic!("publication must use the complete inventory override")
+    }
+
+    async fn inventory(&self) -> BTreeMap<String, Vec<InventoryDevice>> {
+        BTreeMap::from([("pool-0".to_string(), self.0.clone())])
+    }
+}
+
+fn tainted_widget() -> InventoryDevice {
+    use k8s_device_plugin_core::{DeviceTaint, DeviceTaintEffect};
+    InventoryDevice::new(PoolDevice::new("widget-0")).with_taint(DeviceTaint::new(
+        "example.com/maintenance",
+        DeviceTaintEffect::NoSchedule,
+    ))
+}
+
+fn inventory_publisher(devices: Vec<InventoryDevice>) -> (ResourceSlicePublisher, MockKubeHandle) {
+    let (client, handle) = mock_kube_client();
+    let pool: Arc<dyn ResourcePool> = Arc::new(TaintedInventory(devices));
+    (
+        ResourceSlicePublisher::new(client, "example.com", "node-0", pool),
+        handle,
+    )
+}
+
+fn tainted_slice(effect: &str) -> json::Value {
+    let mut device = device_json("widget-0");
+    device["taints"] = json::json!([{
+        "key": "example.com/maintenance", "effect": effect,
+        "timeAdded": "2026-10-23T10:00:00Z",
+    }]);
+    owned_slice("example.com-node-0-pool-0", 4, "pool-0", 1, vec![device])
+}
+
+#[test]
+fn taint_conversion_preserves_effects_values_and_explicit_times() {
+    use k8s_device_plugin_core::{DeviceTaint, DeviceTaintEffect};
+    for effect in [
+        DeviceTaintEffect::None,
+        DeviceTaintEffect::NoSchedule,
+        DeviceTaintEffect::NoExecute,
+    ] {
+        let device = InventoryDevice::new(PoolDevice::new("widget-0")).with_taint(
+            DeviceTaint::new("example.com/maintenance", effect)
+                .with_value("yes")
+                .with_time_added(0),
+        );
+        let wire = inventory_device_to_wire(&device, "pool-0").unwrap();
+        let taint = &wire.taints.unwrap()[0];
+        assert_eq!(taint.effect, effect.as_str());
+        assert_eq!(taint.value.as_deref(), Some("yes"));
+        assert_eq!(taint.time_added.as_ref().unwrap().0.as_second(), 0);
+    }
+}
+
+#[test]
+fn invalid_taints_are_rejected_before_publication() {
+    use k8s_device_plugin_core::{DeviceTaint, DeviceTaintEffect};
+    let duplicate = tainted_widget().with_taint(DeviceTaint::new(
+        "example.com/maintenance",
+        DeviceTaintEffect::NoSchedule,
+    ));
+    let invalid_time = InventoryDevice::new(PoolDevice::new("widget-0")).with_taint(
+        DeviceTaint::new("example.com/maintenance", DeviceTaintEffect::NoExecute)
+            .with_time_added(i64::MAX),
+    );
+    let mut too_many = InventoryDevice::new(PoolDevice::new("widget-0"));
+    for index in 0..17 {
+        too_many = too_many.with_taint(DeviceTaint::new(
+            format!("example.com/taint-{index}"),
+            DeviceTaintEffect::None,
+        ));
+    }
+    for inventory in [duplicate, invalid_time, too_many] {
+        let error = inventory_device_to_wire(&inventory, "pool-0").unwrap_err();
+        assert!(matches!(error, kube::Error::Api(status) if status.code == 422));
+    }
+}
+
+#[tokio::test]
+async fn tainted_pool_splits_at_64_devices_with_coherent_generation_and_count() {
+    let devices = (0..129)
+        .map(|index| {
+            let mut inventory = tainted_widget();
+            inventory.device.name = format!("widget-{index:03}");
+            inventory
+        })
+        .collect();
+    let (publisher, mut handle) = inventory_publisher(devices);
+    let script = async {
+        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &resource_slice_list(vec![])).await;
+        for size in [64, 64, 1] {
+            let (request, send) = handle.next_request().await.unwrap();
+            let body = request_body_json(request).await;
+            assert_eq!(body["spec"]["devices"].as_array().unwrap().len(), size);
+            assert_eq!(body["spec"]["pool"]["resourceSliceCount"], 3);
+            assert_eq!(body["spec"]["pool"]["generation"], 1);
+            assert_eq!(
+                body["spec"]["devices"][0]["taints"][0]["effect"],
+                "NoSchedule"
+            );
+            assert!(
+                body["spec"]["devices"][0]["taints"][0]
+                    .get("timeAdded")
+                    .is_none()
+            );
+            send.send_response(http::Response::new(Body::from(
+                serde_json::to_vec(&body).unwrap(),
+            )));
+        }
+    };
+    let (_, result) = tokio::join!(script, publisher.publish_once());
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn defaulted_taint_time_and_empty_value_do_not_republish() {
+    let (publisher, mut handle) = inventory_publisher(vec![tainted_widget()]);
+    let script = async {
+        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        let mut existing = tainted_slice("NoSchedule");
+        existing["spec"]["devices"][0]["taints"][0]["value"] = json::json!("");
+        respond(&mut handle, 200, &resource_slice_list(vec![existing])).await;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), handle.next_request())
+                .await
+                .is_err()
+        );
+    };
+    let (_, result) = tokio::join!(script, publisher.publish_once());
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn changing_a_taint_effect_gets_a_new_time_and_generation() {
+    use k8s_device_plugin_core::{DeviceTaint, DeviceTaintEffect};
+    let desired = InventoryDevice::new(PoolDevice::new("widget-0")).with_taint(DeviceTaint::new(
+        "example.com/maintenance",
+        DeviceTaintEffect::NoExecute,
+    ));
+    let (publisher, mut handle) = inventory_publisher(vec![desired]);
+    let script = async {
+        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(
+            &mut handle,
+            200,
+            &resource_slice_list(vec![tainted_slice("NoSchedule")]),
+        )
+        .await;
+        let (request, send) = handle.next_request().await.unwrap();
+        assert_eq!(request.method(), http::Method::PUT);
+        let body = request_body_json(request).await;
+        assert_eq!(body["spec"]["pool"]["generation"], 5);
+        assert_eq!(
+            body["spec"]["devices"][0]["taints"][0]["effect"],
+            "NoExecute"
+        );
+        assert!(
+            body["spec"]["devices"][0]["taints"][0]
+                .get("timeAdded")
+                .is_none()
+        );
+        send.send_response(http::Response::new(Body::from(
+            serde_json::to_vec(&body).unwrap(),
+        )));
+    };
+    let (_, result) = tokio::join!(script, publisher.publish_once());
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn removing_a_taint_is_published_with_next_generation() {
+    let (publisher, mut handle) = inventory_publisher(vec![PoolDevice::new("widget-0").into()]);
+    let script = async {
+        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(
+            &mut handle,
+            200,
+            &resource_slice_list(vec![tainted_slice("NoSchedule")]),
+        )
+        .await;
+        let (request, send) = handle.next_request().await.unwrap();
+        let body = request_body_json(request).await;
+        assert_eq!(body["spec"]["pool"]["generation"], 5);
+        assert!(body["spec"]["devices"][0].get("taints").is_none());
+        send.send_response(http::Response::new(Body::from(
+            serde_json::to_vec(&body).unwrap(),
+        )));
+    };
+    let (_, result) = tokio::join!(script, publisher.publish_once());
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn taint_reordering_does_not_advance_generation() {
+    use k8s_device_plugin_core::{DeviceTaint, DeviceTaintEffect};
+    let desired = tainted_widget().with_taint(DeviceTaint::new(
+        "example.com/diagnostic",
+        DeviceTaintEffect::None,
+    ));
+    let (publisher, mut handle) = inventory_publisher(vec![desired]);
+    let script = async {
+        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        let mut existing = tainted_slice("NoSchedule");
+        existing["spec"]["devices"][0]["taints"].as_array_mut().unwrap().push(json::json!({
+            "key": "example.com/diagnostic", "effect": "None", "timeAdded": "2026-10-23T09:00:00Z",
+        }));
+        respond(&mut handle, 200, &resource_slice_list(vec![existing])).await;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), handle.next_request())
+                .await
+                .is_err()
+        );
+    };
+    let (_, result) = tokio::join!(script, publisher.publish_once());
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn newly_added_taint_converges_after_server_defaults_its_time() {
+    let (publisher, mut handle) = inventory_publisher(vec![tainted_widget()]);
+    let script = async {
+        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        let existing = owned_slice(
+            "example.com-node-0-pool-0",
+            4,
+            "pool-0",
+            1,
+            vec![device_json("widget-0")],
+        );
+        respond(&mut handle, 200, &resource_slice_list(vec![existing])).await;
+        let (request, send) = handle.next_request().await.unwrap();
+        let mut body = request_body_json(request).await;
+        assert_eq!(body["spec"]["pool"]["generation"], 5);
+        body["spec"]["devices"][0]["taints"][0]["timeAdded"] = json::json!("2026-10-23T11:00:00Z");
+        send.send_response(http::Response::new(Body::from(
+            serde_json::to_vec(&body).unwrap(),
+        )));
+        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &resource_slice_list(vec![body])).await;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), handle.next_request())
+                .await
+                .is_err()
+        );
+    };
+    let publications = async {
+        publisher.publish_once().await?;
+        publisher.publish_once().await
+    };
+    let (_, result) = tokio::join!(script, publications);
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn backend_can_explicitly_change_a_taint_timestamp() {
+    let mut desired = tainted_widget();
+    desired.taints[0].time_added = Some(0);
+    let (publisher, mut handle) = inventory_publisher(vec![desired]);
+    let script = async {
+        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(
+            &mut handle,
+            200,
+            &resource_slice_list(vec![tainted_slice("NoSchedule")]),
+        )
+        .await;
+        let (request, send) = handle.next_request().await.unwrap();
+        let body = request_body_json(request).await;
+        assert_eq!(body["spec"]["pool"]["generation"], 5);
+        assert_eq!(
+            body["spec"]["devices"][0]["taints"][0]["timeAdded"],
+            "1970-01-01T00:00:00Z"
+        );
+        send.send_response(http::Response::new(Body::from(
+            serde_json::to_vec(&body).unwrap(),
+        )));
+    };
+    let (_, result) = tokio::join!(script, publisher.publish_once());
+    result.unwrap();
+}

@@ -1,0 +1,52 @@
+# Opt-in fake-device policy fixture. e2e-taints.sh also derives an untolerated
+# copy, and restores the driver's optional maintenance taint on exit.
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: dra-example-taints
+spec:
+  selectors:
+    - cel:
+        expression: device.driver == "dra.example.com"
+---
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaim
+metadata:
+  name: dra-example-taints
+  namespace: k8s-device-plugin-dra-example
+spec:
+  devices:
+    requests:
+      - name: widget
+        exactly:
+          deviceClassName: dra-example-taints
+          tolerations:
+            - key: dra.example.com/maintenance
+              operator: Exists
+              effect: NoSchedule
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dra-example-taints
+  namespace: k8s-device-plugin-dra-example
+spec:
+  terminationGracePeriodSeconds: 1
+  restartPolicy: Never
+  containers:
+    - name: consumer
+      image: busybox:1.37
+      imagePullPolicy: IfNotPresent
+      command:
+        - sh
+        - -ec
+        - |
+          test "$DRA_E2E_DEVICE" = "widget-0"
+          echo "DRA_E2E_DEVICE=$DRA_E2E_DEVICE"
+          sleep 3600
+      resources:
+        claims:
+          - name: widget
+  resourceClaims:
+    - name: widget
+      resourceClaimName: dra-example-taints

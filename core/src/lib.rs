@@ -13,9 +13,12 @@ pub use dra::AllocatedDevice;
 pub use dra::AttributeValue;
 pub use dra::ClaimPreparer;
 pub use dra::ClaimRef;
+pub use dra::DeviceTaint;
+pub use dra::DeviceTaintEffect;
 #[cfg(feature = "resource-health")]
 pub use dra::DraDeviceHealth;
 pub use dra::DraDriver;
+pub use dra::InventoryDevice;
 pub use dra::PoolDevice;
 pub use dra::PrepareError;
 pub use dra::PreparedDevice;
