@@ -397,6 +397,36 @@ entry from the root `Cargo.toml`. The [crate guide](../dra/README.md) is the
 authoritative copy-and-paste instruction. This is a release constraint, not a
 hidden implementation detail.
 
+### h2 fork status (2026-10-23)
+
+Retain the compatibility override. The remote `uds-authority-compat-0.4.20`
+branch still points to `e80d915d7468bc7009d3d38acfcaebc83b747f4b`, matching
+`Cargo.toml`, `Cargo.lock`, and the downstream instructions. No fork refresh
+or dependency change is needed for the latest released upstream version.
+
+- [Upstream v0.4.20](https://github.com/hyperium/h2/releases/tag/v0.4.20),
+  published 2026-10-06, remains the latest release.
+  [PR #487](https://github.com/hyperium/h2/pull/487) remains open and unmerged.
+  Both the [released server](https://github.com/hyperium/h2/blob/b0e890842ac16d3c76836fd4fcc06421acb15fa7/src/server.rs#L1703-L1711)
+  and [master at e64c1662](https://github.com/hyperium/h2/blob/e64c1662ebb14794fc19cbcbb5b5dd0f67925f27/src/server.rs#L1703-L1711)
+  still reject an authority that fails URI parsing.
+- The complete pluginwatcher `dial` function in
+  [Kubernetes v1.36.5](https://github.com/kubernetes/kubernetes/blob/v1.36.5/pkg/kubelet/pluginmanager/operationexecutor/operation_generator.go#L191-L209),
+  [v1.37.1](https://github.com/kubernetes/kubernetes/blob/v1.37.1/pkg/kubelet/pluginmanager/operationexecutor/operation_generator.go#L191-L209),
+  and [master at dc5eeea8](https://github.com/kubernetes/kubernetes/blob/dc5eeea813679154dce3bf511ab011221ebd67a1/pkg/kubelet/pluginmanager/operationexecutor/operation_generator.go#L191-L209)
+  still passes a bare socket path to `grpc.DialContext` with a custom Unix
+  dialer, without an explicit authority or Unix-scheme target. The separate
+  [DRA resource client](https://github.com/kubernetes/kubernetes/blob/dc5eeea813679154dce3bf511ab011221ebd67a1/pkg/kubelet/cm/dra/plugin/dra_plugin_manager.go#L405-L420)
+  already uses a `unix:` target; that does not fix pluginwatcher registration.
+
+Cleanup task `k8s-device-plugin-rs-9uf.14` remains deferred. Removal requires a
+compatible released h2 fix or a released kubelet pluginwatcher fix applicable
+to the supported cluster baseline, followed by a smoke test without the patch
+that proves registration, claim preparation/CDI injection, and unpreparation.
+This audit checked remote metadata and source; it did not rerun build or live
+cluster tests. The last recorded runtime validation remains the 2026-10-10
+v1.36.1/v1.37.0 run above.
+
 ## Open risks / things to verify against a real cluster before Phase 1 is "done"
 
 - RBAC scope needed for the `ResourceSlice`/`ResourceClaim` API client

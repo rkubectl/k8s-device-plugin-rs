@@ -53,6 +53,13 @@ The fork is based on upstream `h2` v0.4.20. Its
 [maintenance notes](https://github.com/rkubectl/h2/blob/e80d915d7468bc7009d3d38acfcaebc83b747f4b/UDS-COMPAT.md)
 record the patch provenance and regression checks.
 
+Status checked on **2026-10-23**: v0.4.20 remains the latest upstream release,
+and [h2 PR #487](https://github.com/hyperium/h2/pull/487) remains open and
+unmerged. Kubelet's pluginwatcher registration client still uses a bare socket
+path in Kubernetes v1.36.5, v1.37.1, and current master. Retain the exact pin
+above; see the [dated upstream audit](../docs/dra-design.md#h2-fork-status-2026-10-23)
+for source references and the removal gate.
+
 The exact pin in the [workspace Cargo manifest](https://github.com/rkubectl/k8s-device-plugin-rs/blob/main/Cargo.toml)
 is authoritative. Do not change it independently; the deferred upstream-cleanup
 task removes this override once either upstream route is released.
