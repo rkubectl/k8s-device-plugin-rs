@@ -893,7 +893,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "k8s-device-plugin-core",
  "k8s-device-plugin-dra",
@@ -903,7 +903,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin-core"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "async-trait",
  "tempfile",
@@ -913,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin-dra"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "async-trait",
  "futures",
@@ -938,7 +938,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin-example"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "k8s-device-plugin-lib",
  "tokio",
@@ -948,7 +948,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin-lib"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "hyper-util",
  "k8s-device-plugin-core",
@@ -966,7 +966,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin-proto"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "prost",
  "tonic",
@@ -976,7 +976,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin-test"
-version = "0.0.7"
+version = "0.0.8"
 dependencies = [
  "http",
  "hyper-util",
