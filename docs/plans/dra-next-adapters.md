@@ -169,3 +169,12 @@ capabilities. No further adapter is selected automatically. The useful next
 decision is a real backend/workload integration target, then selecting only
 its required capability. `qt7.6` stays deferred to preserve this unfinished
 scope rather than implying the entire advanced-feature roadmap is complete.
+
+
+## Next selected design — 2026-10-23
+
+The maintainer selected container metadata as the next capability and chose
+identity plus driver-selected attributes for its first implementation.
+[The separate design](dra-container-metadata.md) is tracked as `qt7.6.7`;
+implementation `qt7.6.8` follows the design discussion. Network/post-CNI and
+live updates remain deferred. The four-adapter cycle above remains complete.
