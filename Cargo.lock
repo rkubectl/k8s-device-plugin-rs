@@ -488,7 +488,7 @@ dependencies = [
 [[package]]
 name = "h2"
 version = "0.4.20"
-source = "git+https://github.com/rkubectl/h2?rev=e80d915d7468bc7009d3d38acfcaebc83b747f4b#e80d915d7468bc7009d3d38acfcaebc83b747f4b"
+source = "git+https://github.com/rkubectl/h2?tag=v0.4.20%2B20261023#e80d915d7468bc7009d3d38acfcaebc83b747f4b"
 dependencies = [
  "atomic-waker",
  "bytes",

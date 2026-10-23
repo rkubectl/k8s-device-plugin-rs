@@ -379,7 +379,7 @@ not for Tonic-to-Tonic tests.
 The fork now tracks upstream `h2` v0.4.20 on the
 `uds-authority-compat-0.4.20` branch. The original compatibility revision is
 preserved; the refreshed branch adds focused authority regression coverage
-and [maintenance notes](https://github.com/rkubectl/h2/blob/e80d915d7468bc7009d3d38acfcaebc83b747f4b/UDS-COMPAT.md).
+and [maintenance notes](https://github.com/rkubectl/h2/blob/v0.4.20%2B20261023/UDS-COMPAT.md).
 
 On 2026-10-10, the refreshed pin passed the fork's separate library/doc and
 integration suites, strict library Clippy, and workspace CI. A native ARM64
@@ -399,10 +399,20 @@ hidden implementation detail.
 
 ### h2 fork status (2026-10-23)
 
-Retain the compatibility override. The remote `uds-authority-compat-0.4.20`
-branch still points to `e80d915d7468bc7009d3d38acfcaebc83b747f4b`, matching
-`Cargo.toml`, `Cargo.lock`, and the downstream instructions. No fork refresh
-or dependency change is needed for the latest released upstream version.
+Retain the compatibility override. The annotated snapshot tag
+[`v0.4.20+20261023`](https://github.com/rkubectl/h2/releases/tag/v0.4.20%2B20261023)
+and remote `uds-authority-compat-0.4.20` branch both resolve to
+`e80d915d7468bc7009d3d38acfcaebc83b747f4b`. The manifest and downstream
+instructions select the tag; `Cargo.lock` records the same exact commit.
+This replaces the SHA selector without changing the fork's source or its
+internal `0.4.20` package version. No source refresh is needed for the latest
+released upstream version.
+
+Snapshot tags use `v<upstream-version>+<YYYYMMDD>`, with `.1`, `.2`, and so
+on for additional snapshots on the same date. Create annotated tags recording
+the upstream base, fork commit, and validation evidence. Never move or reuse a
+published tag. The date identifies the snapshot tag, while validation dates
+remain explicit in the annotation and documentation.
 
 - [Upstream v0.4.20](https://github.com/hyperium/h2/releases/tag/v0.4.20),
   published 2026-10-06, remains the latest release.
@@ -423,9 +433,12 @@ Cleanup task `k8s-device-plugin-rs-9uf.14` remains deferred. Removal requires a
 compatible released h2 fix or a released kubelet pluginwatcher fix applicable
 to the supported cluster baseline, followed by a smoke test without the patch
 that proves registration, claim preparation/CDI injection, and unpreparation.
-This audit checked remote metadata and source; it did not rerun build or live
-cluster tests. The last recorded runtime validation remains the 2026-10-10
-v1.36.1/v1.37.0 run above.
+The tag migration passed `cargo test --locked -p k8s-device-plugin-dra
+--all-targets`, with Unix-socket tests run outside the restrictive sandbox.
+The lockfile differs only in the h2 source selector; the resolved commit and
+all dependency versions are unchanged. No live cluster tests were rerun. The
+last recorded kubelet validation remains the 2026-10-10 v1.36.1/v1.37.0 run
+above.
 
 ## Open risks / things to verify against a real cluster before Phase 1 is "done"
 

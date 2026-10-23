@@ -42,7 +42,7 @@ top-level manifest, then regenerate their lockfile.
 
 ```toml
 [patch.crates-io]
-h2 = { git = "https://github.com/rkubectl/h2", rev = "852915ba20501b2a0d39bd54ab4521cde8ee54c9" }
+h2 = { git = "https://github.com/rkubectl/h2", tag = "v0.4.20+20261023" }
 ```
 
 ## First classic device plugin
