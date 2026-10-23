@@ -1,0 +1,79 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "resource.k8s.io/v1",
+      "kind": "DeviceClass",
+      "metadata": {
+        "name": "dra-example-pool-status"
+      },
+      "spec": {
+        "selectors": [
+          {
+            "cel": {
+              "expression": "device.driver == \"dra.example.com\""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "resource.k8s.io/v1",
+      "kind": "ResourceClaim",
+      "metadata": {
+        "name": "dra-example-pool-status",
+        "namespace": "k8s-device-plugin-dra-example"
+      },
+      "spec": {
+        "devices": {
+          "requests": [
+            {
+              "name": "widget",
+              "exactly": {
+                "deviceClassName": "dra-example-pool-status"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "dra-example-pool-status",
+        "namespace": "k8s-device-plugin-dra-example"
+      },
+      "spec": {
+        "resourceClaims": [
+          {
+            "name": "widget",
+            "resourceClaimName": "dra-example-pool-status"
+          }
+        ],
+        "restartPolicy": "Never",
+        "terminationGracePeriodSeconds": 1,
+        "containers": [
+          {
+            "name": "consumer",
+            "image": "busybox:1.37",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-ec",
+              "test \"$DRA_E2E_DEVICE\" = \"widget-0\"\necho \"DRA_E2E_DEVICE=$DRA_E2E_DEVICE\"\nsleep 3600"
+            ],
+            "resources": {
+              "claims": [
+                {
+                  "name": "widget"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

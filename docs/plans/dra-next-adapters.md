@@ -130,3 +130,42 @@ References verified on 2026-10-23:
   [Workload guide](../dra-workload-claims.md) records the isolated gated
   profile and same-UID two-Pod lifecycle. No runtime change or NUMA
   dependency was needed for Basic scheduling.
+
+- `qt7.6.6` completed on 2026-10-23. The [pool-status guide](../dra-pool-status.md)
+  records native total/allocated/available snapshots, explicit query cleanup,
+  a shared-claim regression, full CI and restoration of the sole baseline.
+  The client performs on-demand discovery and has no default driver side effects.
+
+## Reassessment after the selected cycle — 2026-10-23
+
+All four selected children are closed. Taints and binding conditions passed
+on the standard v1.36/v1.37 profiles; shared claims and pool status passed on
+the isolated gated v1.37 profile. The original v1.36 baseline remains the
+compatibility contract. These examples validate the generic integration
+paths; real attachment, device discovery and hardware cleanup remain the
+backend author's responsibility.
+
+No selected adapter requires NUMA attributes: taints are policy, binding
+uses readiness and node selectors, the shared-claim fixture uses Basic
+scheduling, and pool queries filter driver/pool. The existing scalar integer
+attribute API is sufficient for a backend that knows its NUMA node; unknown
+or -1 locality must be omitted. Do not add invented topology to the widget.
+A real NUMA-constrained consumer would justify a separate discovery/example
+follow-up; it does not block the completed cycle.
+
+Keep the remaining epic scope deferred until a consumer selects it:
+
+| Remaining capability | Consumer information needed before implementation |
+|---|---|
+| Partitionable devices and shared counters | A backend with an explicit partition/resource-sharing model and device lifecycle. |
+| Consumable capacity | A backend/application requiring partial or shared device capacity and concrete reservation semantics. |
+| Device metadata in containers | The metadata an application needs and its container-facing contract. |
+| Node-allocatable-resource mapping | The node resource and workload that should use that mapping. |
+| List-type and derived attributes | Real inventory values and selection expressions that scalar attributes cannot express. |
+
+The pool client intentionally exposes the installed v1.36 typed count schema;
+v1.37 partition/shareable summaries belong with the first two deferred
+capabilities. No further adapter is selected automatically. The useful next
+decision is a real backend/workload integration target, then selecting only
+its required capability. `qt7.6` stays deferred to preserve this unfinished
+scope rather than implying the entire advanced-feature roadmap is complete.

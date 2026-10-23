@@ -221,6 +221,10 @@ and the separate validation controller. Node preparers can use
 `ClaimDeviceStatusPublisher::publish_fields()` to preserve controller-owned
 conditions while reporting data.
 
+For controller-calculated pool snapshots, see [resource-pool status](../docs/dra-pool-status.md)
+and the explicit `PoolStatusClient`/`pool_status` example. The alpha API is
+discovered on demand and does not change the node-driver lifecycle.
+
 For the opt-in resource-health protocol, see the standalone
 [`examples/resource_health_reporter.rs`](examples/resource_health_reporter.rs)
 contract example. It demonstrates source-scoped snapshots and clean shutdown
@@ -387,6 +391,8 @@ the [binding-condition fixture](../docs/dra-binding-conditions.md). For gated
 v1.37 PodGroup sharing, see [Workload ResourceClaims](../docs/dra-workload-claims.md)
 and `DRA_E2E_WORKLOAD=1` with the isolated advanced profile. Its configuration
 transforms are tested with `mise run dra-test-profile-config`.
+Use `DRA_E2E_POOL_STATUS=1` on that profile for the
+[resource-pool count fixture](../docs/dra-pool-status.md).
 Set `DRA_E2E_SKIP_BUILD=1` only when the
 current local `docker.io/library/k8s-device-plugin-dra-example:latest` image
 has already been built.

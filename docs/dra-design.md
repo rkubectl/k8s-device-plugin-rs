@@ -274,7 +274,9 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
    [binding conditions](dra-binding-conditions.md), with native acceptance
    on both pinned profiles. [Workload ResourceClaims](dra-workload-claims.md)
    also passed the shared lifecycle on an isolated gated v1.37 profile.
-   Resource-pool status is the final selected task in [the tracked plan](plans/dra-next-adapters.md).
+   [Resource-pool status](dra-pool-status.md) now supplies an opt-in client and
+   verified controller snapshots on that profile. The four selected adapters
+   and remaining deferred scope are recorded in [the tracked plan](plans/dra-next-adapters.md).
 
 ## Deployment note: no rolling updates in Phase 1
 

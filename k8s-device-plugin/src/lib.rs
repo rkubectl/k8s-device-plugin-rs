@@ -39,6 +39,12 @@ pub use k8s_device_plugin_dra::DraRegistrationServer;
 #[cfg(feature = "resource-health")]
 pub use k8s_device_plugin_dra::DraResourceHealthService;
 #[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra::PoolStatusClient;
+#[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra::PoolStatusError;
+#[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra::PoolStatusQuery;
+#[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra::ResourceSlicePublisher;
 
 #[cfg(feature = "proto")]

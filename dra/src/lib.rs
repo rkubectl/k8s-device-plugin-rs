@@ -49,6 +49,7 @@ pub use device_status::ClaimDeviceStatusPublishOutcome;
 pub use device_status::ClaimDeviceStatusPublisher;
 pub use ext::KubeClientExt;
 pub use health::DraPluginLivenessProbe;
+pub use pool_status::{PoolStatusClient, PoolStatusError, PoolStatusQuery};
 pub use registration::DraRegistrationServer;
 #[cfg(feature = "resource-health")]
 pub use resource_health::DraResourceHealthService;
@@ -59,6 +60,7 @@ mod claim;
 mod device_status;
 mod ext;
 mod health;
+mod pool_status;
 mod registration;
 #[cfg(feature = "resource-health")]
 mod resource_health;
