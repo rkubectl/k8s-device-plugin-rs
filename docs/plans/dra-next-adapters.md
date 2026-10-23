@@ -120,3 +120,8 @@ References verified on 2026-10-23:
   records passing native v1.36.1/v1.37.0 acceptance, administrator rules,
   full CI, and baseline restoration. The remaining children retain the
   selected order; no NUMA dependency has been introduced by the taint path.
+
+- `qt7.6.4` completed on 2026-10-23. The [binding guide](../dra-binding-conditions.md#validation-evidence-2026-10-23)
+  records successful native readiness/failure lifecycles on both profiles,
+  cooperative status publication, full CI, and baseline restoration.
+  Node pinning uses the allocation selector and does not require NUMA.

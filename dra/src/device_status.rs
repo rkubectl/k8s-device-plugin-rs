@@ -214,7 +214,38 @@ impl ClaimDeviceStatusPublisher {
         claim: &ClaimRef,
         statuses: impl IntoIterator<Item = ClaimDeviceStatus>,
     ) -> Result<ClaimDeviceStatusPublishOutcome, ClaimDeviceStatusError> {
-        let desired = self.desired_statuses(statuses)?;
+        self.publish_inner(claim, statuses, false).await
+    }
+
+    /// Updates only fields explicitly supplied as `Some` in each status.
+    ///
+    /// Omitted conditions/data/network data retain their current values. Use
+    /// this when a pre-binding controller owns conditions and a node preparer
+    /// owns data. An explicit empty condition list clears the conditions.
+    /// Updates retain the same UID, allocation and resourceVersion checks as
+    /// [`Self::publish`], including remerging current fields after a conflict.
+    pub async fn publish_fields(
+        &self,
+        claim: &ClaimRef,
+        statuses: impl IntoIterator<Item = ClaimDeviceStatus>,
+    ) -> Result<ClaimDeviceStatusPublishOutcome, ClaimDeviceStatusError> {
+        self.publish_inner(claim, statuses, true).await
+    }
+
+    async fn publish_inner(
+        &self,
+        claim: &ClaimRef,
+        statuses: impl IntoIterator<Item = ClaimDeviceStatus>,
+        preserve_unspecified_fields: bool,
+    ) -> Result<ClaimDeviceStatusPublishOutcome, ClaimDeviceStatusError> {
+        let mut desired = self.desired_statuses(statuses)?;
+        if preserve_unspecified_fields {
+            desired.retain(|_, status| {
+                status.conditions.is_some()
+                    || status.data.is_some()
+                    || status.network_data.is_some()
+            });
+        }
         if desired.is_empty() {
             return Ok(ClaimDeviceStatusPublishOutcome::Unchanged);
         }
@@ -238,6 +269,11 @@ impl ClaimDeviceStatusPublisher {
             }
 
             self.validate_allocations(claim, &resource_claim, &desired)?;
+            let desired = if preserve_unspecified_fields {
+                std::borrow::Cow::Owned(self.merge_existing_fields(&resource_claim, &desired))
+            } else {
+                std::borrow::Cow::Borrowed(&desired)
+            };
             if self.statuses_are_current(&resource_claim, &desired) {
                 return Ok(ClaimDeviceStatusPublishOutcome::Unchanged);
             }
@@ -296,6 +332,40 @@ impl ClaimDeviceStatusPublisher {
                 Err(error) => return Err(ClaimDeviceStatusError::Kubernetes(error)),
             }
         }
+    }
+
+    fn merge_existing_fields(
+        &self,
+        resource_claim: &resourcev1::ResourceClaim,
+        desired: &BTreeMap<ClaimDeviceStatusKey, resourcev1::AllocatedDeviceStatus>,
+    ) -> BTreeMap<ClaimDeviceStatusKey, resourcev1::AllocatedDeviceStatus> {
+        let mut merged = desired.clone();
+        for status in resource_claim
+            .status
+            .iter()
+            .flat_map(|status| status.devices.iter().flatten())
+        {
+            if status.driver != self.driver_name {
+                continue;
+            }
+            let key = ClaimDeviceStatusKey {
+                pool_name: status.pool.clone(),
+                device_name: status.device.clone(),
+                share_id: status.share_id.clone(),
+            };
+            if let Some(update) = merged.get_mut(&key) {
+                if update.conditions.is_none() {
+                    update.conditions.clone_from(&status.conditions);
+                }
+                if update.data.is_none() {
+                    update.data.clone_from(&status.data);
+                }
+                if update.network_data.is_none() {
+                    update.network_data.clone_from(&status.network_data);
+                }
+            }
+        }
+        merged
     }
 
     fn desired_statuses(
@@ -384,9 +454,16 @@ impl ClaimDeviceStatusPublisher {
             .collect::<BTreeMap<_, _>>();
 
         desired.iter().all(|(key, desired_status)| {
-            current
-                .get(key)
-                .is_some_and(|current_status| *current_status == desired_status)
+            current.get(key).is_some_and(|current_status| {
+                current_status.driver == desired_status.driver
+                    && current_status.pool == desired_status.pool
+                    && current_status.device == desired_status.device
+                    && current_status.share_id == desired_status.share_id
+                    && current_status.data == desired_status.data
+                    && current_status.network_data == desired_status.network_data
+                    && current_status.conditions.as_deref().unwrap_or_default()
+                        == desired_status.conditions.as_deref().unwrap_or_default()
+            })
         })
     }
 }
@@ -804,6 +881,195 @@ mod tests {
         assert!(publisher.statuses_are_current(
             &current,
             &publisher.desired_statuses([desired]).expect("valid status")
+        ));
+    }
+    fn ready_device_status() -> json::Value {
+        json::json!({
+            "driver": DRIVER, "pool": "widget-pool", "device": "widget-0",
+            "conditions": [{"type": "dra.example.com/Attached", "status": "True",
+                "reason": "Attached", "message": "ready", "lastTransitionTime": "2026-10-23T10:00:00Z"}],
+            "data": {"phase": "old"}, "networkData": {"interfaceName": "eth-test"},
+        })
+    }
+
+    async fn patch_json(request: http::Request<Body>) -> json::Value {
+        let bytes = request.into_body().collect().await.unwrap().to_bytes();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn partial_data_update_retains_controller_conditions_network_and_other_drivers() {
+        let (client, mut handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER);
+        let current = ready_device_status();
+        let foreign =
+            json::json!({"driver":"other.example.com", "pool":"other", "device":"foreign"});
+        let script = async {
+            let (_, send) = handle.next_request().await.unwrap();
+            send.send_response(response(
+                200,
+                allocated_claim(json::json!([current.clone(), foreign.clone()])),
+            ));
+            let (request, send) = handle.next_request().await.unwrap();
+            let body = patch_json(request).await;
+            assert_eq!(body["metadata"]["resourceVersion"], "1");
+            assert_eq!(
+                body["status"]["devices"][0]["conditions"],
+                current["conditions"]
+            );
+            assert_eq!(
+                body["status"]["devices"][0]["networkData"],
+                current["networkData"]
+            );
+            assert_eq!(body["status"]["devices"][0]["data"]["phase"], "prepared");
+            assert_eq!(body["status"]["devices"][1], foreign);
+            send.send_response(response(
+                200,
+                allocated_claim(body["status"]["devices"].clone()),
+            ));
+        };
+        let publication = async { publisher.publish_fields(&claim_ref(), [status()]).await };
+        let (_, result) = tokio::join!(script, publication);
+        assert_eq!(result.unwrap(), ClaimDeviceStatusPublishOutcome::Updated);
+    }
+
+    #[tokio::test]
+    async fn complete_publication_still_replaces_unspecified_fields() {
+        let (client, mut handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER);
+        let script = async {
+            let (_, send) = handle.next_request().await.unwrap();
+            send.send_response(response(
+                200,
+                allocated_claim(json::json!([ready_device_status()])),
+            ));
+            let (request, send) = handle.next_request().await.unwrap();
+            let body = patch_json(request).await;
+            assert!(body["status"]["devices"][0].get("conditions").is_none());
+            assert!(body["status"]["devices"][0].get("networkData").is_none());
+            send.send_response(response(
+                200,
+                allocated_claim(body["status"]["devices"].clone()),
+            ));
+        };
+        let publication = async { publisher.publish(&claim_ref(), [status()]).await };
+        let (_, result) = tokio::join!(script, publication);
+        assert_eq!(result.unwrap(), ClaimDeviceStatusPublishOutcome::Updated);
+    }
+
+    #[tokio::test]
+    async fn partial_condition_update_remerges_data_after_a_conflict() {
+        let (client, mut handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER);
+        let mut desired = ClaimDeviceStatus::new("widget-pool", "widget-0");
+        desired.conditions =
+            Some(serde_json::from_value(ready_device_status()["conditions"].clone()).unwrap());
+        let script = async {
+            for version in ["1", "2"] {
+                let mut current = ready_device_status();
+                current["conditions"] = json::Value::Null;
+                current["data"]["phase"] = json::json!(format!("concurrent-{version}"));
+                let mut claim = allocated_claim(json::json!([current]));
+                claim["metadata"]["resourceVersion"] = json::json!(version);
+                let (_, send) = handle.next_request().await.unwrap();
+                send.send_response(response(200, claim.clone()));
+                let (request, send) = handle.next_request().await.unwrap();
+                let body = patch_json(request).await;
+                assert_eq!(body["metadata"]["resourceVersion"], version);
+                assert_eq!(
+                    body["status"]["devices"][0]["data"]["phase"],
+                    format!("concurrent-{version}")
+                );
+                assert_eq!(
+                    body["status"]["devices"][0]["conditions"][0]["status"],
+                    "True"
+                );
+                if version == "1" {
+                    send.send_response(response(409, json::json!({"kind":"Status","code":409,"reason":"Conflict","message":"raced"})));
+                } else {
+                    send.send_response(response(200, claim));
+                }
+            }
+        };
+        let publication = async { publisher.publish_fields(&claim_ref(), [desired]).await };
+        let (_, result) = tokio::join!(script, publication);
+        assert_eq!(result.unwrap(), ClaimDeviceStatusPublishOutcome::Updated);
+    }
+
+    #[tokio::test]
+    async fn empty_partial_conditions_clear_once_and_then_converge() {
+        let (client, mut handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER);
+        let mut desired = ClaimDeviceStatus::new("widget-pool", "widget-0");
+        desired.conditions = Some(vec![]);
+        let script = async {
+            let mut current = ready_device_status();
+            let (_, send) = handle.next_request().await.unwrap();
+            send.send_response(response(
+                200,
+                allocated_claim(json::json!([current.clone()])),
+            ));
+            let (request, send) = handle.next_request().await.unwrap();
+            let body = patch_json(request).await;
+            assert_eq!(body["status"]["devices"][0]["conditions"], json::json!([]));
+            assert_eq!(body["status"]["devices"][0]["data"], current["data"]);
+            current.as_object_mut().unwrap().remove("conditions");
+            send.send_response(response(
+                200,
+                allocated_claim(json::json!([current.clone()])),
+            ));
+            let (_, send) = handle.next_request().await.unwrap();
+            send.send_response(response(200, allocated_claim(json::json!([current]))));
+            assert!(
+                tokio::time::timeout(Duration::from_millis(50), handle.next_request())
+                    .await
+                    .is_err()
+            );
+        };
+        let publications = async {
+            assert_eq!(
+                publisher
+                    .publish_fields(&claim_ref(), [desired.clone()])
+                    .await
+                    .unwrap(),
+                ClaimDeviceStatusPublishOutcome::Updated
+            );
+            publisher.publish_fields(&claim_ref(), [desired]).await
+        };
+        let (_, result) = tokio::join!(script, publications);
+        assert_eq!(result.unwrap(), ClaimDeviceStatusPublishOutcome::Unchanged);
+    }
+
+    #[tokio::test]
+    async fn partial_publication_rechecks_claim_identity_before_retrying() {
+        let (client, mut handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER);
+        let script = async {
+            let (_, send) = handle.next_request().await.unwrap();
+            send.send_response(response(
+                200,
+                allocated_claim(json::json!([ready_device_status()])),
+            ));
+            let (_, send) = handle.next_request().await.unwrap();
+            send.send_response(response(
+                409,
+                json::json!({"kind":"Status","code":409,"reason":"Conflict","message":"raced"}),
+            ));
+            let mut replaced = allocated_claim(json::json!([ready_device_status()]));
+            replaced["metadata"]["uid"] = json::json!("replacement-uid");
+            let (_, send) = handle.next_request().await.unwrap();
+            send.send_response(response(200, replaced));
+            assert!(
+                tokio::time::timeout(Duration::from_millis(50), handle.next_request())
+                    .await
+                    .is_err()
+            );
+        };
+        let publication = async { publisher.publish_fields(&claim_ref(), [status()]).await };
+        let (_, result) = tokio::join!(script, publication);
+        assert!(matches!(
+            result,
+            Err(ClaimDeviceStatusError::ClaimIdentityMismatch { .. })
         ));
     }
 }

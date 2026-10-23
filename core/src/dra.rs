@@ -1,6 +1,7 @@
 use super::*;
 
 mod inventory;
+pub use inventory::DeviceBinding;
 pub use inventory::DeviceTaint;
 pub use inventory::DeviceTaintEffect;
 pub use inventory::InventoryDevice;

@@ -14,8 +14,8 @@ real cluster. Its compatibility target is Kubernetes v1.36 using the stable
 not require optional DRA feature gates. Live validation of that baseline completed
 on Kubernetes v1.36.1 on linux/arm64. The validation environment used Apple
 Container with Rosetta disabled and a `kindest/node` v1.36.1 image; the
-checked-in smoke test completed the ResourceSlice-to-CDI lifecycle. The older
-Kubernetes v1.37.0 linux/arm64 run remains historical evidence. It
+checked-in smoke test completed the ResourceSlice-to-CDI lifecycle. Both native v1.36.1 and v1.37.0 profiles passed the guarded serial matrix
+on 2026-10-23, including the opt-in device-taint and binding-condition fixtures. It
 authoritatively reconciles each local pool into one or more `ResourceSlice`s,
 pluginwatcher registration, and claim preparation/unpreparation.
 
@@ -23,8 +23,9 @@ It is not yet a turnkey production driver: resource health is opt-in,
 pre-v1.34 API compatibility is absent, and it has no hardware-specific
 production deployment.
 Extended-resource allocation is additionally supported on Kubernetes v1.37,
-where it is stable. Device taints and other optional DRA APIs remain outside
-the v1.36 baseline. The checked-in DaemonSet is a validation fixture, not a
+where it is stable. Explicit device-taint and binding-condition adapters are
+also available and remain opt-in, keeping the core v1.36 baseline independent
+of those capabilities. The checked-in DaemonSet is a validation fixture, not a
 deployment template. See the
 [DRA design](../docs/dra-design.md) for the complete boundary and roadmap, and
 [the extended-resource guide](../docs/dra-extended-resources.md) for a complete
@@ -207,12 +208,18 @@ The example reads these environment variables:
 | `POOL_NAME` | `widget-pool` | Resource pool advertised by the `ResourceSlice`. |
 | `DEVICE_NAMES` | `widget-0` | Comma-separated static device names. |
 | `NODE_NAME` | *(required)* | Kubernetes node that owns the published `ResourceSlice`. |
+| `DRA_EXAMPLE_BINDING_CONDITIONS` | `0` | Set `1` to require simulated external attachment readiness before binding. |
 | `DRA_EXAMPLE_TAINT_EFFECT` | *(unset)* | Optional fake-device maintenance policy: `None`, `NoSchedule`, or `NoExecute`. |
 | `RUST_LOG` | *(unset)* | Standard `tracing-subscriber` filter, for example `info`. |
 
 For explicit inventory policy, see [device taints](../docs/dra-device-taints.md):
 `ResourcePool::inventory()` adds opt-in `InventoryDevice` metadata while
 preserving existing backends and `PoolDevice` struct literals.
+
+For asynchronous setup before Pod binding, see [device binding conditions](../docs/dra-binding-conditions.md)
+and the separate validation controller. Node preparers can use
+`ClaimDeviceStatusPublisher::publish_fields()` to preserve controller-owned
+conditions while reporting data.
 
 For the opt-in resource-health protocol, see the standalone
 [`examples/resource_health_reporter.rs`](examples/resource_health_reporter.rs)
@@ -375,6 +382,7 @@ This is an opt-in local integration gate. Its VM-free orchestration and
 failure-path tests run in CI and via `mise run dra-test-matrix`; the live
 matrix is not part of `mise run ci`. Set `DRA_E2E_TAINTS=1` to include the
 opt-in [device-taint fixture](../docs/dra-device-taints.md) on both profiles,
-including administrator-rule checks on v1.37. Set `DRA_E2E_SKIP_BUILD=1` only when the
+including administrator-rule checks on v1.37. Set `DRA_E2E_BINDING=1` to include
+the [binding-condition fixture](../docs/dra-binding-conditions.md). Set `DRA_E2E_SKIP_BUILD=1` only when the
 current local `docker.io/library/k8s-device-plugin-dra-example:latest` image
 has already been built.

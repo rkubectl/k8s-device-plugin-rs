@@ -15,6 +15,7 @@ const DEFAULT_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
 const MAX_DEVICES_PER_SLICE: usize = 128;
 const MAX_DEVICES_PER_TAINTED_SLICE: usize = 64;
 const MAX_TAINTS_PER_DEVICE: usize = 16;
+const MAX_BINDING_CONDITIONS_PER_DEVICE: usize = 4;
 
 fn slice_name(driver_name: &str, node_name: &str, pool_name: &str, index: usize) -> String {
     let base = format!("{driver_name}-{node_name}-{pool_name}");
@@ -118,15 +119,51 @@ fn inventory_device_to_wire(
             })
         })
         .collect::<kube::Result<Vec<_>>>()?;
-    Ok(resourcev1::Device {
+    let mut wire = resourcev1::Device {
         taints: (!taints.is_empty()).then_some(taints),
         ..pool_device_to_wire(&inventory.device)
-    })
+    };
+    if let Some(binding) = &inventory.binding {
+        for conditions in [&binding.conditions, &binding.failure_conditions] {
+            if conditions.len() > MAX_BINDING_CONDITIONS_PER_DEVICE {
+                return Err(invalid_pool_error(
+                    pool_name,
+                    "has more than four device binding conditions",
+                ));
+            }
+            if conditions.iter().collect::<BTreeSet<_>>().len() != conditions.len() {
+                return Err(invalid_pool_error(
+                    pool_name,
+                    "has duplicate device binding conditions",
+                ));
+            }
+        }
+        wire.binding_conditions =
+            (!binding.conditions.is_empty()).then(|| binding.conditions.clone());
+        wire.binding_failure_conditions =
+            (!binding.failure_conditions.is_empty()).then(|| binding.failure_conditions.clone());
+        wire.binds_to_node = binding.binds_to_node.then_some(true);
+    }
+    Ok(wire)
 }
 
 /// Returns devices in the stable order used for comparison and publication.
 fn canonicalize_devices(mut devices: Vec<resourcev1::Device>) -> Vec<resourcev1::Device> {
     for device in &mut devices {
+        for conditions in [
+            &mut device.binding_conditions,
+            &mut device.binding_failure_conditions,
+        ] {
+            if let Some(values) = conditions {
+                values.sort();
+                if values.is_empty() {
+                    *conditions = None;
+                }
+            }
+        }
+        if device.binds_to_node == Some(false) {
+            device.binds_to_node = None;
+        }
         if let Some(taints) = &mut device.taints {
             for taint in taints.iter_mut() {
                 if taint.value.as_deref() == Some("") {

@@ -59,6 +59,44 @@ impl DeviceTaint {
     }
 }
 
+/// Conditions an external controller must report before Pod binding.
+///
+/// Readiness belongs in per-device ResourceClaim status before kubelet calls
+/// prepare. Reporting it only from prepare would prevent the Pod from binding.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct DeviceBinding {
+    pub conditions: Vec<String>,
+    pub failure_conditions: Vec<String>,
+    /// Pin the allocation to the scheduler's selected Kubernetes node.
+    pub binds_to_node: bool,
+}
+
+impl DeviceBinding {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn with_condition(mut self, condition: impl Into<String>) -> Self {
+        self.conditions.push(condition.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_failure_condition(mut self, condition: impl Into<String>) -> Self {
+        self.failure_conditions.push(condition.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_node_binding(mut self) -> Self {
+        self.binds_to_node = true;
+        self
+    }
+}
+
 /// One device in a complete inventory snapshot, with optional DRA policies.
 ///
 /// This wrapper leaves the v0.1 [`PoolDevice`] layout intact. Existing
@@ -69,6 +107,7 @@ impl DeviceTaint {
 pub struct InventoryDevice {
     pub device: PoolDevice,
     pub taints: Vec<DeviceTaint>,
+    pub binding: Option<DeviceBinding>,
 }
 
 impl InventoryDevice {
@@ -77,12 +116,19 @@ impl InventoryDevice {
         Self {
             device,
             taints: Vec::new(),
+            binding: None,
         }
     }
 
     #[must_use]
     pub fn with_taint(mut self, taint: DeviceTaint) -> Self {
         self.taints.push(taint);
+        self
+    }
+
+    #[must_use]
+    pub fn with_binding(mut self, binding: DeviceBinding) -> Self {
+        self.binding = Some(binding);
         self
     }
 }

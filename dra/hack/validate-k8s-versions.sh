@@ -18,6 +18,7 @@ V137_CLUSTER=${DRA_E2E_V137_CLUSTER:-dra-validation-137}
 SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-smoke.sh
 EXTENDED_RESOURCE_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-extended-resource.sh
 TAINT_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-taints.sh
+BINDING_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-binding.sh
 ACTIVE_CLUSTER=
 
 require_command() {
@@ -142,6 +143,9 @@ run_profile() {
     if [[ ${DRA_E2E_TAINTS:-0} == 1 ]]; then
         KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" JQ="$JQ" "$TAINT_SMOKE_SCRIPT"
     fi
+    if [[ ${DRA_E2E_BINDING:-0} == 1 ]]; then
+        KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" JQ="$JQ" "$BINDING_SMOKE_SCRIPT"
+    fi
 
     capture_driver_logs "$cluster"
     stop_if_running "$cluster"
@@ -155,6 +159,9 @@ test -x "$SMOKE_SCRIPT"
 test -x "$EXTENDED_RESOURCE_SMOKE_SCRIPT"
 if [[ ${DRA_E2E_TAINTS:-0} == 1 ]]; then
     test -x "$TAINT_SMOKE_SCRIPT"
+fi
+if [[ ${DRA_E2E_BINDING:-0} == 1 ]]; then
+    test -x "$BINDING_SMOKE_SCRIPT"
 fi
 
 if [[ "$V136_CLUSTER" == "$V137_CLUSTER" ]]; then

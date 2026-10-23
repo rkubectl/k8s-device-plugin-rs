@@ -13,6 +13,7 @@ pub use dra::AllocatedDevice;
 pub use dra::AttributeValue;
 pub use dra::ClaimPreparer;
 pub use dra::ClaimRef;
+pub use dra::DeviceBinding;
 pub use dra::DeviceTaint;
 pub use dra::DeviceTaintEffect;
 #[cfg(feature = "resource-health")]

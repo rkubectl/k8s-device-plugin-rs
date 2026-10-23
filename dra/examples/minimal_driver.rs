@@ -21,6 +21,7 @@ use std::io;
 use async_trait::async_trait;
 use k8s_device_plugin_core::ClaimPreparer;
 use k8s_device_plugin_core::ClaimRef;
+use k8s_device_plugin_core::DeviceBinding;
 use k8s_device_plugin_core::DeviceTaint;
 use k8s_device_plugin_core::DeviceTaintEffect;
 use k8s_device_plugin_core::DraDriver;
@@ -69,6 +70,7 @@ struct StaticDraDriver {
     devices: Vec<PoolDevice>,
     status_publisher: Option<ClaimDeviceStatusPublisher>,
     taint: Option<DeviceTaint>,
+    binding: Option<DeviceBinding>,
 }
 
 impl StaticDraDriver {
@@ -79,6 +81,7 @@ impl StaticDraDriver {
             devices,
             status_publisher: None,
             taint: None,
+            binding: None,
         }
     }
 
@@ -95,6 +98,11 @@ impl StaticDraDriver {
         self.taint = taint;
         self
     }
+
+    fn with_binding(mut self, binding: Option<DeviceBinding>) -> Self {
+        self.binding = binding;
+        self
+    }
 }
 
 #[async_trait]
@@ -109,11 +117,14 @@ impl ResourcePool for StaticDraDriver {
             .iter()
             .cloned()
             .map(|device| {
-                let inventory = InventoryDevice::new(device);
-                match &self.taint {
-                    Some(taint) => inventory.with_taint(taint.clone()),
-                    None => inventory,
+                let mut inventory = InventoryDevice::new(device);
+                if let Some(taint) = &self.taint {
+                    inventory = inventory.with_taint(taint.clone());
                 }
+                if let Some(binding) = &self.binding {
+                    inventory = inventory.with_binding(binding.clone());
+                }
+                inventory
             })
             .collect();
         BTreeMap::from([(self.pool.clone(), devices)])
@@ -167,7 +178,10 @@ impl ClaimPreparer for StaticDraDriver {
                     status.data = Some(serde_json::json!({"phase": "prepared"}));
                     status
                 });
-                if let Err(error) = status_publisher.publish(&resolved.claim, statuses).await {
+                if let Err(error) = status_publisher
+                    .publish_fields(&resolved.claim, statuses)
+                    .await
+                {
                     results.insert(
                         resolved.claim.clone(),
                         Err(PrepareError::HookFailed(format!(
@@ -213,6 +227,21 @@ async fn main() -> io::Result<()> {
         .map(|value| parse_taint_effect(&value))
         .transpose()?
         .map(|effect| DeviceTaint::new("dra.example.com/maintenance", effect));
+    let binding = match env_or_default("DRA_EXAMPLE_BINDING_CONDITIONS", "0").as_str() {
+        "0" => None,
+        "1" => Some(
+            DeviceBinding::new()
+                .with_condition("dra.example.com/Attached")
+                .with_failure_condition("dra.example.com/AttachFailed")
+                .with_node_binding(),
+        ),
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "DRA_EXAMPLE_BINDING_CONDITIONS must be 0 or 1",
+            ));
+        }
+    };
     let node_name = env::var("NODE_NAME")
         .map_err(|error| io::Error::other(format!("NODE_NAME must be set: {error}")))?;
 
@@ -234,7 +263,8 @@ async fn main() -> io::Result<()> {
     let status_publisher = ClaimDeviceStatusPublisher::new(client.clone(), driver_name.clone());
     let driver = StaticDraDriver::new(driver_name.clone(), pool_name, devices)
         .with_status_publisher(status_publisher)
-        .with_taint(taint);
+        .with_taint(taint)
+        .with_binding(binding);
     let plugin = DraPlugin::new(client, driver_name.clone(), node_name, driver);
     plugin.run().await
 }

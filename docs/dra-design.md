@@ -3,8 +3,8 @@
 Status: **Phase 2 reconciliation implemented**. The compatibility target is
 Kubernetes v1.36 using stable `resource.k8s.io/v1` with the default DRA
 configuration. Live baseline validation completed on Kubernetes v1.36.1
-linux/arm64 through the checked-in smoke path. The existing Kubernetes v1.37.0
-linux/arm64 kind run is retained as historical evidence. See
+linux/arm64 through the checked-in smoke path. The native v1.36.1/v1.37.0 profiles also passed the guarded matrix with
+opt-in device-taint and binding-condition fixtures on 2026-10-23. See
 [cluster validation](#cluster-validation) for the exact exercised path and
 remaining production boundaries.
 
@@ -269,6 +269,11 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
    inspection, and classic/DRA migration boundary. Remaining Phase 4 scope is
    `v1beta1` compatibility (only if a target cluster needs pre-1.34 support)
    and a deployable `dra-example` crate mirroring `example/`.
+   The selected advanced-adapter cycle now includes completed opt-in
+   [device taints](dra-device-taints.md) and
+   [binding conditions](dra-binding-conditions.md), with native acceptance
+   on both pinned profiles. Workload ResourceClaims and resource-pool status
+   are the next two selected tasks in [the tracked plan](plans/dra-next-adapters.md).
 
 ## Deployment note: no rolling updates in Phase 1
 

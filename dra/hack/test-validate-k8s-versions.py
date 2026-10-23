@@ -80,13 +80,13 @@ class MatrixTests(unittest.TestCase):
             (root / 'state.json').write_text(json.dumps(state))
             script = root / 'validate-k8s-versions.sh'
             shutil.copyfile(Path(__file__).with_name(script.name), script)
-            for name in ['container', 'kubectl', 'e2e-smoke.sh', 'e2e-extended-resource.sh', 'e2e-taints.sh']:
+            for name in ['container', 'kubectl', 'e2e-smoke.sh', 'e2e-extended-resource.sh', 'e2e-taints.sh', 'e2e-binding.sh']:
                 path = root / name
                 path.write_text(FAKE_COMMAND)
                 path.chmod(0o755)
             env = dict(os.environ, MATRIX_TEST_ROOT=tmp, CONTAINER=str(root / 'container'),
                        KUBECTL=str(root / 'kubectl'), JQ=shutil.which('jq'),
-                       DRA_E2E_SKIP_BUILD='1', DRA_E2E_TAINTS='0',
+                       DRA_E2E_SKIP_BUILD='1', DRA_E2E_TAINTS='0', DRA_E2E_BINDING='0',
                        DRA_E2E_IMAGE='docker.io/library/k8s-device-plugin-dra-example:latest',
                        DRA_E2E_V136_CLUSTER='dra-validation',
                        DRA_E2E_V137_CLUSTER='dra-validation-137')
@@ -118,6 +118,7 @@ class MatrixTests(unittest.TestCase):
             ['e2e-smoke.sh', 'dra-validation'], ['e2e-smoke.sh', 'dra-validation-137']])
         self.assertEqual(sum(c[0] == 'e2e-extended-resource.sh' for c in calls), 1)
         self.assertFalse(any(c[0] == 'e2e-taints.sh' for c in calls))
+        self.assertFalse(any(c[0] == 'e2e-binding.sh' for c in calls))
         for name in state['clusters']:
             logs = next(i for i, c in enumerate(calls) if c[:3] == ['kubectl', '--context', name] and 'logs' in c)
             stop = calls.index(['container', 'stop', name])
@@ -140,6 +141,19 @@ class MatrixTests(unittest.TestCase):
     def test_opt_in_taint_failure_restores_baseline(self):
         result, calls, state = self.run_matrix({'fail_smoke': 'e2e-taints.sh'},
                                               {'DRA_E2E_TAINTS': '1'})
+        self.assertEqual(result.returncode, 27, result.stderr)
+        self.assert_baseline(state)
+
+    def test_opt_in_binding_uses_both_profiles(self):
+        result, calls, state = self.run_matrix(env_overrides={'DRA_E2E_BINDING': '1'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([c for c in calls if c[0] == 'e2e-binding.sh'], [
+            ['e2e-binding.sh', 'dra-validation'], ['e2e-binding.sh', 'dra-validation-137']])
+        self.assert_baseline(state)
+
+    def test_binding_failure_restores_baseline(self):
+        result, calls, state = self.run_matrix({'fail_smoke': 'e2e-binding.sh'},
+                                              {'DRA_E2E_BINDING': '1'})
         self.assertEqual(result.returncode, 27, result.stderr)
         self.assert_baseline(state)
 
@@ -193,6 +207,24 @@ class MatrixTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn('failed to restore', result.stderr)
         self.assertFalse(any(c[0] == 'e2e-smoke.sh' for c in calls))
+
+    def test_binding_manifest_discovery_fails_before_cluster_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cargo = root / 'cargo'
+            cargo.write_text('#!/bin/sh\nexit 17\n')
+            cargo.chmod(0o755)
+            kubectl = root / 'kubectl'
+            marker = root / 'unexpected-kubectl'
+            kubectl.write_text('#!/bin/sh\ntouch "$BINDING_TEST_MARKER"\nexit 99\n')
+            kubectl.chmod(0o755)
+            env = dict(os.environ, CARGO=str(cargo), KUBECTL=str(kubectl),
+                       JQ=shutil.which('jq'), BINDING_TEST_MARKER=str(marker))
+            script = Path(__file__).resolve().with_name('e2e-binding.sh')
+            result = subprocess.run(['bash', str(script)], cwd=root, env=env,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 17, result.stderr)
+            self.assertFalse(marker.exists())
 
     def test_taint_fixture_transform_accepts_object_streams_and_lists(self):
         objects = [

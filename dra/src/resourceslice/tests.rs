@@ -599,3 +599,116 @@ async fn backend_can_explicitly_change_a_taint_timestamp() {
     let (_, result) = tokio::join!(script, publisher.publish_once());
     result.unwrap();
 }
+
+#[test]
+fn binding_metadata_is_optional_and_maps_to_the_device() {
+    use k8s_device_plugin_core::DeviceBinding;
+    let inventory = InventoryDevice::new(PoolDevice::new("widget-0")).with_binding(
+        DeviceBinding::new()
+            .with_condition("example.com/Attached")
+            .with_failure_condition("example.com/AttachFailed")
+            .with_node_binding(),
+    );
+    let wire = inventory_device_to_wire(&inventory, "pool-0").unwrap();
+    assert_eq!(
+        wire.binding_conditions,
+        Some(vec!["example.com/Attached".to_string()])
+    );
+    assert_eq!(
+        wire.binding_failure_conditions,
+        Some(vec!["example.com/AttachFailed".to_string()])
+    );
+    assert_eq!(wire.binds_to_node, Some(true));
+    let plain = inventory_device_to_wire(&PoolDevice::new("widget-0").into(), "pool-0").unwrap();
+    assert!(plain.binding_conditions.is_none());
+    assert!(plain.binding_failure_conditions.is_none());
+    assert!(plain.binds_to_node.is_none());
+}
+
+#[test]
+fn binding_condition_limits_and_duplicates_are_rejected() {
+    use k8s_device_plugin_core::DeviceBinding;
+    let duplicate = DeviceBinding::new()
+        .with_condition("example.com/Ready")
+        .with_condition("example.com/Ready");
+    let duplicate_failure = DeviceBinding::new()
+        .with_failure_condition("example.com/Failed")
+        .with_failure_condition("example.com/Failed");
+    let mut too_many = DeviceBinding::new();
+    let mut too_many_failures = DeviceBinding::new();
+    for index in 0..5 {
+        too_many = too_many.with_condition(format!("example.com/Ready{index}"));
+        too_many_failures =
+            too_many_failures.with_failure_condition(format!("example.com/Failed{index}"));
+    }
+    for binding in [duplicate, duplicate_failure, too_many, too_many_failures] {
+        let inventory = InventoryDevice::new(PoolDevice::new("widget-0")).with_binding(binding);
+        assert!(
+            matches!(inventory_device_to_wire(&inventory, "pool-0"), Err(kube::Error::Api(status)) if status.code == 422)
+        );
+    }
+}
+
+#[tokio::test]
+async fn binding_condition_order_and_default_false_do_not_advance_generation() {
+    use k8s_device_plugin_core::DeviceBinding;
+    let desired = InventoryDevice::new(PoolDevice::new("widget-0")).with_binding(
+        DeviceBinding::new()
+            .with_condition("example.com/ZReady")
+            .with_condition("example.com/AReady"),
+    );
+    let (publisher, mut handle) = inventory_publisher(vec![desired]);
+    let script = async {
+        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        let mut device = device_json("widget-0");
+        device["bindingConditions"] = json::json!(["example.com/AReady", "example.com/ZReady"]);
+        device["bindingFailureConditions"] = json::json!([]);
+        device["bindsToNode"] = json::json!(false);
+        let existing = owned_slice("example.com-node-0-pool-0", 4, "pool-0", 1, vec![device]);
+        respond(&mut handle, 200, &resource_slice_list(vec![existing])).await;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), handle.next_request())
+                .await
+                .is_err()
+        );
+    };
+    let (_, result) = tokio::join!(script, publisher.publish_once());
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn adding_binding_conditions_advances_generation_and_preserves_taints() {
+    use k8s_device_plugin_core::DeviceBinding;
+    let desired = tainted_widget().with_binding(
+        DeviceBinding::new()
+            .with_condition("example.com/Attached")
+            .with_node_binding(),
+    );
+    let (publisher, mut handle) = inventory_publisher(vec![desired]);
+    let script = async {
+        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(
+            &mut handle,
+            200,
+            &resource_slice_list(vec![tainted_slice("NoSchedule")]),
+        )
+        .await;
+        let (request, send) = handle.next_request().await.unwrap();
+        let body = request_body_json(request).await;
+        assert_eq!(body["spec"]["pool"]["generation"], 5);
+        assert_eq!(
+            body["spec"]["devices"][0]["bindingConditions"],
+            json::json!(["example.com/Attached"])
+        );
+        assert_eq!(
+            body["spec"]["devices"][0]["taints"][0]["timeAdded"],
+            "2026-10-23T10:00:00Z"
+        );
+        assert_eq!(body["spec"]["devices"][0]["bindsToNode"], true);
+        send.send_response(http::Response::new(Body::from(
+            serde_json::to_vec(&body).unwrap(),
+        )));
+    };
+    let (_, result) = tokio::join!(script, publisher.publish_once());
+    result.unwrap();
+}
