@@ -878,6 +878,7 @@ mod tests {
             &publisher.desired_statuses([desired]).expect("valid status")
         ));
     }
+
     fn ready_device_status() -> json::Value {
         let mut status = ClaimDeviceStatus::new("widget-pool", "widget-0");
         status.conditions = Some(vec![metav1::Condition {

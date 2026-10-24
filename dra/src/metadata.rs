@@ -21,6 +21,7 @@ pub struct DeviceMetadataOptions {
     plugin_directories: Option<(PathBuf, PathBuf)>,
     cdi_directory: PathBuf,
 }
+
 impl DeviceMetadataOptions {
     #[must_use]
     pub fn v1beta1() -> Self {
@@ -29,6 +30,7 @@ impl DeviceMetadataOptions {
             cdi_directory: "/var/run/cdi".into(),
         }
     }
+
     /// Sets driver-local and node-host paths for the same plugin-data mount.
     #[must_use]
     pub fn with_plugin_directories(
@@ -39,6 +41,7 @@ impl DeviceMetadataOptions {
         self.plugin_directories = Some((local.into(), host.into()));
         self
     }
+
     #[must_use]
     pub fn with_cdi_directory(mut self, directory: impl Into<PathBuf>) -> Self {
         self.cdi_directory = directory.into();
@@ -55,6 +58,7 @@ pub(crate) struct MetadataRuntime {
     // Held only during registry lookup/update, never across an await.
     locks: Mutex<BTreeMap<String, Weak<tokio::sync::Mutex<()>>>>,
 }
+
 impl MetadataRuntime {
     pub fn new(driver: String, options: DeviceMetadataOptions) -> io::Result<Self> {
         if !dns_subdomain(&driver, 63) {
@@ -99,6 +103,7 @@ impl MetadataRuntime {
         .await
         .map_err(io::Error::other)?
     }
+
     pub async fn cleanup(
         self: &Arc<Self>,
         claim: ClaimRef,
@@ -140,6 +145,7 @@ impl MetadataRuntime {
 fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
 }
+
 fn label(name: &str, limit: usize) -> bool {
     !name.is_empty()
         && name.len() <= limit
@@ -149,9 +155,11 @@ fn label(name: &str, limit: usize) -> bool {
         && name.as_bytes()[0].is_ascii_alphanumeric()
         && name.as_bytes()[name.len() - 1].is_ascii_alphanumeric()
 }
+
 fn dns_subdomain(name: &str, limit: usize) -> bool {
     name.len() <= limit && name.split('.').all(|part| label(part, 63))
 }
+
 fn request_ref(name: &str) -> io::Result<&str> {
     let parts = name.split('/').collect::<Vec<_>>();
     if !(1..=2).contains(&parts.len()) || !parts.iter().all(|part| label(part, 63)) {
@@ -159,6 +167,7 @@ fn request_ref(name: &str) -> io::Result<&str> {
     }
     Ok(parts[0])
 }
+
 fn attribute_key(key: &str) -> bool {
     let (domain, name) = key
         .split_once('/')
@@ -169,6 +178,7 @@ fn attribute_key(key: &str) -> bool {
         && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
         && (name.as_bytes()[0].is_ascii_alphabetic() || name.starts_with('_'))
 }
+
 fn attribute_value(value: &AttributeValue) -> bool {
     match value {
         AttributeValue::String(value) => value.len() <= 64,
@@ -187,6 +197,7 @@ struct Plan {
     specs: BTreeMap<String, String>,
     devices: Vec<PreparedDevice>,
 }
+
 impl Plan {
     fn build(
         runtime: &MetadataRuntime,
