@@ -5,6 +5,8 @@ const MAX_DNS_LABEL_LEN: usize = 63;
 const MAX_DNS_SUBDOMAIN_LEN: usize = 253;
 const RESERVED_RESOURCE_DOMAIN: &str = "kubernetes.io";
 
+// Invalid input is deliberately debug-formatted so empty values and embedded
+// whitespace/control characters remain visible in validation diagnostics.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ValidationError {
     #[error("resource name must not be empty")]

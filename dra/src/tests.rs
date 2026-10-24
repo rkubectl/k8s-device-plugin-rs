@@ -176,6 +176,34 @@ async fn run_spawns_all_three_components_and_they_work() {
 }
 
 #[tokio::test]
+async fn liveness_probe_rejects_other_plugin_types_with_plain_string_diagnostics() {
+    use k8s_device_plugin_test::dra_registration::start_mock_registration_server;
+
+    let registration = start_mock_registration_server(dra::registration::PluginInfo {
+        r#type: "DevicePlugin".into(),
+        ..default()
+    });
+    let registration_path = registration.socket_path();
+    let plugin_dir = TempDir::new().expect("create temp dir for plugin socket");
+    let error = DraPluginLivenessProbe::with_socket_paths(
+        &registration_path,
+        plugin_dir.path().join("missing.sock"),
+    )
+    .check()
+    .await
+    .expect_err("a classic device plugin must not pass the DRA probe");
+
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "registration socket {registration_path} reported plugin type DevicePlugin, not DRAPlugin"
+        )
+    );
+    registration.shutdown();
+}
+
+#[tokio::test]
 async fn liveness_probe_checks_both_dra_sockets_with_real_rpcs() {
     let (client, _kube_handle) = mock_kube_client();
     let registration_dir = TempDir::new().expect("create temp dir for registration socket");

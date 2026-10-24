@@ -68,7 +68,7 @@ impl DraPluginLivenessProbe {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!(
-                    "registration socket {} reported plugin type {:?}, not DRAPlugin",
+                    "registration socket {} reported plugin type {}, not DRAPlugin",
                     self.registration_socket_path.display(),
                     info.r#type
                 ),

@@ -138,6 +138,9 @@ the future phases.
   minimum Rust version when replacing an implementation.
 - Let tracing record native scalar and string values. Use explicit Display
   formatting for errors, path displays, or types that need it.
+- Use Display formatting for ordinary strings in messages. Keep Debug when it
+  serves a specific purpose, such as exposing invalid input's quotes/escapes,
+  rendering structured values or durations, or implementing a debug visitor.
 - Expand complex JSON objects for readability. Keep raw expected wire values
   and explicit enum variants in tests when they independently verify semantics.
 - Prefer existing `k8s_openapi`, `kube`, or workspace types for complete objects
