@@ -34,7 +34,9 @@ empty or unsupported version list. The same builder composes with
 
 When enabled, the service calls `ClaimPreparer::prepare_with_metadata` once
 for the whole batch. Its default calls `prepare` once and wraps the existing
-results with empty attributes, exposing identity only. `Arc<T>` and trait
+results with empty attributes, exposing identity only. Empty device results
+produce no container metadata files or CDI edits; their UID-owned journal is
+cleaned normally. `Arc<T>` and trait
 objects forward overrides. The runtime never calls both preparation methods
 for one batch.
 
@@ -263,3 +265,8 @@ and [upstream file/CDI implementation](https://github.com/kubernetes/kubernetes/
   restart retained the inode, and unprepare removed the data and CDI files.
   Claim UID was `cf21feaa-7991-4043-819f-fa35ad16048a`. Baseline real-RPC
   liveness/default controls/sole-VM status were reverified on that exact image.
+- A final protocol regression covers omitted/empty device allocation results:
+  preparation succeeds without container metadata files or CDI edits, and its
+  journal cleans normally. Final CI after that fix passed 169 workspace tests,
+  100 health/example tests, formatting, strict Clippy, 25 matrix checks and
+  five profile-config checks. The nonempty native wire/file paths are unchanged.

@@ -232,8 +232,8 @@ impl Plan {
             .as_ref()
             .and_then(|s| s.allocation.as_ref())
             .and_then(|a| a.devices.as_ref())
-            .and_then(|a| a.results.as_ref())
-            .ok_or_else(|| invalid("metadata claim has no device allocations"))?;
+            .and_then(|a| a.results.as_deref())
+            .unwrap_or_default();
         let local: Vec<_> = allocations
             .iter()
             .filter(|a| a.driver == runtime.driver)

@@ -675,3 +675,38 @@ fn corrupt_journal_refuses_cleanup_and_keeps_owned_data_until_repaired() {
     std::fs::write(journal, original).unwrap();
     store::cleanup(&runtime, &plan.claim).unwrap();
 }
+
+#[test]
+fn zero_device_allocation_has_no_container_edits_and_cleans_its_journal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let runtime = new_runtime(tmp.path());
+    let mut object = claim();
+    object.spec.devices = None;
+    object
+        .status
+        .as_mut()
+        .unwrap()
+        .allocation
+        .as_mut()
+        .unwrap()
+        .devices = None;
+    // ClaimResolver has already checked allocation presence and UID. Optional
+    // device/results fields have the same empty-list meaning as its projection.
+    let plan = Plan::build(&runtime, &object, Vec::new()).unwrap();
+    assert!(plan.devices.is_empty());
+    assert!(plan.documents.is_empty());
+    assert!(plan.specs.is_empty());
+    store::persist(&runtime, &plan).unwrap();
+    assert!(
+        std::fs::read_dir(tmp.path().join("cdi"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+    store::cleanup(&runtime, &plan.claim).unwrap();
+    assert!(
+        !tmp.path()
+            .join("plugin/dra-device-metadata/claim-uid")
+            .exists()
+    );
+}
