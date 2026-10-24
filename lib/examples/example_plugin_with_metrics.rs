@@ -15,9 +15,9 @@
 //! Then, while it's running against a real kubelet: `curl http://127.0.0.1:9184/metrics`
 
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::Instant;
 
+use parking_lot::Mutex;
 use prometheus_exporter::prometheus::HistogramOpts;
 use prometheus_exporter::prometheus::HistogramVec;
 use prometheus_exporter::prometheus::IntCounterVec;
@@ -137,7 +137,7 @@ impl ExampleWidgetPlugin {
 #[tonic::async_trait]
 impl DeviceDiscovery for ExampleWidgetPlugin {
     async fn discover(&self) -> Vec<Device> {
-        self.devices.lock().unwrap().clone()
+        self.devices.lock().clone()
     }
 }
 
@@ -147,7 +147,7 @@ impl DeviceAllocator for ExampleWidgetPlugin {
         &self,
         device_ids: &[String],
     ) -> Result<ContainerAllocation, AllocationError> {
-        let devices = self.devices.lock().unwrap();
+        let devices = self.devices.lock();
         let mut device_paths = Vec::new();
         for id in device_ids {
             let device = devices

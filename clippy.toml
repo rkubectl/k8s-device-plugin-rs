@@ -1,0 +1,6 @@
+disallowed-types = [
+    { path = "std::sync::Mutex", reason = "Prefer parking_lot::Mutex for short synchronous critical sections; use tokio::sync::Mutex when asynchronous acquisition or guards across await are required." },
+    { path = "std::sync::RwLock", reason = "Prefer parking_lot::RwLock for synchronous access; use tokio::sync::RwLock when tasks need asynchronous waiting." },
+    { path = "std::sync::Condvar", reason = "Prefer parking_lot::Condvar for thread coordination; use Tokio notifications or channels for asynchronous tasks." },
+    { path = "std::sync::Once", reason = "Prefer parking_lot::Once for synchronous one-time initialization; consider tokio::sync::OnceCell for asynchronous initialization." },
+]

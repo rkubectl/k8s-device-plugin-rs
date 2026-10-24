@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use parking_lot::Mutex;
 use tempfile::TempDir;
 use tokio_stream::StreamExt;
 
@@ -130,7 +131,7 @@ fn devices_equal_ignoring_order_detects_real_changes() {
 async fn list_and_watch_does_not_repeat_reordered_but_unchanged_devices() {
     use v1beta1::DevicePlugin as _;
 
-    let devices = Arc::new(std::sync::Mutex::new(vec![
+    let devices = Arc::new(Mutex::new(vec![
         make_device("dev-0", Health::Healthy),
         make_device("dev-1", Health::Healthy),
     ]));
@@ -146,7 +147,7 @@ async fn list_and_watch_does_not_repeat_reordered_but_unchanged_devices() {
     stream.next().await.unwrap().unwrap();
 
     // Same devices, different order: must not be treated as a change.
-    *devices.lock().unwrap() = vec![
+    *devices.lock() = vec![
         make_device("dev-1", Health::Healthy),
         make_device("dev-0", Health::Healthy),
     ];
@@ -197,14 +198,14 @@ async fn list_and_watch_sends_initial_device_list() {
     assert_eq!(response.devices[0].health, v1beta1::HEALTHY);
 }
 
-struct DynamicDevicePlugin(Arc<std::sync::Mutex<Vec<Device>>>);
+struct DynamicDevicePlugin(Arc<Mutex<Vec<Device>>>);
 
 impl K8sDevicePlugin for DynamicDevicePlugin {}
 
 #[tonic::async_trait]
 impl DeviceDiscovery for DynamicDevicePlugin {
     async fn discover(&self) -> Vec<Device> {
-        self.0.lock().unwrap().clone()
+        self.0.lock().clone()
     }
 }
 
@@ -226,10 +227,7 @@ fn make_device(id: &str, health: Health) -> Device {
 async fn list_and_watch_pushes_update_when_devices_change() {
     use v1beta1::DevicePlugin as _;
 
-    let devices = Arc::new(std::sync::Mutex::new(vec![make_device(
-        "dev-0",
-        Health::Healthy,
-    )]));
+    let devices = Arc::new(Mutex::new(vec![make_device("dev-0", Health::Healthy)]));
     let service = DevicePluginService::new(DynamicDevicePlugin(Arc::clone(&devices)))
         .with_poll_interval(Duration::from_millis(5));
 
@@ -242,7 +240,7 @@ async fn list_and_watch_pushes_update_when_devices_change() {
     let first = stream.next().await.unwrap().unwrap();
     assert_eq!(first.devices[0].health, v1beta1::HEALTHY);
 
-    *devices.lock().unwrap() = vec![make_device("dev-0", Health::Unhealthy)];
+    *devices.lock() = vec![make_device("dev-0", Health::Unhealthy)];
 
     let second = stream.next().await.unwrap().unwrap();
     assert_eq!(second.devices[0].health, v1beta1::UNHEALTHY);
@@ -252,10 +250,7 @@ async fn list_and_watch_pushes_update_when_devices_change() {
 async fn list_and_watch_does_not_repeat_unchanged_devices() {
     use v1beta1::DevicePlugin as _;
 
-    let devices = Arc::new(std::sync::Mutex::new(vec![make_device(
-        "dev-0",
-        Health::Healthy,
-    )]));
+    let devices = Arc::new(Mutex::new(vec![make_device("dev-0", Health::Healthy)]));
     let service = DevicePluginService::new(DynamicDevicePlugin(Arc::clone(&devices)))
         .with_poll_interval(Duration::from_millis(5));
 
@@ -278,7 +273,7 @@ async fn list_and_watch_does_not_repeat_unchanged_devices() {
 async fn list_and_watch_drops_invalid_device_but_keeps_valid_sibling() {
     use v1beta1::DevicePlugin as _;
 
-    let devices = Arc::new(std::sync::Mutex::new(vec![
+    let devices = Arc::new(Mutex::new(vec![
         make_device("dev-0", Health::Healthy),
         make_device("", Health::Healthy),
     ]));

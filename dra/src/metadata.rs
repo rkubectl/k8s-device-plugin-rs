@@ -1,9 +1,9 @@
 //! Driver-side KEP-5304 identity/attribute snapshots; no API-server extension.
 use std::path::Component;
-use std::sync::Mutex;
 use std::sync::Weak;
 
 use k8s_openapi::api::resource::v1::ResourceClaim;
+use parking_lot::Mutex;
 
 use k8s_device_plugin_core::PreparedDeviceWithMetadata;
 
@@ -52,6 +52,7 @@ pub(crate) struct MetadataRuntime {
     local: PathBuf,
     host: PathBuf,
     cdi: PathBuf,
+    // Held only during registry lookup/update, never across an await.
     locks: Mutex<BTreeMap<String, Weak<tokio::sync::Mutex<()>>>>,
 }
 impl MetadataRuntime {
@@ -112,10 +113,7 @@ impl MetadataRuntime {
         .map_err(io::Error::other)?
     }
 
-    pub async fn lock_claims(
-        &self,
-        claims: &[ClaimRef],
-    ) -> io::Result<Vec<tokio::sync::OwnedMutexGuard<()>>> {
+    pub async fn lock_claims(&self, claims: &[ClaimRef]) -> Vec<tokio::sync::OwnedMutexGuard<()>> {
         let ids = claims
             .iter()
             .map(|c| c.uid.as_str())
@@ -123,10 +121,7 @@ impl MetadataRuntime {
         let mut guards = Vec::with_capacity(ids.len());
         for id in ids {
             let mutex = {
-                let mut locks = self
-                    .locks
-                    .lock()
-                    .map_err(|_| io::Error::other("metadata lock registry poisoned"))?;
+                let mut locks = self.locks.lock();
                 locks.retain(|_, value| value.strong_count() > 0);
                 if let Some(mutex) = locks.get(id).and_then(Weak::upgrade) {
                     mutex
@@ -138,7 +133,7 @@ impl MetadataRuntime {
             };
             guards.push(mutex.lock_owned().await);
         }
-        Ok(guards)
+        guards
     }
 }
 

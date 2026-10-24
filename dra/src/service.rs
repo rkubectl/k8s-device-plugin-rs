@@ -104,20 +104,7 @@ impl DraPluginService {
         refs: &[ClaimRef],
         metadata: &Arc<metadata::MetadataRuntime>,
     ) -> BTreeMap<String, dra::v1::NodePrepareResourceResponse> {
-        let guards = match metadata.lock_claims(refs).await {
-            Ok(guards) => Arc::new(guards),
-            Err(error) => {
-                return refs
-                    .iter()
-                    .map(|claim| {
-                        (
-                            claim.uid.clone(),
-                            node_prepare_response(Err(PrepareError::HookFailed(error.to_string()))),
-                        )
-                    })
-                    .collect();
-            }
-        };
+        let guards = Arc::new(metadata.lock_claims(refs).await);
         let mut errors = BTreeMap::new();
         let mut objects = BTreeMap::new();
         let mut resolved = Vec::new();
@@ -293,10 +280,7 @@ impl dra::v1::DraPlugin for DraPluginService {
                 let result = async {
                     let guards = if let Some(metadata) = &metadata {
                         Some(Arc::new(
-                            metadata
-                                .lock_claims(std::slice::from_ref(&claim_ref))
-                                .await
-                                .map_err(|e| PrepareError::HookFailed(e.to_string()))?,
+                            metadata.lock_claims(std::slice::from_ref(&claim_ref)).await,
                         ))
                     } else {
                         None

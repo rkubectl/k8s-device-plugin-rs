@@ -1,5 +1,4 @@
-use std::sync::Mutex;
-
+use parking_lot::Mutex;
 use tempfile::TempDir;
 use tracing::Level;
 use tracing::field::Field;
@@ -98,7 +97,7 @@ struct CapturedEvents(Arc<Mutex<Vec<(Level, String)>>>);
 
 impl CapturedEvents {
     fn events(&self) -> Vec<(Level, String)> {
-        self.0.lock().expect("captured-events lock").clone()
+        self.0.lock().clone()
     }
 }
 
@@ -117,10 +116,7 @@ where
     fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
         let mut visitor = FieldsVisitor(String::new());
         event.record(&mut visitor);
-        self.0
-            .lock()
-            .expect("captured-events lock")
-            .push((*event.metadata().level(), visitor.0));
+        self.0.lock().push((*event.metadata().level(), visitor.0));
     }
 }
 

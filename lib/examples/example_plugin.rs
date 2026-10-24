@@ -13,7 +13,8 @@
 //! ```
 
 use std::collections::BTreeMap;
-use std::sync::Mutex;
+
+use parking_lot::Mutex;
 
 use k8s_device_plugin_lib::AllocationError;
 use k8s_device_plugin_lib::ContainerAllocation;
@@ -51,7 +52,7 @@ fn make_device(id: &str, health: Health) -> Device {
 #[tonic::async_trait]
 impl DeviceDiscovery for ExampleWidgetPlugin {
     async fn discover(&self) -> Vec<Device> {
-        self.devices.lock().unwrap().clone()
+        self.devices.lock().clone()
     }
 }
 
@@ -61,7 +62,7 @@ impl DeviceAllocator for ExampleWidgetPlugin {
         &self,
         device_ids: &[String],
     ) -> Result<ContainerAllocation, AllocationError> {
-        let devices = self.devices.lock().unwrap();
+        let devices = self.devices.lock();
         let mut device_paths = Vec::new();
         for id in device_ids {
             let device = devices

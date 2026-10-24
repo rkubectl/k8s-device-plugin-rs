@@ -111,3 +111,22 @@ the future phases.
   formatting for errors, path displays, or types that need it.
 - Expand complex JSON objects for readability. Keep raw expected wire values
   and explicit enum variants in tests when they independently verify semantics.
+
+## Synchronization primitives
+
+- Prefer `parking_lot` over equivalent `std::sync` locks (`Mutex`, `RwLock`,
+  `Condvar`, and `Once`) for synchronous coordination, including examples and
+  tests. Clippy's `disallowed_types` rule enforces this preference.
+- Use `tokio::sync` when tasks must await acquisition, a guard must span async
+  work, or asynchronous channels, notifications, or initialization fit the
+  lifecycle. An async function alone is not a reason to use an async mutex:
+  keep short data-only critical sections synchronous and release their guards
+  before `.await`. Avoid blocking runtime threads on long waits or I/O.
+- The metadata registry uses `parking_lot::Mutex` for short lookups; its
+  per-claim Tokio owned guards serialize async operations and remain owned by
+  blocking filesystem work through RPC cancellation. Preserve that boundary.
+- Keep published async mock lock APIs compatible. `std::sync::Arc`, `Weak`,
+  atomics, and primitives without a `parking_lot` equivalent remain valid.
+  Filesystem locks provide cross-process exclusion and cannot be replaced by
+  in-process mutexes. Any necessary exception to the lint needs a local,
+  documented reason.

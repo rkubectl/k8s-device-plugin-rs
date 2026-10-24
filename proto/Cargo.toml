@@ -27,3 +27,8 @@ tonic-prost-build.workspace = true
 
 # [lints]
 # workspace = true
+
+# Enforce the synchronization policy without changing the generated code's
+# existing lint scope.
+[lints.clippy]
+disallowed_types = "warn"

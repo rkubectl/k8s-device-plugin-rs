@@ -5,6 +5,7 @@ use std::sync::Arc;
 use hyper_util::rt::TokioIo;
 use tempfile::TempDir;
 use tokio::net;
+// Public mock state exposes async lock acquisition to consumer test tasks.
 use tokio::sync::Mutex;
 use tokio::task;
 use tokio_stream::wrappers::UnixListenerStream;

@@ -365,12 +365,7 @@ async fn uid_lock_serializes_operations_and_is_shared_through_guard_ownership() 
     let tmp = tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let claim = plan(&runtime).claim;
-    let guards = Arc::new(
-        runtime
-            .lock_claims(std::slice::from_ref(&claim))
-            .await
-            .unwrap(),
-    );
+    let guards = Arc::new(runtime.lock_claims(std::slice::from_ref(&claim)).await);
     let held = Arc::clone(&guards);
     drop(guards);
     assert!(
@@ -382,10 +377,7 @@ async fn uid_lock_serializes_operations_and_is_shared_through_guard_ownership() 
         .is_err()
     );
     drop(held);
-    let _next = runtime
-        .lock_claims(std::slice::from_ref(&claim))
-        .await
-        .unwrap();
+    let _next = runtime.lock_claims(std::slice::from_ref(&claim)).await;
 }
 
 #[test]
