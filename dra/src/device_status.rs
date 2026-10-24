@@ -472,8 +472,9 @@ mod tests {
     use http_body_util::BodyExt;
     use kube::client::Body;
 
+    use k8s_device_plugin_test::kube_mock::allocated_claim_status;
     use k8s_device_plugin_test::kube_mock::mock_kube_client;
-    use k8s_device_plugin_test::kube_mock::resource_claim_json;
+    use k8s_device_plugin_test::kube_mock::resource_claim;
 
     use super::*;
 
@@ -488,27 +489,22 @@ mod tests {
     }
 
     fn allocated_claim(status_devices: json::Value) -> json::Value {
-        let mut claim = resource_claim_json(
+        // The complete object is typed; these tests deliberately vary the raw
+        // devices field to exercise null/default and merge-patch wire semantics.
+        let mut claim = resource_claim(
             "claim",
             "default",
             "claim-uid",
-            json::json!({
-                "allocation": {
-                    "devices": {
-                        "results": [
-                            {
-                                "request": "widget",
-                                "driver": DRIVER,
-                                "pool": "widget-pool",
-                                "device": "widget-0"
-                            }
-                        ]
-                    }
-                },
-                "devices": status_devices,
-            }),
+            Some(allocated_claim_status(
+                DRIVER,
+                "widget-pool",
+                "widget-0",
+                "widget",
+            )),
         );
-        claim["metadata"]["resourceVersion"] = json::json!("1");
+        claim.metadata.resource_version = Some("1".into());
+        let mut claim = json::to_value(claim).unwrap();
+        claim["status"]["devices"] = status_devices;
         claim
     }
 
@@ -523,7 +519,7 @@ mod tests {
         }
     }
 
-    fn response(status: u16, body: json::Value) -> http::Response<Body> {
+    fn response(status: u16, body: impl serde::Serialize) -> http::Response<Body> {
         http::Response::builder()
             .status(status)
             .body(Body::from(
@@ -571,6 +567,11 @@ mod tests {
                 .expect("collect patch body")
                 .to_bytes();
             let patch = json::from_slice::<json::Value>(&body).expect("decode patch");
+            // A merge patch must omit unrelated fields, rather than serialize
+            // a full ResourceClaim with defaults or null values.
+            assert!(patch.get("spec").is_none());
+            assert!(patch["status"].get("allocation").is_none());
+            assert!(patch["status"].get("reservedFor").is_none());
             assert_eq!(patch["metadata"]["uid"], "claim-uid");
             assert_eq!(patch["metadata"]["resourceVersion"], "1");
             assert_eq!(
@@ -655,13 +656,7 @@ mod tests {
                 .expect("claim status patch request");
             send.send_response(response(
                 403,
-                json::json!({
-                    "kind": "Status",
-                    "apiVersion": "v1",
-                    "status": "Failure",
-                    "reason": "Forbidden",
-                    "code": 403,
-                }),
+                kube::core::Status::failure("test failure", "Forbidden").with_code(403),
             ));
         });
 
@@ -705,7 +700,7 @@ mod tests {
     fn conflict_response() -> http::Response<Body> {
         response(
             409,
-            json::json!({"status": "Failure", "reason": "Conflict", "code": 409}),
+            kube::core::Status::failure("test failure", "Conflict").with_code(409),
         )
     }
 
@@ -884,12 +879,23 @@ mod tests {
         ));
     }
     fn ready_device_status() -> json::Value {
-        json::json!({
-            "driver": DRIVER, "pool": "widget-pool", "device": "widget-0",
-            "conditions": [{"type": "dra.example.com/Attached", "status": "True",
-                "reason": "Attached", "message": "ready", "lastTransitionTime": "2026-10-23T10:00:00Z"}],
-            "data": {"phase": "old"}, "networkData": {"interfaceName": "eth-test"},
-        })
+        let mut status = ClaimDeviceStatus::new("widget-pool", "widget-0");
+        status.conditions = Some(vec![metav1::Condition {
+            type_: "dra.example.com/Attached".into(),
+            status: "True".into(),
+            reason: "Attached".into(),
+            message: "ready".into(),
+            last_transition_time: metav1::Time("2026-10-23T10:00:00Z".parse().unwrap()),
+            observed_generation: None,
+        }]);
+        status.data = Some(json::json!({"phase": "old"}));
+        status.network_data = Some(resourcev1::NetworkDeviceData {
+            interface_name: Some("eth-test".into()),
+            ..Default::default()
+        });
+        // These tests mutate null/omitted fields and compare serialized merge
+        // patches, so convert the valid typed fixture at the wire boundary.
+        json::to_value(status.into_kubernetes(DRIVER).unwrap()).unwrap()
     }
 
     async fn patch_json(request: http::Request<Body>) -> json::Value {
@@ -985,7 +991,10 @@ mod tests {
                     "True"
                 );
                 if version == "1" {
-                    send.send_response(response(409, json::json!({"kind":"Status","code":409,"reason":"Conflict","message":"raced"})));
+                    send.send_response(response(
+                        409,
+                        kube::core::Status::failure("raced", "Conflict").with_code(409),
+                    ));
                 } else {
                     send.send_response(response(200, claim));
                 }
@@ -1053,7 +1062,7 @@ mod tests {
             let (_, send) = handle.next_request().await.unwrap();
             send.send_response(response(
                 409,
-                json::json!({"kind":"Status","code":409,"reason":"Conflict","message":"raced"}),
+                kube::core::Status::failure("raced", "Conflict").with_code(409),
             ));
             let mut replaced = allocated_claim(json::json!([ready_device_status()]));
             replaced["metadata"]["uid"] = json::json!("replacement-uid");

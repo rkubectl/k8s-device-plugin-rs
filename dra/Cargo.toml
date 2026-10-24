@@ -44,6 +44,7 @@ k8s-device-plugin-proto = { workspace = true, features = ["dra"] }
 async-trait.workspace = true
 http.workspace = true
 http-body-util.workspace = true
+serde.workspace = true
 k8s-device-plugin-test = { workspace = true, features = ["dra"] }
 tempfile.workspace = true
 tracing-subscriber.workspace = true

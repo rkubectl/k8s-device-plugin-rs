@@ -8,7 +8,7 @@ use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
 use k8s_device_plugin_test::dra_registration::MockRegistrationClient;
 use k8s_device_plugin_test::kube_mock::allocated_status;
 use k8s_device_plugin_test::kube_mock::mock_kube_client;
-use k8s_device_plugin_test::kube_mock::node_json;
+use k8s_device_plugin_test::kube_mock::node;
 use k8s_device_plugin_test::kube_mock::resource_claim_json;
 use k8s_device_plugin_test::kube_mock::respond;
 
@@ -112,15 +112,11 @@ async fn run_spawns_all_three_components_and_they_work() {
     // cycle (Node get, list slices, create) happens during this test -- drain
     // it before triggering any other kube traffic, so ordering stays
     // deterministic instead of racing against the resolver's later request.
-    respond(&mut kube_handle, 200, &node_json("node-0", "node-uid-0")).await;
+    respond(&mut kube_handle, 200, &node("node-0", "node-uid-0")).await;
     respond(
         &mut kube_handle,
         200,
-        &json::json!({
-            "apiVersion": "resource.k8s.io/v1",
-            "kind": "ResourceSliceList",
-            "items": [],
-        }),
+        &k8s_openapi::List::<resourcev1::ResourceSlice>::default(),
     )
     .await;
     let (create_request, send) = kube_handle
@@ -128,9 +124,7 @@ async fn run_spawns_all_three_components_and_they_work() {
         .await
         .expect("create request sent");
     assert_eq!(create_request.method(), http::Method::POST);
-    send.send_response(http::Response::new(Body::from(
-        json::to_vec(&json::json!({})).unwrap(),
-    )));
+    send.send_response(http::Response::new(create_request.into_body()));
 
     // Registration server came up: GetInfo answers correctly.
     let mut registration_client = MockRegistrationClient::connect(&registration_socket_path)

@@ -15,42 +15,53 @@ fn new_runtime(root: &Path) -> Arc<MetadataRuntime> {
     )
 }
 fn claim() -> ResourceClaim {
-    json::from_value(json::json!({
-        "metadata": {
-            "namespace": "default",
-            "name": "test-claim",
-            "uid": "claim-uid"
+    ResourceClaim {
+        metadata: metav1::ObjectMeta {
+            namespace: Some("default".into()),
+            name: Some("test-claim".into()),
+            uid: Some("claim-uid".into()),
+            ..Default::default()
         },
-        "spec": {
-            "devices": {
-                "requests": [
-                    {"name": "a", "exactly": {"deviceClassName": "widgets"}},
-                    {"name": "b", "exactly": {"deviceClassName": "widgets"}}
-                ]
-            }
+        spec: resourcev1::ResourceClaimSpec {
+            devices: Some(resourcev1::DeviceClaim {
+                requests: Some(
+                    ["a", "b"]
+                        .map(|name| resourcev1::DeviceRequest {
+                            name: name.into(),
+                            exactly: Some(resourcev1::ExactDeviceRequest {
+                                device_class_name: "widgets".into(),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        })
+                        .into(),
+                ),
+                ..Default::default()
+            }),
         },
-        "status": {
-            "allocation": {
-                "devices": {
-                    "results": [
-                        {
-                            "driver": "dra.example.com",
-                            "pool": "pool-a",
-                            "device": "widget-0",
-                            "request": "a"
-                        },
-                        {
-                            "driver": "dra.example.com",
-                            "pool": "pool-a",
-                            "device": "widget-1",
-                            "request": "b"
-                        }
-                    ]
-                }
-            }
-        }
-    }))
-    .unwrap()
+        status: Some(resourcev1::ResourceClaimStatus {
+            allocation: Some(resourcev1::AllocationResult {
+                devices: Some(resourcev1::DeviceAllocationResult {
+                    results: Some(
+                        [("a", "widget-0"), ("b", "widget-1")]
+                            .map(
+                                |(request, device)| resourcev1::DeviceRequestAllocationResult {
+                                    request: request.into(),
+                                    driver: "dra.example.com".into(),
+                                    pool: "pool-a".into(),
+                                    device: device.into(),
+                                    ..Default::default()
+                                },
+                            )
+                            .into(),
+                    ),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }),
+    }
 }
 fn prepared(request: &str, device: &str) -> PreparedDeviceWithMetadata {
     PreparedDeviceWithMetadata::new(PreparedDevice {
@@ -135,10 +146,23 @@ fn beta_schema_paths_and_request_cdi_edits_are_isolated() {
 fn template_subrequest_paths_and_full_json_reference() {
     let tmp = tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
-    let mut object = json::to_value(claim()).unwrap();
-    object["spec"]["devices"]["requests"][0] =
-        json::json!({"name":"a","firstAvailable":[{"name":"fast","deviceClassName":"widgets"}]});
-    let mut claim: ResourceClaim = json::from_value(object).unwrap();
+    let mut claim = claim();
+    claim
+        .spec
+        .devices
+        .as_mut()
+        .unwrap()
+        .requests
+        .as_mut()
+        .unwrap()[0] = resourcev1::DeviceRequest {
+        name: "a".into(),
+        first_available: Some(vec![resourcev1::DeviceSubRequest {
+            name: "fast".into(),
+            device_class_name: "widgets".into(),
+            ..Default::default()
+        }]),
+        ..Default::default()
+    };
     claim.metadata.annotations = Some(BTreeMap::from([(
         POD_CLAIM_NAME.into(),
         "pod-local".into(),
@@ -455,9 +479,9 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
             } else {
                 "two"
             };
-            let mut object = json::to_value(claim()).unwrap();
-            object["metadata"]["name"] = json::json!(name);
-            object["metadata"]["uid"] = json::json!(name);
+            let mut object = claim();
+            object.metadata.name = Some(name.into());
+            object.metadata.uid = Some(name.into());
             send.send_response(
                 http::Response::builder()
                     .status(200)

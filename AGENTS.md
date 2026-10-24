@@ -119,6 +119,14 @@ the future phases.
   formatting for errors, path displays, or types that need it.
 - Expand complex JSON objects for readability. Keep raw expected wire values
   and explicit enum variants in tests when they independently verify semantics.
+- Prefer existing `k8s_openapi`, `kube`, or workspace types for complete objects
+  and ordinary fixtures. Serialize typed objects at the transport boundary;
+  do not build a JSON tree just to deserialize it into a known type.
+  Explicit partial merge patches are a good use of `json::json!`: preserve
+  absent fields instead of serializing a full resource with defaults or nulls.
+  Raw JSON also fits open extension payloads, independent wire assertions, and
+  deliberate malformed/defaulting tests. Document other schema gaps rather
+  than substituting an unrelated Kubernetes type.
 
 ## Synchronization primitives
 

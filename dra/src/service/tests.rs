@@ -6,10 +6,10 @@ use tempfile::TempDir;
 
 use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
 use k8s_device_plugin_test::kube_mock::MockKubeHandle;
-use k8s_device_plugin_test::kube_mock::allocated_status;
+use k8s_device_plugin_test::kube_mock::allocated_claim_status;
 use k8s_device_plugin_test::kube_mock::mock_kube_client;
-use k8s_device_plugin_test::kube_mock::not_found_json;
-use k8s_device_plugin_test::kube_mock::resource_claim_json;
+use k8s_device_plugin_test::kube_mock::not_found;
+use k8s_device_plugin_test::kube_mock::resource_claim;
 
 use super::*;
 
@@ -18,12 +18,18 @@ fn mock_resolver() -> (ClaimResolver, MockKubeHandle) {
     (ClaimResolver::new(client), handle)
 }
 
-fn claim_json(name: &str, uid: &str, pool: &str, device: &str, request: &str) -> json::Value {
-    resource_claim_json(
+fn claim(
+    name: &str,
+    uid: &str,
+    pool: &str,
+    device: &str,
+    request: &str,
+) -> resourcev1::ResourceClaim {
+    resource_claim(
         name,
         "default",
         uid,
-        allocated_status(pool, device, request),
+        Some(allocated_claim_status("example.com", pool, device, request)),
     )
 }
 
@@ -33,7 +39,7 @@ fn claim_json(name: &str, uid: &str, pool: &str, device: &str, request: &str) ->
 /// alongside successes in the same batch.
 fn spawn_kube_responder(
     mut handle: MockKubeHandle,
-    responses: Vec<(&'static str, Option<json::Value>)>,
+    responses: Vec<(&'static str, Option<resourcev1::ResourceClaim>)>,
 ) -> task::JoinHandle<()> {
     tokio::spawn(async move {
         for _ in 0..responses.len() {
@@ -50,7 +56,7 @@ fn spawn_kube_responder(
                     http::Response::new(Body::from(bytes))
                 }
                 None => {
-                    let bytes = json::to_vec(&not_found_json()).expect("serialize response body");
+                    let bytes = json::to_vec(&not_found()).expect("serialize response body");
                     http::Response::builder()
                         .status(404)
                         .body(Body::from(bytes))
@@ -175,9 +181,7 @@ async fn node_prepare_resources_reports_success() {
         kube_handle,
         vec![(
             "my-claim",
-            Some(claim_json(
-                "my-claim", "uid-0", "node-0", "widget-0", "req-0",
-            )),
+            Some(claim("my-claim", "uid-0", "node-0", "widget-0", "req-0")),
         )],
     );
     let service = DraPluginService::new(resolver, FakeClaimPreparer::default());
@@ -209,9 +213,7 @@ async fn node_prepare_resources_reports_preparer_failure_in_response_not_as_rpc_
         kube_handle,
         vec![(
             "my-claim",
-            Some(claim_json(
-                "my-claim", "uid-0", "node-0", "widget-0", "req-0",
-            )),
+            Some(claim("my-claim", "uid-0", "node-0", "widget-0", "req-0")),
         )],
     );
     let service = DraPluginService::new(resolver, FakeClaimPreparer::failing("uid-0"));
@@ -238,7 +240,7 @@ async fn node_prepare_resources_keeps_every_claim_when_one_fails_to_resolve() {
         vec![
             (
                 "good-claim",
-                Some(claim_json(
+                Some(claim(
                     "good-claim",
                     "uid-good",
                     "node-0",
@@ -288,15 +290,11 @@ async fn node_prepare_resources_is_idempotent_for_repeated_calls() {
         vec![
             (
                 "my-claim",
-                Some(claim_json(
-                    "my-claim", "uid-0", "node-0", "widget-0", "req-0",
-                )),
+                Some(claim("my-claim", "uid-0", "node-0", "widget-0", "req-0")),
             ),
             (
                 "my-claim",
-                Some(claim_json(
-                    "my-claim", "uid-0", "node-0", "widget-0", "req-0",
-                )),
+                Some(claim("my-claim", "uid-0", "node-0", "widget-0", "req-0")),
             ),
         ],
     );

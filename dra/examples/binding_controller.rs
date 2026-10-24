@@ -199,20 +199,44 @@ async fn main() -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json as json;
+    use k8s_openapi::api::resource::v1 as resourcev1;
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
     use super::*;
 
     fn allocated_claim() -> ResourceClaim {
-        json::from_value(json::json!({
-            "metadata": {"name":"claim", "namespace":"default", "uid":"uid", "generation":1},
-            "spec": {"devices":{}},
-            "status": {"allocation":{"devices":{"results":[{
-                "driver":"dra.example.com", "pool":"pool-0", "device":"widget-0", "request":"widget",
-                "bindingConditions":["dra.example.com/Attached"],
-                "bindingFailureConditions":["dra.example.com/AttachFailed"]
-            }]}}}
-        })).unwrap()
+        ResourceClaim {
+            metadata: ObjectMeta {
+                name: Some("claim".into()),
+                namespace: Some("default".into()),
+                uid: Some("uid".into()),
+                generation: Some(1),
+                ..Default::default()
+            },
+            spec: resourcev1::ResourceClaimSpec {
+                devices: Some(resourcev1::DeviceClaim::default()),
+            },
+            status: Some(resourcev1::ResourceClaimStatus {
+                allocation: Some(resourcev1::AllocationResult {
+                    devices: Some(resourcev1::DeviceAllocationResult {
+                        results: Some(vec![resourcev1::DeviceRequestAllocationResult {
+                            driver: "dra.example.com".into(),
+                            pool: "pool-0".into(),
+                            device: "widget-0".into(),
+                            request: "widget".into(),
+                            binding_conditions: Some(vec!["dra.example.com/Attached".into()]),
+                            binding_failure_conditions: Some(vec![
+                                "dra.example.com/AttachFailed".into(),
+                            ]),
+                            ..Default::default()
+                        }]),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+        }
     }
 
     #[test]

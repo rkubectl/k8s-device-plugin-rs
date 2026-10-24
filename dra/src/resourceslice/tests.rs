@@ -2,10 +2,10 @@ use http_body_util::BodyExt;
 use kube::client::Body;
 
 use k8s_device_plugin_test::kube_mock::MockKubeHandle;
-use k8s_device_plugin_test::kube_mock::device_json;
+use k8s_device_plugin_test::kube_mock::device;
 use k8s_device_plugin_test::kube_mock::mock_kube_client;
-use k8s_device_plugin_test::kube_mock::node_json;
-use k8s_device_plugin_test::kube_mock::resource_slice_json;
+use k8s_device_plugin_test::kube_mock::node;
+use k8s_device_plugin_test::kube_mock::resource_slice;
 use k8s_device_plugin_test::kube_mock::respond;
 
 use super::*;
@@ -64,12 +64,13 @@ fn mock_publisher(resource_pool: StaticPool) -> (ResourceSlicePublisher, MockKub
     (publisher, handle)
 }
 
-fn resource_slice_list(items: Vec<json::Value>) -> json::Value {
-    json::json!({
-        "apiVersion": "resource.k8s.io/v1",
-        "kind": "ResourceSliceList",
-        "items": items,
-    })
+fn resource_slice_list(
+    items: Vec<resourcev1::ResourceSlice>,
+) -> k8s_openapi::List<resourcev1::ResourceSlice> {
+    k8s_openapi::List {
+        items,
+        ..Default::default()
+    }
 }
 
 fn owned_slice(
@@ -77,9 +78,9 @@ fn owned_slice(
     generation: i64,
     pool_name: &str,
     slice_count: i64,
-    devices: Vec<json::Value>,
-) -> json::Value {
-    let mut slice = resource_slice_json(
+    devices: Vec<resourcev1::Device>,
+) -> resourcev1::ResourceSlice {
+    let mut slice = resource_slice(
         name,
         "example.com",
         "node-0",
@@ -87,14 +88,14 @@ fn owned_slice(
         pool_name,
         devices,
     );
-    slice["spec"]["pool"]["resourceSliceCount"] = json::json!(slice_count);
-    slice["metadata"]["ownerReferences"] = json::json!([{
-        "apiVersion": "v1",
-        "kind": "Node",
-        "name": "node-0",
-        "uid": "node-uid-0",
-        "controller": true,
-        "blockOwnerDeletion": false,
+    slice.spec.pool.resource_slice_count = slice_count;
+    slice.metadata.owner_references = Some(vec![metav1::OwnerReference {
+        api_version: "v1".into(),
+        kind: "Node".into(),
+        name: "node-0".into(),
+        uid: "node-uid-0".into(),
+        controller: Some(true),
+        block_owner_deletion: Some(false),
     }]);
     slice
 }
@@ -121,7 +122,7 @@ async fn publish_once_creates_slice_when_absent() {
         mock_publisher(one_pool("pool-0", vec![PoolDevice::new("widget-0")]));
 
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         let list = respond(&mut handle, 200, &resource_slice_list(vec![])).await;
         assert_eq!(list.method(), http::Method::GET);
         assert!(
@@ -155,13 +156,13 @@ async fn publish_once_is_a_noop_when_existing_pool_is_complete() {
         mock_publisher(one_pool("pool-0", vec![PoolDevice::new("widget-0")]));
 
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         let existing = owned_slice(
             "example.com-node-0-pool-0",
             4,
             "pool-0",
             1,
-            vec![device_json("widget-0")],
+            vec![device("widget-0")],
         );
         respond(&mut handle, 200, &resource_slice_list(vec![existing])).await;
 
@@ -184,13 +185,13 @@ async fn publish_once_is_a_noop_when_existing_devices_are_reordered() {
     ));
 
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         let existing = owned_slice(
             "example.com-node-0-pool-0",
             4,
             "pool-0",
             1,
-            vec![device_json("widget-1"), device_json("widget-0")],
+            vec![device("widget-1"), device("widget-0")],
         );
         respond(&mut handle, 200, &resource_slice_list(vec![existing])).await;
 
@@ -211,13 +212,13 @@ async fn publish_once_updates_changed_pool_with_next_generation() {
         mock_publisher(one_pool("pool-0", vec![PoolDevice::new("widget-1")]));
 
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         let existing = owned_slice(
             "example.com-node-0-pool-0",
             4,
             "pool-0",
             1,
-            vec![device_json("widget-0")],
+            vec![device("widget-0")],
         );
         respond(&mut handle, 200, &resource_slice_list(vec![existing])).await;
 
@@ -240,7 +241,7 @@ async fn publish_once_splits_large_pool_with_one_generation_and_count() {
     let (publisher, mut handle) = mock_publisher(one_pool("pool-0", widgets(129)));
 
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         respond(&mut handle, 200, &resource_slice_list(vec![])).await;
 
         for expected_devices in [128, 1] {
@@ -269,20 +270,20 @@ async fn publish_once_completes_new_generation_before_deleting_stale_slices() {
         mock_publisher(one_pool("pool-0", vec![PoolDevice::new("widget-0")]));
 
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         let current = owned_slice(
             "example.com-node-0-pool-0",
             4,
             "pool-0",
             1,
-            vec![device_json("widget-old")],
+            vec![device("widget-old")],
         );
         let stale = owned_slice(
             "example.com-node-0-removed-pool",
             3,
             "removed-pool",
             1,
-            vec![device_json("widget-old")],
+            vec![device("widget-old")],
         );
         respond(&mut handle, 200, &resource_slice_list(vec![current, stale])).await;
 
@@ -306,7 +307,11 @@ async fn publish_once_completes_new_generation_before_deleting_stale_slices() {
             http::Response::builder()
                 .status(200)
                 .body(Body::from(
-                    json::to_vec(&json::json!({ "status": "Success" })).expect("serialize status"),
+                    json::to_vec(&metav1::Status {
+                        status: Some("Success".into()),
+                        ..Default::default()
+                    })
+                    .expect("serialize status"),
                 ))
                 .expect("build delete response"),
         );
@@ -324,7 +329,7 @@ async fn publish_once_rejects_duplicate_devices_before_mutation() {
     ));
 
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         respond(&mut handle, 200, &resource_slice_list(vec![])).await;
         let extra = tokio::time::timeout(Duration::from_millis(50), handle.next_request()).await;
         assert!(extra.is_err(), "invalid input must not mutate slices");
@@ -378,11 +383,13 @@ fn inventory_publisher(devices: Vec<InventoryDevice>) -> (ResourceSlicePublisher
     )
 }
 
-fn tainted_slice(effect: &str) -> json::Value {
-    let mut device = device_json("widget-0");
-    device["taints"] = json::json!([{
-        "key": "example.com/maintenance", "effect": effect,
-        "timeAdded": "2026-10-23T10:00:00Z",
+fn tainted_slice(effect: &str) -> resourcev1::ResourceSlice {
+    let mut device = device("widget-0");
+    device.taints = Some(vec![resourcev1::DeviceTaint {
+        key: "example.com/maintenance".into(),
+        effect: effect.into(),
+        time_added: Some(metav1::Time("2026-10-23T10:00:00Z".parse().unwrap())),
+        ..Default::default()
     }]);
     owned_slice("example.com-node-0-pool-0", 4, "pool-0", 1, vec![device])
 }
@@ -445,7 +452,7 @@ async fn tainted_pool_splits_at_64_devices_with_coherent_generation_and_count() 
         .collect();
     let (publisher, mut handle) = inventory_publisher(devices);
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         respond(&mut handle, 200, &resource_slice_list(vec![])).await;
         for size in [64, 64, 1] {
             let (request, send) = handle.next_request().await.unwrap();
@@ -475,9 +482,13 @@ async fn tainted_pool_splits_at_64_devices_with_coherent_generation_and_count() 
 async fn defaulted_taint_time_and_empty_value_do_not_republish() {
     let (publisher, mut handle) = inventory_publisher(vec![tainted_widget()]);
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         let mut existing = tainted_slice("NoSchedule");
-        existing["spec"]["devices"][0]["taints"][0]["value"] = json::json!("");
+        existing.spec.devices.as_mut().unwrap()[0]
+            .taints
+            .as_mut()
+            .unwrap()[0]
+            .value = Some(String::new());
         respond(&mut handle, 200, &resource_slice_list(vec![existing])).await;
         assert!(
             tokio::time::timeout(Duration::from_millis(50), handle.next_request())
@@ -499,7 +510,7 @@ async fn changing_a_taint_effect_gets_a_new_time_and_generation() {
     ));
     let (publisher, mut handle) = inventory_publisher(vec![desired]);
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         respond(
             &mut handle,
             200,
@@ -531,7 +542,7 @@ async fn changing_a_taint_effect_gets_a_new_time_and_generation() {
 async fn removing_a_taint_is_published_with_next_generation() {
     let (publisher, mut handle) = inventory_publisher(vec![PoolDevice::new("widget-0").into()]);
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         respond(
             &mut handle,
             200,
@@ -560,11 +571,18 @@ async fn taint_reordering_does_not_advance_generation() {
     ));
     let (publisher, mut handle) = inventory_publisher(vec![desired]);
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         let mut existing = tainted_slice("NoSchedule");
-        existing["spec"]["devices"][0]["taints"].as_array_mut().unwrap().push(json::json!({
-            "key": "example.com/diagnostic", "effect": "None", "timeAdded": "2026-10-23T09:00:00Z",
-        }));
+        existing.spec.devices.as_mut().unwrap()[0]
+            .taints
+            .as_mut()
+            .unwrap()
+            .push(resourcev1::DeviceTaint {
+                key: "example.com/diagnostic".into(),
+                effect: "None".into(),
+                time_added: Some(metav1::Time("2026-10-23T09:00:00Z".parse().unwrap())),
+                ..Default::default()
+            });
         respond(&mut handle, 200, &resource_slice_list(vec![existing])).await;
         assert!(
             tokio::time::timeout(Duration::from_millis(50), handle.next_request())
@@ -580,13 +598,13 @@ async fn taint_reordering_does_not_advance_generation() {
 async fn newly_added_taint_converges_after_server_defaults_its_time() {
     let (publisher, mut handle) = inventory_publisher(vec![tainted_widget()]);
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         let existing = owned_slice(
             "example.com-node-0-pool-0",
             4,
             "pool-0",
             1,
-            vec![device_json("widget-0")],
+            vec![device("widget-0")],
         );
         respond(&mut handle, 200, &resource_slice_list(vec![existing])).await;
         let (request, send) = handle.next_request().await.unwrap();
@@ -596,8 +614,13 @@ async fn newly_added_taint_converges_after_server_defaults_its_time() {
         send.send_response(http::Response::new(Body::from(
             json::to_vec(&body).unwrap(),
         )));
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
-        respond(&mut handle, 200, &resource_slice_list(vec![body])).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
+        respond(
+            &mut handle,
+            200,
+            &resource_slice_list(vec![json::from_value(body).unwrap()]),
+        )
+        .await;
         assert!(
             tokio::time::timeout(Duration::from_millis(50), handle.next_request())
                 .await
@@ -618,7 +641,7 @@ async fn backend_can_explicitly_change_a_taint_timestamp() {
     desired.taints[0].time_added = Some(0);
     let (publisher, mut handle) = inventory_publisher(vec![desired]);
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         respond(
             &mut handle,
             200,
@@ -699,11 +722,14 @@ async fn binding_condition_order_and_default_false_do_not_advance_generation() {
     );
     let (publisher, mut handle) = inventory_publisher(vec![desired]);
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
-        let mut device = device_json("widget-0");
-        device["bindingConditions"] = json::json!(["example.com/AReady", "example.com/ZReady"]);
-        device["bindingFailureConditions"] = json::json!([]);
-        device["bindsToNode"] = json::json!(false);
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
+        let mut device = device("widget-0");
+        device.binding_conditions = Some(vec![
+            "example.com/AReady".into(),
+            "example.com/ZReady".into(),
+        ]);
+        device.binding_failure_conditions = Some(vec![]);
+        device.binds_to_node = Some(false);
         let existing = owned_slice("example.com-node-0-pool-0", 4, "pool-0", 1, vec![device]);
         respond(&mut handle, 200, &resource_slice_list(vec![existing])).await;
         assert!(
@@ -726,7 +752,7 @@ async fn adding_binding_conditions_advances_generation_and_preserves_taints() {
     );
     let (publisher, mut handle) = inventory_publisher(vec![desired]);
     let script = async {
-        respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         respond(
             &mut handle,
             200,
