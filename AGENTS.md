@@ -96,6 +96,13 @@ the future phases.
   values. Keep semantically distinct values explicit, such as
   `AttributeValue::version("1.2.3")` versus a plain string attribute. Add helpers
   for repeated behavior or type semantics, rather than hiding useful literals.
+- Check the locked dependency's constructors and builders before writing a
+  `kube` object literal. Prefer matching helpers such as
+  `api::DeleteParams::default().preconditions(...)`,
+  `api::ListParams::default().fields(...)`, and `api::PatchParams::apply(...)`.
+  Keep literals where no matching helper exists. Choose constructors for their
+  behavior: deletion propagation helpers set a policy and are not equivalent
+  to an unspecified policy.
 - Use one import per item. Separate standard-library, third-party, workspace,
   and local imports. Prefer module-qualified generic names such as `json::Value`,
   `fs::File`, and `task::JoinHandle`, with `use serde_json as json`. Reuse an

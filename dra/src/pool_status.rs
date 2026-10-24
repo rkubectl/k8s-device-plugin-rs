@@ -1,15 +1,11 @@
 //! Opt-in requests to Kubernetes' pool-status controller. No driver accounting.
 
-use std::fmt;
-use std::time::Duration;
-
 use k8s_openapi::api::resource::v1alpha3::ResourcePoolStatusRequest;
 use k8s_openapi::api::resource::v1alpha3::ResourcePoolStatusRequestSpec;
 use k8s_openapi::api::resource::v1alpha3::ResourcePoolStatusRequestStatus;
 use kube::Api;
-use kube::api::DeleteParams;
-use kube::api::PostParams;
-use kube::api::Preconditions;
+
+use super::*;
 
 const API_VERSION: &str = "resource.k8s.io/v1alpha3";
 
@@ -79,14 +75,15 @@ impl PoolStatusClient {
         }
         let api: Api<ResourcePoolStatusRequest> = Api::all(self.client.clone());
         let request = ResourcePoolStatusRequest {
-            metadata: kube::api::ObjectMeta {
+            metadata: api::ObjectMeta {
                 generate_name: Some("dra-pool-status-".to_string()),
                 ..Default::default()
             },
             spec,
             status: None,
         };
-        let created = api.create(&PostParams::default(), &request).await?;
+        let pp = api::PostParams::default();
+        let created = api.create(&pp, &request).await?;
         let name = created.metadata.name.filter(|name| !name.is_empty());
         let uid = created.metadata.uid.filter(|uid| !uid.is_empty());
         match (name, uid) {
@@ -163,13 +160,10 @@ impl PoolStatusQuery {
     /// Deletes only this UID, atomically refusing any replacement at the same
     /// name. Already absent is success. Other errors retain the handle for retry.
     pub async fn delete(&self) -> Result<(), PoolStatusError> {
-        let params = DeleteParams {
-            preconditions: Some(Preconditions {
-                uid: Some(self.uid.clone()),
-                ..Default::default()
-            }),
+        let params = api::DeleteParams::default().preconditions(api::Preconditions {
+            uid: Some(self.uid.clone()),
             ..Default::default()
-        };
+        });
         match self.api.delete(&self.name, &params).await {
             Ok(_) => Ok(()),
             Err(kube::Error::Api(error)) if error.code == 404 => Ok(()),
@@ -189,7 +183,7 @@ mod tests {
 
     use super::*;
 
-    fn discovery() -> k8s_openapi::apimachinery::pkg::apis::meta::v1::APIResourceList {
+    fn discovery() -> metav1::APIResourceList {
         use k8s_openapi::apimachinery::pkg::apis::meta::v1::APIResource;
         use k8s_openapi::apimachinery::pkg::apis::meta::v1::APIResourceList;
 
@@ -208,7 +202,7 @@ mod tests {
 
     fn request(status: Option<ResourcePoolStatusRequestStatus>) -> ResourcePoolStatusRequest {
         ResourcePoolStatusRequest {
-            metadata: kube::api::ObjectMeta {
+            metadata: api::ObjectMeta {
                 name: Some("dra-pool-status-test".into()),
                 uid: Some("request-uid".into()),
                 ..Default::default()
@@ -279,7 +273,7 @@ mod tests {
                 &delete.into_body().collect().await.unwrap().to_bytes(),
             )
             .unwrap();
-            assert_eq!(body["preconditions"]["uid"], "request-uid");
+            assert_eq!(body, json::json!({"preconditions": {"uid": "request-uid"}}));
         });
         let query = PoolStatusClient::new(client)
             .create(ResourcePoolStatusRequestSpec {
