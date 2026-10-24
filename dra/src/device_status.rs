@@ -891,7 +891,7 @@ mod tests {
         status.data = Some(json::json!({"phase": "old"}));
         status.network_data = Some(resourcev1::NetworkDeviceData {
             interface_name: Some("eth-test".into()),
-            ..Default::default()
+            ..default()
         });
         // These tests mutate null/omitted fields and compare serialized merge
         // patches, so convert the valid typed fixture at the wire boundary.

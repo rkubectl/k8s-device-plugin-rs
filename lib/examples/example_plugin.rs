@@ -77,7 +77,7 @@ impl DeviceAllocator for ExampleWidgetPlugin {
         Ok(ContainerAllocation {
             device_paths,
             envs,
-            ..Default::default()
+            ..default()
         })
     }
 }
@@ -134,4 +134,8 @@ async fn main() -> std::io::Result<()> {
         "starting example device plugin"
     );
     plugin.run().await
+}
+
+fn default<T: Default>() -> T {
+    T::default()
 }

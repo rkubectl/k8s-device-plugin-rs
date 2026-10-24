@@ -23,3 +23,7 @@ pub mod dra_plugin;
 pub mod dra_registration;
 #[cfg(feature = "dra")]
 pub mod kube_mock;
+
+fn default<T: Default>() -> T {
+    T::default()
+}

@@ -111,6 +111,11 @@ the future phases.
 - Keep type hints next to the operation that needs them when clear, for example
   `.collect::<BTreeMap<_, _>>()` and `json::from_slice::<json::Value>(bytes)`.
   Retain annotations that clarify complex types or trait-object boundaries.
+- Use the private `default()` helper when the surrounding expression already
+  determines the type, especially `..default()` in struct updates. Reuse the
+  helper through the existing parent scope, and keep any helper needed by a
+  separate crate or example private. Preserve named constructors and explicit
+  `Type::default()` calls where they convey intent or are needed for inference.
 - When a transformation owns an input that is no longer needed, consume it:
   use `.into_iter()` and move fields rather than borrowing and cloning them.
   Let inference supply iterator item types, such as `.collect::<Vec<_>>()`.

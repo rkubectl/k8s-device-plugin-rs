@@ -480,5 +480,9 @@ fn sanitize_socket_name(name: &str) -> String {
     k8s_device_plugin_core::sanitize_socket_name(name, budget)
 }
 
+fn default<T: Default>() -> T {
+    T::default()
+}
+
 #[cfg(test)]
 mod tests;

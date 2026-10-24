@@ -60,7 +60,7 @@ pub fn start_mock_registration_server(
 ) -> MockRegistrationServer {
     let fake = FakeRegistration {
         failure: failure.map(|(code, message)| (code, message.to_string())),
-        ..Default::default()
+        ..default()
     };
     start_server(fake)
 }
@@ -70,7 +70,7 @@ pub fn start_mock_registration_server(
 pub fn start_mock_registration_server_with_failures(fail_count: u32) -> MockRegistrationServer {
     let fake = FakeRegistration {
         fail_count: Arc::new(AtomicU32::new(fail_count)),
-        ..Default::default()
+        ..default()
     };
     start_server(fake)
 }

@@ -67,10 +67,7 @@ fn mock_publisher(resource_pool: StaticPool) -> (ResourceSlicePublisher, MockKub
 fn resource_slice_list(
     items: Vec<resourcev1::ResourceSlice>,
 ) -> k8s_openapi::List<resourcev1::ResourceSlice> {
-    k8s_openapi::List {
-        items,
-        ..Default::default()
-    }
+    k8s_openapi::List { items, ..default() }
 }
 
 fn owned_slice(
@@ -309,7 +306,7 @@ async fn publish_once_completes_new_generation_before_deleting_stale_slices() {
                 .body(Body::from(
                     json::to_vec(&metav1::Status {
                         status: Some("Success".into()),
-                        ..Default::default()
+                        ..default()
                     })
                     .expect("serialize status"),
                 ))
@@ -389,7 +386,7 @@ fn tainted_slice(effect: &str) -> resourcev1::ResourceSlice {
         key: "example.com/maintenance".into(),
         effect: effect.into(),
         time_added: Some(metav1::Time("2026-10-23T10:00:00Z".parse().unwrap())),
-        ..Default::default()
+        ..default()
     }]);
     owned_slice("example.com-node-0-pool-0", 4, "pool-0", 1, vec![device])
 }
@@ -581,7 +578,7 @@ async fn taint_reordering_does_not_advance_generation() {
                 key: "example.com/diagnostic".into(),
                 effect: "None".into(),
                 time_added: Some(metav1::Time("2026-10-23T09:00:00Z".parse().unwrap())),
-                ..Default::default()
+                ..default()
             });
         respond(&mut handle, 200, &resource_slice_list(vec![existing])).await;
         assert!(

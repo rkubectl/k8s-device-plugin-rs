@@ -152,7 +152,7 @@ async fn main() -> io::Result<()> {
     {
         kube::Config::from_kubeconfig(&kube::config::KubeConfigOptions {
             context: Some(context),
-            ..Default::default()
+            ..default()
         })
         .await
         .map_err(io::Error::other)?
@@ -197,6 +197,10 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
+fn default<T: Default>() -> T {
+    T::default()
+}
+
 #[cfg(test)]
 mod tests {
     use k8s_openapi::api::resource::v1 as resourcev1;
@@ -211,7 +215,7 @@ mod tests {
                 namespace: Some("default".into()),
                 uid: Some("uid".into()),
                 generation: Some(1),
-                ..Default::default()
+                ..default()
             },
             spec: resourcev1::ResourceClaimSpec {
                 devices: Some(resourcev1::DeviceClaim::default()),
@@ -228,13 +232,13 @@ mod tests {
                             binding_failure_conditions: Some(vec![
                                 "dra.example.com/AttachFailed".into(),
                             ]),
-                            ..Default::default()
+                            ..default()
                         }]),
-                        ..Default::default()
+                        ..default()
                     }),
-                    ..Default::default()
+                    ..default()
                 }),
-                ..Default::default()
+                ..default()
             }),
         }
     }
@@ -272,7 +276,7 @@ mod tests {
             pool: "pool-0".to_string(),
             driver: "dra.example.com".to_string(),
             conditions: reports[0].conditions.clone(),
-            ..Default::default()
+            ..default()
         };
         claim.status.as_mut().unwrap().devices = Some(vec![status]);
         let repeated =

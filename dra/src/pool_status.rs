@@ -77,7 +77,7 @@ impl PoolStatusClient {
         let request = ResourcePoolStatusRequest {
             metadata: api::ObjectMeta {
                 generate_name: Some("dra-pool-status-".to_string()),
-                ..Default::default()
+                ..default()
             },
             spec,
             status: None,
@@ -162,7 +162,7 @@ impl PoolStatusQuery {
     pub async fn delete(&self) -> Result<(), PoolStatusError> {
         let params = api::DeleteParams::default().preconditions(api::Preconditions {
             uid: Some(self.uid.clone()),
-            ..Default::default()
+            ..default()
         });
         match self.api.delete(&self.name, &params).await {
             Ok(_) => Ok(()),
@@ -195,7 +195,7 @@ mod tests {
                 namespaced: false,
                 kind: "ResourcePoolStatusRequest".into(),
                 verbs: ["create", "get", "delete"].map(String::from).into(),
-                ..Default::default()
+                ..default()
             }],
         }
     }
@@ -205,11 +205,11 @@ mod tests {
             metadata: api::ObjectMeta {
                 name: Some("dra-pool-status-test".into()),
                 uid: Some("request-uid".into()),
-                ..Default::default()
+                ..default()
             },
             spec: ResourcePoolStatusRequestSpec {
                 driver: "dra.example.com".into(),
-                ..Default::default()
+                ..default()
             },
             status,
         }
@@ -235,7 +235,7 @@ mod tests {
                 pool_name: "widget-pool".into(),
                 generation: 7,
                 validation_error: Some("incomplete publication".into()),
-                ..Default::default()
+                ..default()
             }]),
         }
     }

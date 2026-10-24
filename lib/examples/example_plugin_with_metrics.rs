@@ -158,7 +158,7 @@ impl DeviceAllocator for ExampleWidgetPlugin {
         }
         Ok(ContainerAllocation {
             device_paths,
-            ..Default::default()
+            ..default()
         })
     }
 }
@@ -181,4 +181,8 @@ async fn main() -> std::io::Result<()> {
     let service = DevicePluginService::new(ExampleWidgetPlugin::new());
     let plugin = DevicePlugin::new(RESOURCE_NAME, service).expect("valid resource name");
     plugin.run().await
+}
+
+fn default<T: Default>() -> T {
+    T::default()
 }

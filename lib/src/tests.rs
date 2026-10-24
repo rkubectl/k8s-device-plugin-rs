@@ -361,7 +361,7 @@ impl DeviceAllocator for RelativePathPlugin {
     ) -> Result<ContainerAllocation, AllocationError> {
         Ok(ContainerAllocation {
             device_paths: vec![DevicePath::rdwr("relative/widget0")],
-            ..Default::default()
+            ..default()
         })
     }
 }
@@ -401,7 +401,7 @@ impl DeviceAllocator for SlowPlugin {
         tokio::time::sleep(Duration::from_millis(20)).await;
         Ok(ContainerAllocation {
             envs: BTreeMap::from([("DEVICE_IDS".to_string(), device_ids.join(","))]),
-            ..Default::default()
+            ..default()
         })
     }
 }
@@ -544,7 +544,7 @@ impl DeviceAllocator for FullFeaturedPlugin {
             envs: BTreeMap::from([("WIDGET_VISIBLE_DEVICES".to_string(), "0".to_string())]),
             annotations: BTreeMap::from([("widget.example.com/pool".to_string(), "a".to_string())]),
             cdi_devices: vec!["example.com/widget=widget-0".to_string()],
-            ..Default::default()
+            ..default()
         })
     }
 }

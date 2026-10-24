@@ -125,15 +125,19 @@ Leave both hooks at their defaults (`false` / no-op / unavailable) if your devic
 
 ### Allocation artifacts beyond device paths
 
-`ContainerAllocation` isn't limited to `device_paths` (`/dev` nodes) — it also carries `mounts` (extra host bind-mounts, e.g. shared libraries), `envs` (environment variables, e.g. a `*_VISIBLE_DEVICES`-style variable), `annotations`, and `cdi_devices` (fully qualified [CDI](https://github.com/container-orchestrated-devices/container-device-interface) device names). All four default to empty, so use `..Default::default()` when you only need a subset:
+`ContainerAllocation` isn't limited to `device_paths` (`/dev` nodes) — it also carries `mounts` (extra host bind-mounts, e.g. shared libraries), `envs` (environment variables, e.g. a `*_VISIBLE_DEVICES`-style variable), `annotations`, and `cdi_devices` (fully qualified [CDI](https://github.com/container-orchestrated-devices/container-device-interface) device names). All four default to empty, so use `..default()` with a private helper when you only need a subset:
 
 ```rust
 use std::collections::BTreeMap;
 
+fn default<T: Default>() -> T {
+    T::default()
+}
+
 Ok(ContainerAllocation {
     device_paths,
     envs: BTreeMap::from([("MY_VISIBLE_DEVICES".to_string(), device_ids.join(","))]),
-    ..Default::default()
+    ..default()
 })
 ```
 

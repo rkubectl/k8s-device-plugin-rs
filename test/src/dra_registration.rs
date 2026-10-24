@@ -121,7 +121,7 @@ pub fn start_mock_registration_server(
 ) -> MockRegistrationServer {
     let fake = FakeRegistration {
         plugin_info,
-        ..Default::default()
+        ..default()
     };
 
     let socket_dir = TempDir::new().expect("create temp dir for registration socket");

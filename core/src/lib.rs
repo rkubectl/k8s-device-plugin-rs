@@ -130,6 +130,11 @@ pub trait K8sDevicePlugin: DeviceDiscovery + DeviceAllocator {
 }
 
 #[cfg(test)]
+fn default<T: Default>() -> T {
+    T::default()
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -161,7 +166,7 @@ mod tests {
             }
             Ok(ContainerAllocation {
                 device_paths,
-                ..Default::default()
+                ..default()
             })
         }
     }

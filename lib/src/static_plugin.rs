@@ -61,7 +61,7 @@ impl DeviceAllocator for StaticDevicePlugin {
         }
         Ok(ContainerAllocation {
             device_paths,
-            ..Default::default()
+            ..default()
         })
     }
 }

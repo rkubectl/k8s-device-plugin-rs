@@ -13,6 +13,8 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1 as metav1;
 use kube::client::Body;
 use serde_json as json;
 
+use super::default;
+
 pub type MockKubeHandle = tower_test::mock::Handle<http::Request<Body>, http::Response<Body>>;
 
 /// Builds a [`kube::Client`] backed by a mock HTTP service, and the
@@ -48,9 +50,9 @@ pub fn node(name: &str, uid: &str) -> corev1::Node {
         metadata: metav1::ObjectMeta {
             name: Some(name.into()),
             uid: Some(uid.into()),
-            ..Default::default()
+            ..default()
         },
-        ..Default::default()
+        ..default()
     }
 }
 
@@ -60,7 +62,7 @@ pub fn not_found() -> metav1::Status {
         status: Some("Failure".into()),
         reason: Some("NotFound".into()),
         code: Some(404),
-        ..Default::default()
+        ..default()
     }
 }
 
@@ -76,10 +78,10 @@ pub fn resource_claim(
             name: Some(name.into()),
             namespace: Some(namespace.into()),
             uid: Some(uid.into()),
-            ..Default::default()
+            ..default()
         },
         status,
-        ..Default::default()
+        ..default()
     }
 }
 
@@ -98,13 +100,13 @@ pub fn allocated_claim_status(
                     driver: driver.into(),
                     pool: pool.into(),
                     device: device.into(),
-                    ..Default::default()
+                    ..default()
                 }]),
-                ..Default::default()
+                ..default()
             }),
-            ..Default::default()
+            ..default()
         }),
-        ..Default::default()
+        ..default()
     }
 }
 
@@ -120,7 +122,7 @@ pub fn resource_slice(
     resourcev1::ResourceSlice {
         metadata: metav1::ObjectMeta {
             name: Some(name.into()),
-            ..Default::default()
+            ..default()
         },
         spec: resourcev1::ResourceSliceSpec {
             driver: driver.into(),
@@ -131,7 +133,7 @@ pub fn resource_slice(
                 resource_slice_count: 1,
             },
             devices: Some(devices),
-            ..Default::default()
+            ..default()
         },
     }
 }
@@ -140,7 +142,7 @@ pub fn resource_slice(
 pub fn device(name: &str) -> resourcev1::Device {
     resourcev1::Device {
         name: name.into(),
-        ..Default::default()
+        ..default()
     }
 }
 

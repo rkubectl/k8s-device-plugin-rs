@@ -20,7 +20,7 @@ fn claim() -> ResourceClaim {
             namespace: Some("default".into()),
             name: Some("test-claim".into()),
             uid: Some("claim-uid".into()),
-            ..Default::default()
+            ..default()
         },
         spec: resourcev1::ResourceClaimSpec {
             devices: Some(resourcev1::DeviceClaim {
@@ -30,13 +30,13 @@ fn claim() -> ResourceClaim {
                             name: name.into(),
                             exactly: Some(resourcev1::ExactDeviceRequest {
                                 device_class_name: "widgets".into(),
-                                ..Default::default()
+                                ..default()
                             }),
-                            ..Default::default()
+                            ..default()
                         })
                         .into(),
                 ),
-                ..Default::default()
+                ..default()
             }),
         },
         status: Some(resourcev1::ResourceClaimStatus {
@@ -50,16 +50,16 @@ fn claim() -> ResourceClaim {
                                     driver: "dra.example.com".into(),
                                     pool: "pool-a".into(),
                                     device: device.into(),
-                                    ..Default::default()
+                                    ..default()
                                 },
                             )
                             .into(),
                     ),
-                    ..Default::default()
+                    ..default()
                 }),
-                ..Default::default()
+                ..default()
             }),
-            ..Default::default()
+            ..default()
         }),
     }
 }
@@ -159,9 +159,9 @@ fn template_subrequest_paths_and_full_json_reference() {
         first_available: Some(vec![resourcev1::DeviceSubRequest {
             name: "fast".into(),
             device_class_name: "widgets".into(),
-            ..Default::default()
+            ..default()
         }]),
-        ..Default::default()
+        ..default()
     };
     claim.metadata.annotations = Some(BTreeMap::from([(
         POD_CLAIM_NAME.into(),

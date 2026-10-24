@@ -19,7 +19,7 @@ async fn main() -> io::Result<()> {
     {
         kube::Config::from_kubeconfig(&kube::config::KubeConfigOptions {
             context: Some(context),
-            ..Default::default()
+            ..default()
         })
         .await
         .map_err(io::Error::other)?
@@ -51,4 +51,8 @@ async fn main() -> io::Result<()> {
     let status = result.map_err(|error| io::Error::other(error.to_string()))?;
     println!("{}", json::to_string(&status).map_err(io::Error::other)?);
     Ok(())
+}
+
+fn default<T: Default>() -> T {
+    T::default()
 }
