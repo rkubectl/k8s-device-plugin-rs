@@ -1,11 +1,12 @@
 //! Optional `DRAResourceHealth.NodeWatchResources` service.
 
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
+
 use k8s_device_plugin_core::DraDeviceHealth;
 use k8s_device_plugin_core::ResourceHealthError;
 use k8s_device_plugin_core::ResourceHealthReport;
 use k8s_device_plugin_core::ResourceHealthStatus;
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 
 use dra::health::v1alpha1 as healthv1;
 

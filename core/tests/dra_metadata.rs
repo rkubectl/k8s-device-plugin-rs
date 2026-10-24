@@ -1,13 +1,56 @@
-use async_trait::async_trait;
-use k8s_device_plugin_core::{
-    AttributeValue, ClaimPreparer, ClaimRef, PrepareError, PreparedDevice,
-    PreparedDeviceWithMetadata, ResolvedClaim,
-};
 use std::collections::BTreeMap;
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+
+use async_trait::async_trait;
+
+use k8s_device_plugin_core::AttributeValue;
+use k8s_device_plugin_core::ClaimPreparer;
+use k8s_device_plugin_core::ClaimRef;
+use k8s_device_plugin_core::PoolDevice;
+use k8s_device_plugin_core::PrepareError;
+use k8s_device_plugin_core::PreparedDevice;
+use k8s_device_plugin_core::PreparedDeviceWithMetadata;
+use k8s_device_plugin_core::ResolvedClaim;
+
+#[test]
+fn attribute_builders_preserve_scalar_types_and_explicit_versions() {
+    let pool_device = PoolDevice::new("device")
+        .attribute("model", "widget")
+        .attribute("owned", String::from("owned"))
+        .attribute("count", 7)
+        .attribute("enabled", true)
+        .attribute("string_version", "1.2.3")
+        .attribute("version", AttributeValue::version("1.2.3"));
+    let prepared = PreparedDeviceWithMetadata::new(PreparedDevice {
+        request_names: vec!["a".into()],
+        pool_name: "pool".into(),
+        device_name: "device".into(),
+        cdi_device_ids: vec![],
+    })
+    .with_attribute("model", "widget")
+    .with_attribute("owned", String::from("owned"))
+    .with_attribute("count", 7)
+    .with_attribute("enabled", true)
+    .with_attribute("string_version", "1.2.3")
+    .with_attribute("version", AttributeValue::version(String::from("1.2.3")));
+
+    let expected = BTreeMap::from([
+        ("model".into(), AttributeValue::String("widget".into())),
+        ("owned".into(), AttributeValue::String("owned".into())),
+        ("count".into(), AttributeValue::Int(7)),
+        ("enabled".into(), AttributeValue::Bool(true)),
+        (
+            "string_version".into(),
+            AttributeValue::String("1.2.3".into()),
+        ),
+        ("version".into(), AttributeValue::Version("1.2.3".into())),
+    ]);
+    assert_eq!(pool_device.attributes, expected);
+    assert_eq!(prepared.attributes, expected);
+}
+
 #[derive(Debug, Default)]
 struct Legacy(AtomicUsize);
 #[async_trait]
@@ -59,10 +102,7 @@ impl ClaimPreparer for Rich {
                     r.map(|ds| {
                         ds.into_iter()
                             .map(|d| {
-                                PreparedDeviceWithMetadata::new(d).with_attribute(
-                                    "model",
-                                    AttributeValue::String("widget".into()),
-                                )
+                                PreparedDeviceWithMetadata::new(d).with_attribute("model", "widget")
                             })
                             .collect()
                     }),
@@ -80,7 +120,7 @@ fn default_hook_batches_once_and_arc_trait_object_forwards_overrides() {
         .build()
         .unwrap()
         .block_on(async {
-            let claims: Vec<_> = ["one", "two"]
+            let claims = ["one", "two"]
                 .into_iter()
                 .map(|name| ResolvedClaim {
                     claim: ClaimRef {
@@ -90,7 +130,7 @@ fn default_hook_batches_once_and_arc_trait_object_forwards_overrides() {
                     },
                     devices: vec![],
                 })
-                .collect();
+                .collect::<Vec<_>>();
             let legacy = Legacy::default();
             let result = legacy.prepare_with_metadata(&claims).await;
             assert_eq!(legacy.0.load(Ordering::SeqCst), 1);

@@ -1,14 +1,13 @@
 //! Driver-side KEP-5304 identity/attribute snapshots; no API-server extension.
-use std::collections::{BTreeMap, BTreeSet};
-use std::io;
-use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex, Weak};
+use std::path::Component;
+use std::sync::Mutex;
+use std::sync::Weak;
 
-use k8s_device_plugin_core::{
-    AttributeValue, ClaimRef, PreparedDevice, PreparedDeviceWithMetadata,
-};
 use k8s_openapi::api::resource::v1::ResourceClaim;
-use serde_json::{Value, json};
+
+use k8s_device_plugin_core::PreparedDeviceWithMetadata;
+
+use super::*;
 
 mod store;
 
@@ -60,7 +59,7 @@ impl MetadataRuntime {
         if !dns_subdomain(&driver, 63) {
             return Err(invalid("invalid metadata driver name"));
         }
-        let default = Path::new(k8s_device_plugin_proto::dra::KUBELET_PLUGINS_PATH).join(&driver);
+        let default = Path::new(dra::KUBELET_PLUGINS_PATH).join(&driver);
         let (local, host) = options
             .plugin_directories
             .unwrap_or_else(|| (default.clone(), default));
@@ -91,7 +90,7 @@ impl MetadataRuntime {
     ) -> io::Result<Vec<PreparedDevice>> {
         let plan = Plan::build(self, &claim, devices)?;
         let runtime = Arc::clone(self);
-        tokio::task::spawn_blocking(move || {
+        task::spawn_blocking(move || {
             let _guards = guards; // Keep ownership through I/O even if the RPC is cancelled.
             store::persist(&runtime, &plan)?;
             Ok(plan.devices)
@@ -105,7 +104,7 @@ impl MetadataRuntime {
         guards: Arc<Vec<tokio::sync::OwnedMutexGuard<()>>>,
     ) -> io::Result<()> {
         let runtime = Arc::clone(self);
-        tokio::task::spawn_blocking(move || {
+        task::spawn_blocking(move || {
             let _guards = guards;
             store::cleanup(&runtime, &claim)
         })
@@ -117,7 +116,10 @@ impl MetadataRuntime {
         &self,
         claims: &[ClaimRef],
     ) -> io::Result<Vec<tokio::sync::OwnedMutexGuard<()>>> {
-        let ids: BTreeSet<_> = claims.iter().map(|c| c.uid.as_str()).collect();
+        let ids = claims
+            .iter()
+            .map(|c| c.uid.as_str())
+            .collect::<BTreeSet<_>>();
         let mut guards = Vec::with_capacity(ids.len());
         for id in ids {
             let mutex = {
@@ -156,7 +158,7 @@ fn dns_subdomain(name: &str, limit: usize) -> bool {
     name.len() <= limit && name.split('.').all(|part| label(part, 63))
 }
 fn request_ref(name: &str) -> io::Result<&str> {
-    let parts: Vec<_> = name.split('/').collect();
+    let parts = name.split('/').collect::<Vec<_>>();
     if !(1..=2).contains(&parts.len()) || !parts.iter().all(|part| label(part, 63)) {
         return Err(invalid("invalid device request reference"));
     }
@@ -215,7 +217,7 @@ impl Plan {
         if annotation.is_some_and(|a| !label(a, 63)) {
             return Err(invalid("invalid pod claim name annotation"));
         }
-        let declared: BTreeSet<_> = claim
+        let declared = claim
             .spec
             .devices
             .as_ref()
@@ -223,7 +225,7 @@ impl Plan {
             .into_iter()
             .flatten()
             .map(|r| r.name.as_str())
-            .collect();
+            .collect::<BTreeSet<_>>();
         if declared.iter().any(|r| !label(r, 63)) {
             return Err(invalid("invalid declared request name"));
         }
@@ -234,10 +236,10 @@ impl Plan {
             .and_then(|a| a.devices.as_ref())
             .and_then(|a| a.results.as_deref())
             .unwrap_or_default();
-        let local: Vec<_> = allocations
+        let local = allocations
             .iter()
             .filter(|a| a.driver == runtime.driver)
-            .collect();
+            .collect::<Vec<_>>();
         for allocation in &local {
             let base = request_ref(&allocation.request)?;
             let declared_request = claim
@@ -263,7 +265,8 @@ impl Plan {
                 "container metadata does not yet support device share IDs",
             ));
         }
-        let mut by_request: BTreeMap<String, BTreeMap<(String, String), Value>> = BTreeMap::new();
+        let mut by_request: BTreeMap<String, BTreeMap<(String, String), json::Value>> =
+            BTreeMap::new();
         let mut full_names: BTreeMap<String, String> = BTreeMap::new();
         let mut wire = Vec::with_capacity(prepared.len());
         for entry in prepared {
@@ -284,12 +287,12 @@ impl Plan {
                     "invalid metadata attribute name or attribute count exceeds 32",
                 ));
             }
-            let attributes: BTreeMap<_, _> = entry
+            let attributes = entry
                 .attributes
                 .iter()
-                .map(|(k, v)| (k, crate::resourceslice::attribute_value_to_wire(v)))
-                .collect();
-            let requested: Vec<String> = if device.request_names.is_empty() {
+                .map(|(k, v)| (k, resourceslice::attribute_value_to_wire(v)))
+                .collect::<BTreeMap<_, _>>();
+            let requested = if device.request_names.is_empty() {
                 declared.iter().map(|r| (*r).to_string()).collect()
             } else {
                 device.request_names.clone()
@@ -300,7 +303,7 @@ impl Plan {
                 if !declared.contains(base) {
                     return Err(invalid("prepared device references an undeclared request"));
                 }
-                let matching: Vec<_> = local
+                let matching = local
                     .iter()
                     .filter(|a| {
                         a.pool == device.pool_name
@@ -309,7 +312,7 @@ impl Plan {
                                 || (requested == base
                                     && a.request.starts_with(&format!("{base}/"))))
                     })
-                    .collect();
+                    .collect::<Vec<_>>();
                 // An all-requests result is valid only for actual allocations;
                 // do not invent this physical device in another request's file.
                 if matching.is_empty() {
@@ -331,7 +334,12 @@ impl Plan {
                         return Err(invalid("conflicting subrequests for one metadata file"));
                     }
                     full_names.insert(base.to_string(), allocation.request.clone());
-                    let content = json!({"driver":runtime.driver,"pool":device.pool_name,"name":device.device_name,"attributes":attributes});
+                    let content = json::json!({
+                        "driver": runtime.driver,
+                        "pool": device.pool_name,
+                        "name": device.device_name,
+                        "attributes": attributes
+                    });
                     let key = (device.pool_name.clone(), device.device_name.clone());
                     let devices = by_request.entry(base.to_string()).or_default();
                     if devices.get(&key).is_some_and(|old| old != &content) {
@@ -358,11 +366,26 @@ impl Plan {
         let mut documents = BTreeMap::new();
         let mut specs = BTreeMap::new();
         for (base, devices) in by_request {
-            let mut object = json!({"apiVersion":"metadata.resource.k8s.io/v1beta1","kind":"DeviceMetadata","metadata":{"name":identity.name,"namespace":identity.namespace,"uid":identity.uid,"generation":1},"requests":[{"name":full_names[&base],"devices":devices.values().collect::<Vec<_>>()}]});
+            let mut object = json::json!({
+                "apiVersion": "metadata.resource.k8s.io/v1beta1",
+                "kind": "DeviceMetadata",
+                "metadata": {
+                    "name": identity.name,
+                    "namespace": identity.namespace,
+                    "uid": identity.uid,
+                    "generation": 1
+                },
+                "requests": [
+                    {
+                        "name": full_names[&base],
+                        "devices": devices.values().collect::<Vec<_>>()
+                    }
+                ]
+            });
             if let Some(annotation) = annotation {
-                object["podClaimName"] = json!(annotation);
+                object["podClaimName"] = json::json!(annotation);
             }
-            let document = serde_json::to_string(&object).map_err(io::Error::other)? + "\n";
+            let document = json::to_string(&object).map_err(io::Error::other)? + "\n";
             documents.insert(base.clone(), document);
             let id = format!("{}_{}", identity.uid, base);
             let host = runtime
@@ -382,10 +405,23 @@ impl Plan {
                     identity.name, runtime.driver
                 )
             };
-            let spec = json!({"cdiVersion":"0.8.0","kind":format!("{}/metadata",runtime.driver),"devices":[{"name":id,"containerEdits":{"mounts":[{"hostPath":host,"containerPath":container,"options":["ro","bind"]}]}}]});
+            let spec = json::json!({
+                "cdiVersion": "0.8.0",
+                "kind": format!("{}/metadata", runtime.driver),
+                "devices": [{
+                    "name": id,
+                    "containerEdits": {
+                        "mounts": [{
+                            "hostPath": host,
+                            "containerPath": container,
+                            "options": ["ro", "bind"]
+                        }]
+                    }
+                }]
+            });
             specs.insert(
                 base.clone(),
-                serde_json::to_string(&spec).map_err(io::Error::other)? + "\n",
+                json::to_string(&spec).map_err(io::Error::other)? + "\n",
             );
             let representative = devices
                 .keys()
@@ -406,8 +442,24 @@ impl Plan {
         })
     }
 
-    fn journal(&self, driver: &str) -> Value {
-        json!({"journalVersion":1,"driver":driver,"claim":{"namespace":self.claim.namespace,"name":self.claim.name,"uid":self.claim.uid},"documents":self.documents,"specs":self.specs,"devices":self.devices.iter().map(|d| json!({"requests":d.request_names,"pool":d.pool_name,"device":d.device_name,"cdi":d.cdi_device_ids})).collect::<Vec<_>>()})
+    fn journal(&self, driver: &str) -> json::Value {
+        json::json!({
+            "journalVersion": 1,
+            "driver": driver,
+            "claim": {
+                "namespace": self.claim.namespace,
+                "name": self.claim.name,
+                "uid": self.claim.uid
+            },
+            "documents": self.documents,
+            "specs": self.specs,
+            "devices": self.devices.iter().map(|d| json::json!({
+                "requests": d.request_names,
+                "pool": d.pool_name,
+                "device": d.device_name,
+                "cdi": d.cdi_device_ids
+            })).collect::<Vec<_>>()
+        })
     }
 }
 

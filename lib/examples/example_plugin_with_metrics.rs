@@ -18,14 +18,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use k8s_device_plugin_lib::AllocationError;
-use k8s_device_plugin_lib::ContainerAllocation;
-use k8s_device_plugin_lib::Device;
-use k8s_device_plugin_lib::DeviceAllocator;
-use k8s_device_plugin_lib::DeviceDiscovery;
-use k8s_device_plugin_lib::DevicePlugin;
-use k8s_device_plugin_lib::DevicePluginService;
-use k8s_device_plugin_lib::K8sDevicePlugin;
 use prometheus_exporter::prometheus::HistogramOpts;
 use prometheus_exporter::prometheus::HistogramVec;
 use prometheus_exporter::prometheus::IntCounterVec;
@@ -37,6 +29,15 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
+
+use k8s_device_plugin_lib::AllocationError;
+use k8s_device_plugin_lib::ContainerAllocation;
+use k8s_device_plugin_lib::Device;
+use k8s_device_plugin_lib::DeviceAllocator;
+use k8s_device_plugin_lib::DeviceDiscovery;
+use k8s_device_plugin_lib::DevicePlugin;
+use k8s_device_plugin_lib::DevicePluginService;
+use k8s_device_plugin_lib::K8sDevicePlugin;
 
 const RESOURCE_NAME: &str = "example.com/widget";
 

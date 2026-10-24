@@ -1,7 +1,6 @@
 //! `DRAPlugin` gRPC service (`NodePrepareResources`/`NodeUnprepareResources`)
 //! — see beads issue 9uf.7.
 
-use tokio::task::JoinHandle;
 use tokio_stream::wrappers::UnixListenerStream;
 
 use super::*;
@@ -178,14 +177,14 @@ impl DraPluginService {
     pub async fn spawn(
         self,
         driver_name: &str,
-    ) -> io::Result<JoinHandle<Result<(), transport::Error>>> {
+    ) -> io::Result<task::JoinHandle<Result<(), transport::Error>>> {
         self.spawn_at(&plugin_socket_path(driver_name)).await
     }
 
     pub(crate) async fn spawn_at(
         self,
         socket_path: &Path,
-    ) -> io::Result<JoinHandle<Result<(), transport::Error>>> {
+    ) -> io::Result<task::JoinHandle<Result<(), transport::Error>>> {
         let incoming = setup_listener(socket_path).await?;
         let mut router = transport::Server::builder();
         #[cfg(feature = "resource-health")]
@@ -204,12 +203,12 @@ impl dra::v1::DraPlugin for DraPluginService {
         &self,
         request: tonic::Request<dra::v1::NodePrepareResourcesRequest>,
     ) -> tonic::Result<tonic::Response<dra::v1::NodePrepareResourcesResponse>> {
-        let claim_refs: Vec<ClaimRef> = request
+        let claim_refs = request
             .into_inner()
             .claims
             .iter()
             .map(claim_from_wire)
-            .collect();
+            .collect::<Vec<ClaimRef>>();
 
         if let Some(metadata) = &self.metadata {
             let claims = self.prepare_metadata(&claim_refs, metadata).await;
@@ -280,12 +279,12 @@ impl dra::v1::DraPlugin for DraPluginService {
         &self,
         request: tonic::Request<dra::v1::NodeUnprepareResourcesRequest>,
     ) -> tonic::Result<tonic::Response<dra::v1::NodeUnprepareResourcesResponse>> {
-        let claim_refs: Vec<ClaimRef> = request
+        let claim_refs = request
             .into_inner()
             .claims
             .iter()
             .map(claim_from_wire)
-            .collect();
+            .collect::<Vec<ClaimRef>>();
 
         let claims = futures::future::join_all(claim_refs.into_iter().map(|claim_ref| {
             let preparer = Arc::clone(&self.preparer);

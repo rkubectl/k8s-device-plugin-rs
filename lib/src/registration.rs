@@ -36,17 +36,7 @@ impl RegistrationClient {
     }
 
     pub async fn register(&mut self, endpoint: &str, resource_name: &str) -> tonic::Result<()> {
-        let version = v1beta1::VERSION.to_string();
-        let endpoint = endpoint.to_string();
-        let resource_name = resource_name.to_string();
-
-        let request = v1beta1::RegisterRequest {
-            version,
-            endpoint,
-            resource_name,
-            options: None,
-        };
-
+        let request = v1beta1::RegisterRequest::new(endpoint, resource_name);
         self.inner.register(request).await?;
         Ok(())
     }
@@ -54,9 +44,11 @@ impl RegistrationClient {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use k8s_device_plugin_test::registration::start_mock_registration_server;
     use tempfile::TempDir;
+
+    use k8s_device_plugin_test::registration::start_mock_registration_server;
+
+    use super::*;
 
     #[tokio::test]
     async fn registration_client_connects_over_unix_socket() {

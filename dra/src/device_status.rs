@@ -80,8 +80,7 @@ impl ClaimDeviceStatus {
         let data = self
             .data
             .map(|data| {
-                let raw =
-                    serde_json::to_vec(&data).map_err(ClaimDeviceStatusError::SerializeData)?;
+                let raw = json::to_vec(&data).map_err(ClaimDeviceStatusError::SerializeData)?;
                 if raw.len() > MAX_DATA_BYTES {
                     return Err(ClaimDeviceStatusError::DataTooLarge {
                         device: key.clone(),
@@ -137,7 +136,7 @@ pub enum ClaimDeviceStatusError {
         bytes: usize,
     },
     #[error("failed to serialize device status data: {0}")]
-    SerializeData(serde_json::Error),
+    SerializeData(json::Error),
     #[error("ResourceClaim {namespace}/{name} has no allocation for driver {driver_name}")]
     DriverNotAllocated {
         namespace: String,
@@ -309,7 +308,7 @@ impl ClaimDeviceStatusPublisher {
             // Use an optimistic-concurrency merge patch instead; the version check
             // protects the complete devices array from concurrent writers.
             // https://kubernetes.io/docs/reference/using-api/api-concepts/#updates-to-existing-resources
-            let patch = serde_json::json!({
+            let patch = json::json!({
                 "apiVersion": "resource.k8s.io/v1",
                 "kind": "ResourceClaim",
                 "metadata": {
@@ -471,9 +470,10 @@ impl ClaimDeviceStatusPublisher {
 #[cfg(test)]
 mod tests {
     use http_body_util::BodyExt;
+    use kube::client::Body;
+
     use k8s_device_plugin_test::kube_mock::mock_kube_client;
     use k8s_device_plugin_test::kube_mock::resource_claim_json;
-    use kube::client::Body;
 
     use super::*;
 
@@ -527,7 +527,7 @@ mod tests {
         http::Response::builder()
             .status(status)
             .body(Body::from(
-                serde_json::to_vec(&body).expect("serialize mock body"),
+                json::to_vec(&body).expect("serialize mock body"),
             ))
             .expect("build mock response")
     }
@@ -570,7 +570,7 @@ mod tests {
                 .await
                 .expect("collect patch body")
                 .to_bytes();
-            let patch: json::Value = serde_json::from_slice(&body).expect("decode patch");
+            let patch = json::from_slice::<json::Value>(&body).expect("decode patch");
             assert_eq!(patch["metadata"]["uid"], "claim-uid");
             assert_eq!(patch["metadata"]["resourceVersion"], "1");
             assert_eq!(
@@ -699,7 +699,7 @@ mod tests {
             .await
             .expect("read patch")
             .to_bytes();
-        serde_json::from_slice(&bytes).expect("decode patch")
+        json::from_slice(&bytes).expect("decode patch")
     }
 
     fn conflict_response() -> http::Response<Body> {
@@ -873,8 +873,8 @@ mod tests {
         let (client, _handle) = mock_kube_client();
         let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER);
         let mut desired = status();
-        desired.data = Some(serde_json::from_str(r#"{ "b": 2, "a": 1 }"#).expect("valid JSON"));
-        let current = serde_json::from_value(allocated_claim(json::json!([{
+        desired.data = Some(json::from_str(r#"{ "b": 2, "a": 1 }"#).expect("valid JSON"));
+        let current = json::from_value(allocated_claim(json::json!([{
             "driver": DRIVER, "pool": "widget-pool", "device": "widget-0", "data": {"a": 1, "b": 2}
         }])))
         .expect("valid claim");
@@ -894,7 +894,7 @@ mod tests {
 
     async fn patch_json(request: http::Request<Body>) -> json::Value {
         let bytes = request.into_body().collect().await.unwrap().to_bytes();
-        serde_json::from_slice(&bytes).unwrap()
+        json::from_slice(&bytes).unwrap()
     }
 
     #[tokio::test]
@@ -963,7 +963,7 @@ mod tests {
         let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER);
         let mut desired = ClaimDeviceStatus::new("widget-pool", "widget-0");
         desired.conditions =
-            Some(serde_json::from_value(ready_device_status()["conditions"].clone()).unwrap());
+            Some(json::from_value(ready_device_status()["conditions"].clone()).unwrap());
         let script = async {
             for version in ["1", "2"] {
                 let mut current = ready_device_status();

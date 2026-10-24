@@ -8,9 +8,7 @@ use std::os::unix::net::UnixStream;
 use super::*;
 
 fn lock_path(socket_path: &Path) -> PathBuf {
-    let mut lock_path = socket_path.as_os_str().to_os_string();
-    lock_path.push(".lock");
-    PathBuf::from(lock_path)
+    socket_path.with_added_extension("lock")
 }
 
 /// Binds a nonblocking Unix listener without replacing an active peer.
@@ -37,16 +35,16 @@ pub fn bind_unix_listener(socket_path: &Path) -> io::Result<UnixListener> {
         .write(true)
         .create(true)
         .truncate(false)
-        .open(&lock_path)?;
+        .open(lock_path)?;
     startup_lock.lock()?;
 
-    let listener = match UnixListener::bind(socket_path) {
-        Ok(listener) => listener,
-        Err(bind_error) if bind_error.kind() == io::ErrorKind::AddrInUse => {
-            recover_or_refuse_active_socket(socket_path)?
+    let listener = UnixListener::bind(socket_path).or_else(|err| {
+        if err.kind() == io::ErrorKind::AddrInUse {
+            recover_or_refuse_active_socket(socket_path)
+        } else {
+            Err(err)
         }
-        Err(bind_error) => return Err(bind_error),
-    };
+    })?;
     listener.set_nonblocking(true)?;
     Ok(listener)
 }
@@ -88,6 +86,16 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn lock_path_keeps_the_shared_startup_lock_name() {
+        for (socket, lock) in [
+            ("plugin", "plugin.lock"),
+            ("plugin.sock", "plugin.sock.lock"),
+        ] {
+            assert_eq!(lock_path(Path::new(socket)), Path::new(lock));
+        }
+    }
 
     #[test]
     fn refuses_to_replace_an_active_socket() {

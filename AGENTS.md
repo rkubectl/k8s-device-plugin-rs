@@ -88,3 +88,26 @@ the future phases.
   after changing kubelet-facing behavior.
 
 <!-- end-br-agent-instructions -->
+
+## Rust cleanup conventions
+
+- Keep defaults and invariants on the responsible type. Reuse existing
+  constructors and builders; use lossless `From`/`Into` conversions for ordinary
+  values. Keep semantically distinct values explicit, such as
+  `AttributeValue::version("1.2.3")` versus a plain string attribute. Add helpers
+  for repeated behavior or type semantics, rather than hiding useful literals.
+- Use one import per item. Separate standard-library, third-party, workspace,
+  and local imports. Prefer module-qualified generic names such as `json::Value`,
+  `fs::File`, and `task::JoinHandle`, with `use serde_json as json`. Reuse an
+  existing parent scope via `use super::*` in child modules where that is the
+  established pattern; avoid redundant imports.
+- Keep type hints next to the operation that needs them when clear, for example
+  `.collect::<BTreeMap<_, _>>()` and `json::from_slice::<json::Value>(bytes)`.
+  Retain annotations that clarify complex types or trait-object boundaries.
+- Prefer standard-library helpers and direct expressions over manual glue.
+  Preserve behavior, wire values, coordination filenames, and the declared
+  minimum Rust version when replacing an implementation.
+- Let tracing record native scalar and string values. Use explicit Display
+  formatting for errors, path displays, or types that need it.
+- Expand complex JSON objects for readability. Keep raw expected wire values
+  and explicit enum variants in tests when they independently verify semantics.

@@ -13,8 +13,9 @@ use std::env;
 use std::io;
 
 use async_trait::async_trait;
+use serde_json as json;
+
 use k8s_device_plugin_core::AllocatedDevice;
-use k8s_device_plugin_core::AttributeValue;
 use k8s_device_plugin_core::ClaimPreparer;
 use k8s_device_plugin_core::ClaimRef;
 use k8s_device_plugin_core::DraDriver;
@@ -46,22 +47,10 @@ struct AcceleratorPair {
 impl AcceleratorPair {
     fn pool_device(&self) -> PoolDevice {
         PoolDevice::new(self.name)
-            .attribute(
-                ATTRIBUTE_KIND,
-                AttributeValue::String("connected-pair".to_string()),
-            )
-            .attribute(
-                ATTRIBUTE_INTERCONNECT,
-                AttributeValue::String(self.interconnect.to_string()),
-            )
-            .attribute(
-                ATTRIBUTE_MEMBER_0,
-                AttributeValue::String(self.members[0].to_string()),
-            )
-            .attribute(
-                ATTRIBUTE_MEMBER_1,
-                AttributeValue::String(self.members[1].to_string()),
-            )
+            .attribute(ATTRIBUTE_KIND, "connected-pair")
+            .attribute(ATTRIBUTE_INTERCONNECT, self.interconnect)
+            .attribute(ATTRIBUTE_MEMBER_0, self.members[0])
+            .attribute(ATTRIBUTE_MEMBER_1, self.members[1])
     }
 }
 
@@ -85,10 +74,10 @@ fn cdi_device_id(pair_name: &str) -> String {
 }
 
 async fn write_cdi_spec(pairs: &[AcceleratorPair]) -> io::Result<()> {
-    let spec = serde_json::json!({
+    let spec = json::json!({
         "cdiVersion": "0.8.0",
         "kind": CDI_KIND,
-        "devices": pairs.iter().map(|pair| serde_json::json!({
+        "devices": pairs.iter().map(|pair| json::json!({
             "name": pair.name,
             "containerEdits": {
                 "env": [
@@ -101,7 +90,7 @@ async fn write_cdi_spec(pairs: &[AcceleratorPair]) -> io::Result<()> {
     });
 
     tokio::fs::create_dir_all(CDI_SPEC_DIR).await?;
-    let encoded = serde_json::to_vec_pretty(&spec).map_err(io::Error::other)?;
+    let encoded = json::to_vec_pretty(&spec).map_err(io::Error::other)?;
     tokio::fs::write(CDI_SPEC_PATH, encoded).await
 }
 
@@ -168,9 +157,9 @@ impl ClaimPreparer for AcceleratorPairDriver {
             .iter()
             .map(|resolved| {
                 tracing::info!(
-                    claim_namespace = %resolved.claim.namespace,
-                    claim_name = %resolved.claim.name,
-                    claim_uid = %resolved.claim.uid,
+                    claim_namespace = resolved.claim.namespace,
+                    claim_name = resolved.claim.name,
+                    claim_uid = resolved.claim.uid,
                     pair_count = resolved.devices.len(),
                     "preparing connected accelerator pair claim"
                 );
@@ -186,9 +175,9 @@ impl ClaimPreparer for AcceleratorPairDriver {
 
     async fn unprepare(&self, claim: &ClaimRef) -> Result<(), PrepareError> {
         tracing::info!(
-            claim_namespace = %claim.namespace,
-            claim_name = %claim.name,
-            claim_uid = %claim.uid,
+            claim_namespace = claim.namespace,
+            claim_name = claim.name,
+            claim_uid = claim.uid,
             "unpreparing connected accelerator pair claim"
         );
         Ok(())
@@ -215,9 +204,9 @@ async fn main() -> io::Result<()> {
 
     write_cdi_spec(&pairs).await?;
     tracing::info!(
-        %driver_name,
-        %pool_name,
-        %node_name,
+        driver_name,
+        pool_name,
+        node_name,
         pair_count = pairs.len(),
         "starting topology-aware accelerator-pair DRA driver"
     );
@@ -237,6 +226,8 @@ fn env_or_default(name: &str, default: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use k8s_device_plugin_core::AttributeValue;
+
     use super::*;
 
     fn driver() -> AcceleratorPairDriver {
@@ -258,7 +249,10 @@ mod tests {
     #[test]
     fn inventory_advertises_only_connected_pairs() {
         let pairs = example_pairs();
-        let devices: Vec<_> = pairs.iter().map(AcceleratorPair::pool_device).collect();
+        let devices = pairs
+            .iter()
+            .map(AcceleratorPair::pool_device)
+            .collect::<Vec<_>>();
 
         assert_eq!(
             devices

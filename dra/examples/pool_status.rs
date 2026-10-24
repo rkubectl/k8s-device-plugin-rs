@@ -3,8 +3,11 @@ use std::env;
 use std::io;
 use std::time::Duration;
 
-use k8s_device_plugin_dra::PoolStatusClient;
+use serde_json as json;
+
 use k8s_openapi::api::resource::v1alpha3::ResourcePoolStatusRequestSpec;
+
+use k8s_device_plugin_dra::PoolStatusClient;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -46,9 +49,6 @@ async fn main() -> io::Result<()> {
         }
     }
     let status = result.map_err(|error| io::Error::other(error.to_string()))?;
-    println!(
-        "{}",
-        serde_json::to_string(&status).map_err(io::Error::other)?
-    );
+    println!("{}", json::to_string(&status).map_err(io::Error::other)?);
     Ok(())
 }

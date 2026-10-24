@@ -10,11 +10,23 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::fmt;
+use std::fs;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+
+use serde_json as json;
+use tokio::net;
+use tokio::task;
+use tonic::transport;
+
+use k8s_openapi::api::core::v1 as corev1;
+use k8s_openapi::api::resource::v1 as resourcev1;
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity as K8sQuantity;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1 as metav1;
+use kube::api;
 
 use k8s_device_plugin_core::AllocatedDevice;
 use k8s_device_plugin_core::AttributeValue;
@@ -30,16 +42,6 @@ use k8s_device_plugin_core::ResolvedClaim;
 use k8s_device_plugin_core::ResourceHealthReporter;
 use k8s_device_plugin_core::ResourcePool;
 use k8s_device_plugin_proto::dra;
-use kube::api;
-use serde_json as json;
-use tokio::net;
-use tokio::task;
-use tonic::transport;
-
-use k8s_openapi::api::core::v1 as corev1;
-use k8s_openapi::api::resource::v1 as resourcev1;
-use k8s_openapi::apimachinery::pkg::api::resource::Quantity as K8sQuantity;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1 as metav1;
 
 pub use claim::ClaimResolver;
 pub use device_status::ClaimDeviceStatus;
@@ -50,7 +52,9 @@ pub use device_status::ClaimDeviceStatusPublisher;
 pub use ext::KubeClientExt;
 pub use health::DraPluginLivenessProbe;
 pub use metadata::DeviceMetadataOptions;
-pub use pool_status::{PoolStatusClient, PoolStatusError, PoolStatusQuery};
+pub use pool_status::PoolStatusClient;
+pub use pool_status::PoolStatusError;
+pub use pool_status::PoolStatusQuery;
 pub use registration::DraRegistrationServer;
 #[cfg(feature = "resource-health")]
 pub use resource_health::DraResourceHealthService;
@@ -89,7 +93,7 @@ fn publisher_error(result: Result<(), task::JoinError>) -> io::Error {
 
 /// Waits for the first component that exits, then stops and reaps the
 /// remaining components before returning its error. Dropping a
-/// [`JoinHandle`] detaches its task, so each losing branch must be aborted
+/// [`task::JoinHandle`] detaches its task, so each losing branch must be aborted
 /// explicitly instead of relying on normal scope cleanup.
 async fn wait_for_component_exit(
     mut registration_handle: task::JoinHandle<Result<(), transport::Error>>,

@@ -1,6 +1,5 @@
 use std::sync::Mutex;
 
-use k8s_device_plugin_test::dra_registration::MockRegistrationClient;
 use tempfile::TempDir;
 use tracing::Level;
 use tracing::field::Field;
@@ -9,6 +8,8 @@ use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
+
+use k8s_device_plugin_test::dra_registration::MockRegistrationClient;
 
 use super::*;
 

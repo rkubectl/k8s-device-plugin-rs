@@ -16,12 +16,13 @@ use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use async_trait::async_trait;
+use tokio::sync::mpsc;
+
 use k8s_device_plugin_core::DraDeviceHealth;
 use k8s_device_plugin_core::ResourceHealthError;
 use k8s_device_plugin_core::ResourceHealthReport;
 use k8s_device_plugin_core::ResourceHealthReporter;
 use k8s_device_plugin_core::ResourceHealthStatus;
-use tokio::sync::mpsc;
 
 #[derive(Debug)]
 struct WidgetHealthReporter;

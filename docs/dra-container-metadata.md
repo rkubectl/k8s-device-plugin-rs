@@ -44,7 +44,9 @@ Override `prepare_with_metadata` to return `PreparedDeviceWithMetadata`
 values from the backend's coherent preparation result:
 
 ```rust
-use k8s_device_plugin_core::{AttributeValue, PreparedDevice, PreparedDeviceWithMetadata};
+use k8s_device_plugin_core::AttributeValue;
+use k8s_device_plugin_core::PreparedDevice;
+use k8s_device_plugin_core::PreparedDeviceWithMetadata;
 
 let device = PreparedDeviceWithMetadata::new(PreparedDevice {
     request_names: vec!["gpu".into()],
@@ -52,8 +54,8 @@ let device = PreparedDeviceWithMetadata::new(PreparedDevice {
     device_name: "gpu-0".into(),
     cdi_device_ids: vec!["gpu.example.com/device=gpu-0".into()],
 })
-.with_attribute("model", AttributeValue::String("example".into()))
-.with_attribute("firmware", AttributeValue::Version("1.2.3".into()));
+.with_attribute("model", "example")
+.with_attribute("firmware", AttributeValue::version("1.2.3"));
 ```
 
 Select attributes intentionally, normally using the same public values as the

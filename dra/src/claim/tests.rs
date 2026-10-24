@@ -1,7 +1,8 @@
+use kube::client::Body;
+
 use k8s_device_plugin_test::kube_mock::allocated_status;
 use k8s_device_plugin_test::kube_mock::mock_kube_client;
 use k8s_device_plugin_test::kube_mock::resource_claim_json;
-use kube::client::Body;
 
 use super::*;
 
@@ -19,11 +20,11 @@ fn mock_resolver() -> (
 /// for a request that only gets sent once `resolve` is polled.
 fn respond_once(
     mut handle: k8s_device_plugin_test::kube_mock::MockKubeHandle,
-    body: serde_json::Value,
+    body: json::Value,
 ) -> task::JoinHandle<http::Request<Body>> {
     tokio::spawn(async move {
         let (request, send) = handle.next_request().await.expect("request sent");
-        let bytes = serde_json::to_vec(&body).expect("serialize response body");
+        let bytes = json::to_vec(&body).expect("serialize response body");
         send.send_response(http::Response::new(Body::from(bytes)));
         request
     })
@@ -136,7 +137,7 @@ async fn resolve_all_resolves_a_batch_concurrently() {
                 uid,
                 allocated_status(pool, "widget-0", "req-0"),
             );
-            let bytes = serde_json::to_vec(&body).expect("serialize response body");
+            let bytes = json::to_vec(&body).expect("serialize response body");
             send.send_response(http::Response::new(Body::from(bytes)));
         }
     });
@@ -179,7 +180,7 @@ async fn resolve_retries_a_transient_api_failure() {
             http::Response::builder()
                 .status(500)
                 .body(Body::from(
-                    serde_json::to_vec(&json::json!({
+                    json::to_vec(&json::json!({
                         "status": "Failure",
                         "reason": "InternalError",
                         "code": 500,
@@ -192,7 +193,7 @@ async fn resolve_retries_a_transient_api_failure() {
         let (second, send) = handle.next_request().await.expect("retry request sent");
         assert_eq!(second.method(), http::Method::GET);
         send.send_response(http::Response::new(Body::from(
-            serde_json::to_vec(&expected).expect("serialize resolved claim"),
+            json::to_vec(&expected).expect("serialize resolved claim"),
         )));
     });
 
@@ -228,7 +229,7 @@ async fn resolve_all_honors_the_concurrency_bound_and_request_order() {
         "the configured bound must prevent a second in-flight request"
     );
     send.send_response(http::Response::new(Body::from(
-        serde_json::to_vec(&resource_claim_json(
+        json::to_vec(&resource_claim_json(
             "claim-a",
             "default",
             "uid-a",
@@ -240,7 +241,7 @@ async fn resolve_all_honors_the_concurrency_bound_and_request_order() {
     let (second, send) = handle.next_request().await.expect("second request sent");
     assert!(second.uri().path().contains("claim-b"));
     send.send_response(http::Response::new(Body::from(
-        serde_json::to_vec(&resource_claim_json(
+        json::to_vec(&resource_claim_json(
             "claim-b",
             "default",
             "uid-b",
@@ -275,7 +276,7 @@ async fn resolve_retries_only_transient_http_errors_and_respects_attempt_limit()
                     http::Response::builder()
                         .status(code)
                         .body(Body::from(
-                            serde_json::to_vec(
+                            json::to_vec(
                                 &json::json!({"status": "Failure", "reason": "TestError", "code": code}),
                             )
                             .expect("serialize error"),
@@ -311,8 +312,7 @@ async fn resolve_retries_only_transient_http_errors_and_respects_attempt_limit()
 
 #[test]
 fn retry_classification_excludes_decoding_and_permanent_io_errors() {
-    let decode_error =
-        serde_json::from_str::<serde_json::Value>("invalid").expect_err("invalid JSON");
+    let decode_error = json::from_str::<json::Value>("invalid").expect_err("invalid JSON");
     assert!(!is_transient_read_error(&kube::Error::SerdeError(
         decode_error
     )));

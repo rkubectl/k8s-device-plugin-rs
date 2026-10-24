@@ -3,11 +3,13 @@
 use std::fmt;
 use std::time::Duration;
 
-use k8s_openapi::api::resource::v1alpha3::{
-    ResourcePoolStatusRequest, ResourcePoolStatusRequestSpec, ResourcePoolStatusRequestStatus,
-};
+use k8s_openapi::api::resource::v1alpha3::ResourcePoolStatusRequest;
+use k8s_openapi::api::resource::v1alpha3::ResourcePoolStatusRequestSpec;
+use k8s_openapi::api::resource::v1alpha3::ResourcePoolStatusRequestStatus;
 use kube::Api;
-use kube::api::{DeleteParams, PostParams, Preconditions};
+use kube::api::DeleteParams;
+use kube::api::PostParams;
+use kube::api::Preconditions;
 
 const API_VERSION: &str = "resource.k8s.io/v1alpha3";
 
@@ -179,28 +181,56 @@ impl PoolStatusQuery {
 #[cfg(test)]
 mod tests {
     use http_body_util::BodyExt;
-    use k8s_device_plugin_test::kube_mock::{mock_kube_client, not_found_json, respond};
-    use serde_json::{Value, json};
+    use serde_json as json;
+
+    use k8s_device_plugin_test::kube_mock::mock_kube_client;
+    use k8s_device_plugin_test::kube_mock::not_found_json;
+    use k8s_device_plugin_test::kube_mock::respond;
 
     use super::*;
 
-    fn discovery() -> Value {
-        json!({"kind":"APIResourceList", "apiVersion":"v1", "groupVersion": API_VERSION,
-            "resources":[{"name":"resourcepoolstatusrequests", "singularName":"resourcepoolstatusrequest",
-                "namespaced":false, "kind":"ResourcePoolStatusRequest", "verbs":["create","get","delete"]}]})
+    fn discovery() -> json::Value {
+        json::json!({
+            "kind": "APIResourceList",
+            "apiVersion": "v1",
+            "groupVersion": API_VERSION,
+            "resources": [{
+                "name": "resourcepoolstatusrequests",
+                "singularName": "resourcepoolstatusrequest",
+                "namespaced": false,
+                "kind": "ResourcePoolStatusRequest",
+                "verbs": ["create", "get", "delete"]
+            }]
+        })
     }
 
-    fn request(status: Value) -> Value {
-        json!({"apiVersion":API_VERSION, "kind":"ResourcePoolStatusRequest",
-            "metadata":{"name":"dra-pool-status-test", "uid":"request-uid"},
-            "spec":{"driver":"dra.example.com"}, "status":status})
+    fn request(status: json::Value) -> json::Value {
+        json::json!({
+            "apiVersion": API_VERSION,
+            "kind": "ResourcePoolStatusRequest",
+            "metadata": {"name": "dra-pool-status-test", "uid": "request-uid"},
+            "spec": {"driver": "dra.example.com"},
+            "status": status
+        })
     }
 
-    fn status(condition: &str) -> Value {
-        json!({"poolCount":1, "conditions":[{"type":condition, "status":"True",
-            "reason":"Test", "message":"controller result", "lastTransitionTime":"2026-10-23T00:00:00Z"}],
-            "pools":[{"driver":"dra.example.com", "poolName":"widget-pool", "generation":7,
-                "validationError":"incomplete publication"}]})
+    fn status(condition: &str) -> json::Value {
+        json::json!({
+            "poolCount": 1,
+            "conditions": [{
+                "type": condition,
+                "status": "True",
+                "reason": "Test",
+                "message": "controller result",
+                "lastTransitionTime": "2026-10-23T00:00:00Z"
+            }],
+            "pools": [{
+                "driver": "dra.example.com",
+                "poolName": "widget-pool",
+                "generation": 7,
+                "validationError": "incomplete publication"
+            }]
+        })
     }
 
     fn query(client: kube::Client) -> PoolStatusQuery {
@@ -217,23 +247,25 @@ mod tests {
         let responder = tokio::spawn(async move {
             let get = respond(&mut handle, 200, &discovery()).await;
             assert_eq!(get.uri().path(), "/apis/resource.k8s.io/v1alpha3");
-            let create = respond(&mut handle, 201, &request(Value::Null)).await;
+            let create = respond(&mut handle, 201, &request(json::Value::Null)).await;
             assert_eq!(create.method(), http::Method::POST);
-            let body: Value =
-                serde_json::from_slice(&create.into_body().collect().await.unwrap().to_bytes())
-                    .unwrap();
+            let body = json::from_slice::<json::Value>(
+                &create.into_body().collect().await.unwrap().to_bytes(),
+            )
+            .unwrap();
             assert_eq!(body["metadata"]["generateName"], "dra-pool-status-");
             assert!(body["metadata"]["name"].is_null());
             assert_eq!(
                 body["spec"],
-                json!({"driver":"dra.example.com", "poolName":"widget-pool", "limit":1})
+                json::json!({"driver":"dra.example.com", "poolName":"widget-pool", "limit":1})
             );
             respond(&mut handle, 200, &request(status("Complete"))).await;
             let delete = respond(&mut handle, 200, &request(status("Complete"))).await;
             assert_eq!(delete.method(), http::Method::DELETE);
-            let body: Value =
-                serde_json::from_slice(&delete.into_body().collect().await.unwrap().to_bytes())
-                    .unwrap();
+            let body = json::from_slice::<json::Value>(
+                &delete.into_body().collect().await.unwrap().to_bytes(),
+            )
+            .unwrap();
             assert_eq!(body["preconditions"]["uid"], "request-uid");
         });
         let query = PoolStatusClient::new(client)
@@ -268,7 +300,7 @@ mod tests {
                     discovery()
                 };
                 if code == 200 {
-                    body["resources"] = json!([]);
+                    body["resources"] = json::json!([]);
                 }
                 respond(&mut handle, code, &body).await;
             });
@@ -284,7 +316,7 @@ mod tests {
     async fn discovery_forbidden_is_an_api_error() {
         let (client, mut handle) = mock_kube_client();
         let responder = tokio::spawn(async move {
-            respond(&mut handle, 403, &json!({"kind":"Status","apiVersion":"v1","code":403,"reason":"Forbidden","status":"Failure"})).await;
+            respond(&mut handle, 403, &json::json!({"kind":"Status","apiVersion":"v1","code":403,"reason":"Forbidden","status":"Failure"})).await;
         });
         let result = PoolStatusClient::new(client)
             .create(ResourcePoolStatusRequestSpec::default())
@@ -333,12 +365,13 @@ mod tests {
         let (client, mut handle) = mock_kube_client();
         let responder = tokio::spawn(async move {
             let mut replacement = request(status("Complete"));
-            replacement["metadata"]["uid"] = json!("replacement-uid");
+            replacement["metadata"]["uid"] = json::json!("replacement-uid");
             respond(&mut handle, 200, &replacement).await;
-            let delete = respond(&mut handle, 409, &json!({"kind":"Status", "apiVersion":"v1", "code":409, "reason":"Conflict", "status":"Failure"})).await;
-            let body: Value =
-                serde_json::from_slice(&delete.into_body().collect().await.unwrap().to_bytes())
-                    .unwrap();
+            let delete = respond(&mut handle, 409, &json::json!({"kind":"Status", "apiVersion":"v1", "code":409, "reason":"Conflict", "status":"Failure"})).await;
+            let body = json::from_slice::<json::Value>(
+                &delete.into_body().collect().await.unwrap().to_bytes(),
+            )
+            .unwrap();
             assert_eq!(body["preconditions"]["uid"], "request-uid");
         });
         let query = query(client);

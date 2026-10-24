@@ -1,11 +1,12 @@
 use http_body_util::BodyExt;
+use kube::client::Body;
+
 use k8s_device_plugin_test::kube_mock::MockKubeHandle;
 use k8s_device_plugin_test::kube_mock::device_json;
 use k8s_device_plugin_test::kube_mock::mock_kube_client;
 use k8s_device_plugin_test::kube_mock::node_json;
 use k8s_device_plugin_test::kube_mock::resource_slice_json;
 use k8s_device_plugin_test::kube_mock::respond;
-use kube::client::Body;
 
 use super::*;
 
@@ -28,7 +29,7 @@ fn mock_publisher(resource_pool: StaticPool) -> (ResourceSlicePublisher, MockKub
     (publisher, handle)
 }
 
-fn resource_slice_list(items: Vec<serde_json::Value>) -> serde_json::Value {
+fn resource_slice_list(items: Vec<json::Value>) -> json::Value {
     json::json!({
         "apiVersion": "resource.k8s.io/v1",
         "kind": "ResourceSliceList",
@@ -42,7 +43,7 @@ fn owned_slice(
     pool_name: &str,
     slice_count: i64,
     devices: Vec<json::Value>,
-) -> serde_json::Value {
+) -> json::Value {
     let mut slice = resource_slice_json(
         name,
         "example.com",
@@ -69,14 +70,14 @@ fn widgets(count: usize) -> Vec<PoolDevice> {
         .collect()
 }
 
-async fn request_body_json(request: http::Request<Body>) -> serde_json::Value {
+async fn request_body_json(request: http::Request<Body>) -> json::Value {
     let bytes = request
         .into_body()
         .collect()
         .await
         .expect("collect request body")
         .to_bytes();
-    serde_json::from_slice(&bytes).expect("request body is valid JSON")
+    json::from_slice(&bytes).expect("request body is valid JSON")
 }
 
 #[tokio::test]
@@ -105,7 +106,7 @@ async fn publish_once_creates_slice_when_absent() {
         assert_eq!(body["spec"]["devices"][0]["name"], "widget-0");
         assert_eq!(body["metadata"]["ownerReferences"][0]["uid"], "node-uid-0");
         send.send_response(http::Response::new(Body::from(
-            serde_json::to_vec(&body).expect("serialize created slice"),
+            json::to_vec(&body).expect("serialize created slice"),
         )));
     };
 
@@ -191,7 +192,7 @@ async fn publish_once_updates_changed_pool_with_next_generation() {
         assert_eq!(body["spec"]["pool"]["generation"], 5);
         assert_eq!(body["spec"]["devices"][0]["name"], "widget-1");
         send.send_response(http::Response::new(Body::from(
-            serde_json::to_vec(&body).expect("serialize replaced slice"),
+            json::to_vec(&body).expect("serialize replaced slice"),
         )));
     };
 
@@ -218,7 +219,7 @@ async fn publish_once_splits_large_pool_with_one_generation_and_count() {
                 Some(expected_devices)
             );
             send.send_response(http::Response::new(Body::from(
-                serde_json::to_vec(&body).expect("serialize created slice"),
+                json::to_vec(&body).expect("serialize created slice"),
             )));
         }
     };
@@ -255,7 +256,7 @@ async fn publish_once_completes_new_generation_before_deleting_stale_slices() {
         let body = request_body_json(replace_request).await;
         assert_eq!(body["spec"]["pool"]["generation"], 5);
         send.send_response(http::Response::new(Body::from(
-            serde_json::to_vec(&body).expect("serialize replaced slice"),
+            json::to_vec(&body).expect("serialize replaced slice"),
         )));
 
         let (delete_request, send) = handle.next_request().await.expect("delete request sent");
@@ -270,8 +271,7 @@ async fn publish_once_completes_new_generation_before_deleting_stale_slices() {
             http::Response::builder()
                 .status(200)
                 .body(Body::from(
-                    serde_json::to_vec(&json::json!({ "status": "Success" }))
-                        .expect("serialize status"),
+                    json::to_vec(&json::json!({ "status": "Success" })).expect("serialize status"),
                 ))
                 .expect("build delete response"),
         );
@@ -326,7 +326,8 @@ impl ResourcePool for TaintedInventory {
 }
 
 fn tainted_widget() -> InventoryDevice {
-    use k8s_device_plugin_core::{DeviceTaint, DeviceTaintEffect};
+    use k8s_device_plugin_core::DeviceTaint;
+    use k8s_device_plugin_core::DeviceTaintEffect;
     InventoryDevice::new(PoolDevice::new("widget-0")).with_taint(DeviceTaint::new(
         "example.com/maintenance",
         DeviceTaintEffect::NoSchedule,
@@ -353,7 +354,8 @@ fn tainted_slice(effect: &str) -> json::Value {
 
 #[test]
 fn taint_conversion_preserves_effects_values_and_explicit_times() {
-    use k8s_device_plugin_core::{DeviceTaint, DeviceTaintEffect};
+    use k8s_device_plugin_core::DeviceTaint;
+    use k8s_device_plugin_core::DeviceTaintEffect;
     for effect in [
         DeviceTaintEffect::None,
         DeviceTaintEffect::NoSchedule,
@@ -374,7 +376,8 @@ fn taint_conversion_preserves_effects_values_and_explicit_times() {
 
 #[test]
 fn invalid_taints_are_rejected_before_publication() {
-    use k8s_device_plugin_core::{DeviceTaint, DeviceTaintEffect};
+    use k8s_device_plugin_core::DeviceTaint;
+    use k8s_device_plugin_core::DeviceTaintEffect;
     let duplicate = tainted_widget().with_taint(DeviceTaint::new(
         "example.com/maintenance",
         DeviceTaintEffect::NoSchedule,
@@ -425,7 +428,7 @@ async fn tainted_pool_splits_at_64_devices_with_coherent_generation_and_count() 
                     .is_none()
             );
             send.send_response(http::Response::new(Body::from(
-                serde_json::to_vec(&body).unwrap(),
+                json::to_vec(&body).unwrap(),
             )));
         }
     };
@@ -453,7 +456,8 @@ async fn defaulted_taint_time_and_empty_value_do_not_republish() {
 
 #[tokio::test]
 async fn changing_a_taint_effect_gets_a_new_time_and_generation() {
-    use k8s_device_plugin_core::{DeviceTaint, DeviceTaintEffect};
+    use k8s_device_plugin_core::DeviceTaint;
+    use k8s_device_plugin_core::DeviceTaintEffect;
     let desired = InventoryDevice::new(PoolDevice::new("widget-0")).with_taint(DeviceTaint::new(
         "example.com/maintenance",
         DeviceTaintEffect::NoExecute,
@@ -481,7 +485,7 @@ async fn changing_a_taint_effect_gets_a_new_time_and_generation() {
                 .is_none()
         );
         send.send_response(http::Response::new(Body::from(
-            serde_json::to_vec(&body).unwrap(),
+            json::to_vec(&body).unwrap(),
         )));
     };
     let (_, result) = tokio::join!(script, publisher.publish_once());
@@ -504,7 +508,7 @@ async fn removing_a_taint_is_published_with_next_generation() {
         assert_eq!(body["spec"]["pool"]["generation"], 5);
         assert!(body["spec"]["devices"][0].get("taints").is_none());
         send.send_response(http::Response::new(Body::from(
-            serde_json::to_vec(&body).unwrap(),
+            json::to_vec(&body).unwrap(),
         )));
     };
     let (_, result) = tokio::join!(script, publisher.publish_once());
@@ -513,7 +517,8 @@ async fn removing_a_taint_is_published_with_next_generation() {
 
 #[tokio::test]
 async fn taint_reordering_does_not_advance_generation() {
-    use k8s_device_plugin_core::{DeviceTaint, DeviceTaintEffect};
+    use k8s_device_plugin_core::DeviceTaint;
+    use k8s_device_plugin_core::DeviceTaintEffect;
     let desired = tainted_widget().with_taint(DeviceTaint::new(
         "example.com/diagnostic",
         DeviceTaintEffect::None,
@@ -554,7 +559,7 @@ async fn newly_added_taint_converges_after_server_defaults_its_time() {
         assert_eq!(body["spec"]["pool"]["generation"], 5);
         body["spec"]["devices"][0]["taints"][0]["timeAdded"] = json::json!("2026-10-23T11:00:00Z");
         send.send_response(http::Response::new(Body::from(
-            serde_json::to_vec(&body).unwrap(),
+            json::to_vec(&body).unwrap(),
         )));
         respond(&mut handle, 200, &node_json("node-0", "node-uid-0")).await;
         respond(&mut handle, 200, &resource_slice_list(vec![body])).await;
@@ -593,7 +598,7 @@ async fn backend_can_explicitly_change_a_taint_timestamp() {
             "1970-01-01T00:00:00Z"
         );
         send.send_response(http::Response::new(Body::from(
-            serde_json::to_vec(&body).unwrap(),
+            json::to_vec(&body).unwrap(),
         )));
     };
     let (_, result) = tokio::join!(script, publisher.publish_once());
@@ -706,7 +711,7 @@ async fn adding_binding_conditions_advances_generation_and_preserves_taints() {
         );
         assert_eq!(body["spec"]["devices"][0]["bindsToNode"], true);
         send.send_response(http::Response::new(Body::from(
-            serde_json::to_vec(&body).unwrap(),
+            json::to_vec(&body).unwrap(),
         )));
     };
     let (_, result) = tokio::join!(script, publisher.publish_once());

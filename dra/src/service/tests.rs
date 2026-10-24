@@ -1,14 +1,15 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use kube::client::Body;
+use tempfile::TempDir;
+
 use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
 use k8s_device_plugin_test::kube_mock::MockKubeHandle;
 use k8s_device_plugin_test::kube_mock::allocated_status;
 use k8s_device_plugin_test::kube_mock::mock_kube_client;
 use k8s_device_plugin_test::kube_mock::not_found_json;
 use k8s_device_plugin_test::kube_mock::resource_claim_json;
-use kube::client::Body;
-use tempfile::TempDir;
 
 use super::*;
 
@@ -17,7 +18,7 @@ fn mock_resolver() -> (ClaimResolver, MockKubeHandle) {
     (ClaimResolver::new(client), handle)
 }
 
-fn claim_json(name: &str, uid: &str, pool: &str, device: &str, request: &str) -> serde_json::Value {
+fn claim_json(name: &str, uid: &str, pool: &str, device: &str, request: &str) -> json::Value {
     resource_claim_json(
         name,
         "default",
@@ -32,8 +33,8 @@ fn claim_json(name: &str, uid: &str, pool: &str, device: &str, request: &str) ->
 /// alongside successes in the same batch.
 fn spawn_kube_responder(
     mut handle: MockKubeHandle,
-    responses: Vec<(&'static str, Option<serde_json::Value>)>,
-) -> JoinHandle<()> {
+    responses: Vec<(&'static str, Option<json::Value>)>,
+) -> task::JoinHandle<()> {
     tokio::spawn(async move {
         for _ in 0..responses.len() {
             let (request, send) = handle.next_request().await.expect("request sent");
@@ -45,12 +46,11 @@ fn spawn_kube_responder(
                 .and_then(|(_, body)| body.clone());
             let response = match body {
                 Some(body) => {
-                    let bytes = serde_json::to_vec(&body).expect("serialize response body");
+                    let bytes = json::to_vec(&body).expect("serialize response body");
                     http::Response::new(Body::from(bytes))
                 }
                 None => {
-                    let bytes =
-                        serde_json::to_vec(&not_found_json()).expect("serialize response body");
+                    let bytes = json::to_vec(&not_found_json()).expect("serialize response body");
                     http::Response::builder()
                         .status(404)
                         .body(Body::from(bytes))
@@ -133,7 +133,7 @@ async fn start_service(
 ) -> (
     MockDraPluginClient,
     TempDir,
-    JoinHandle<Result<(), transport::Error>>,
+    task::JoinHandle<Result<(), transport::Error>>,
 ) {
     let socket_dir = TempDir::new().expect("create temp dir for plugin socket");
     let socket_path = socket_dir.path().join("plugin.sock");

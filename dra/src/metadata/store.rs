@@ -1,13 +1,18 @@
 //! Descriptor-relative, no-follow operations inside administrator-owned roots.
-use std::fs::{self, File};
-use std::io::{Read, Write};
-use std::os::fd::{AsFd, OwnedFd};
+use std::io::Read;
+use std::io::Write;
+use std::os::fd::AsFd;
+use std::os::fd::OwnedFd;
 use std::os::unix::fs::PermissionsExt;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
-use rustix::fs::{AtFlags, Mode, OFlags};
+use rustix::fs::AtFlags;
+use rustix::fs::Mode;
+use rustix::fs::OFlags;
 
 use super::*;
+
 const LIMIT: u64 = 16 * 1024 * 1024;
 static NEXT_STAGE: AtomicU64 = AtomicU64::new(0);
 const DIRECTORY: OFlags = OFlags::RDONLY
@@ -55,7 +60,7 @@ fn read(parent: &impl AsFd, name: &str) -> io::Result<Option<Vec<u8>>> {
         Err(rustix::io::Errno::NOENT) => return Ok(None),
         Err(error) => return Err(error.into()),
     };
-    let file = File::from(fd);
+    let file = fs::File::from(fd);
     if !file.metadata()?.is_file() {
         return Err(invalid("metadata artifact is not a regular file"));
     }
@@ -66,6 +71,7 @@ fn read(parent: &impl AsFd, name: &str) -> io::Result<Option<Vec<u8>>> {
     }
     Ok(Some(bytes))
 }
+
 fn ensure_file(parent: &impl AsFd, name: &str, content: &[u8]) -> io::Result<()> {
     if content.len() as u64 > LIMIT {
         return Err(invalid("metadata artifact exceeds 16 MiB"));
@@ -102,7 +108,7 @@ fn ensure_file(parent: &impl AsFd, name: &str, content: &[u8]) -> io::Result<()>
         }
     };
     let result = (|| {
-        let mut file = File::from(fd);
+        let mut file = fs::File::from(fd);
         file.write_all(content)?;
         file.set_permissions(fs::Permissions::from_mode(0o644))?;
         file.sync_all()?;
@@ -159,7 +165,7 @@ pub(super) fn persist(runtime: &MetadataRuntime, plan: &Plan) -> io::Result<()> 
     let cdi = trusted_root(&runtime.cdi, true)?.ok_or_else(|| invalid("missing CDI root"))?;
     // This immutable journal is sufficient for retry/restart replay. A mutable
     // ready flag adds no correctness: every publication is create-only.
-    let journal = serde_json::to_vec(&plan.journal(&runtime.driver)).map_err(io::Error::other)?;
+    let journal = json::to_vec(&plan.journal(&runtime.driver)).map_err(io::Error::other)?;
     ensure_file(&claim, "journal.json", &journal)?;
     for (request, document) in &plan.documents {
         let dir = directory(&claim, request, true)?;
@@ -199,7 +205,7 @@ pub(super) fn cleanup(runtime: &MetadataRuntime, identity: &ClaimRef) -> io::Res
         remove_stages(&claim, ".stage-journal.json-")?;
         return remove(&root, &identity.uid, true);
     };
-    let journal: Value = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+    let journal = json::from_slice::<json::Value>(&bytes).map_err(io::Error::other)?;
     if journal["journalVersion"] != 1 {
         return Err(invalid(
             "unsupported metadata journal version; refusing cleanup",
@@ -207,7 +213,11 @@ pub(super) fn cleanup(runtime: &MetadataRuntime, identity: &ClaimRef) -> io::Res
     }
     if journal["driver"] != runtime.driver
         || journal["claim"]
-            != json!({"name":identity.name,"namespace":identity.namespace,"uid":identity.uid})
+            != json::json!({
+                "name": identity.name,
+                "namespace": identity.namespace,
+                "uid": identity.uid
+            })
     {
         return Err(invalid("metadata journal claim identity mismatch"));
     }

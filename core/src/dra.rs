@@ -1,26 +1,16 @@
 use super::*;
 
-mod inventory;
+#[cfg(feature = "resource-health")]
+use tokio::sync::mpsc;
+
+pub use attribute::AttributeValue;
 pub use inventory::DeviceBinding;
 pub use inventory::DeviceTaint;
 pub use inventory::DeviceTaintEffect;
 pub use inventory::InventoryDevice;
 
-#[cfg(feature = "resource-health")]
-use tokio::sync::mpsc;
-
-/// A single typed attribute value, as used by DRA's CEL-based device
-/// selectors (`DeviceClass`/`ResourceClaim` selector expressions match
-/// against these).
-#[derive(Clone, Debug, PartialEq)]
-pub enum AttributeValue {
-    String(String),
-    Int(i64),
-    Bool(bool),
-    /// A semver-style version string, per the DRA API's `version` attribute
-    /// kind.
-    Version(String),
-}
+mod attribute;
+mod inventory;
 
 /// A device capacity quantity, e.g. memory or bandwidth.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -51,8 +41,8 @@ impl PoolDevice {
         Self { health, ..self }
     }
 
-    pub fn attribute(mut self, key: impl Into<String>, value: AttributeValue) -> Self {
-        self.attributes.insert(key.into(), value);
+    pub fn attribute(mut self, key: impl Into<String>, value: impl Into<AttributeValue>) -> Self {
+        self.attributes.insert(key.into(), value.into());
         self
     }
 
@@ -151,8 +141,12 @@ impl PreparedDeviceWithMetadata {
     }
 
     #[must_use]
-    pub fn with_attribute(mut self, name: impl Into<String>, value: AttributeValue) -> Self {
-        self.attributes.insert(name.into(), value);
+    pub fn with_attribute(
+        mut self,
+        name: impl Into<String>,
+        value: impl Into<AttributeValue>,
+    ) -> Self {
+        self.attributes.insert(name.into(), value.into());
         self
     }
 }
@@ -402,10 +396,7 @@ mod tests {
         StaticDriver {
             name: "example.com/widget".to_string(),
             pool: "node-0".to_string(),
-            devices: vec![
-                PoolDevice::new("widget-0")
-                    .attribute("model", AttributeValue::String("x1".to_string())),
-            ],
+            devices: vec![PoolDevice::new("widget-0").attribute("model", "x1")],
         }
     }
 

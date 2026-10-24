@@ -78,3 +78,40 @@ pub mod dra {
         }
     }
 }
+
+impl v1beta1::RegisterRequest {
+    /// Builds a request for this crate's supported API version, with no options.
+    pub fn new(endpoint: &str, resource_name: &str) -> Self {
+        Self {
+            version: v1beta1::VERSION.to_string(),
+            endpoint: endpoint.to_string(),
+            resource_name: resource_name.to_string(),
+            options: None,
+        }
+    }
+
+    /// Sets pre-start support, preserving the other registration options.
+    #[must_use]
+    pub fn pre_start_required(mut self, yes: bool) -> Self {
+        self.options.get_or_insert_default().pre_start_required = yes;
+        self
+    }
+
+    /// Sets preferred-allocation support, preserving the other options.
+    #[must_use]
+    pub fn get_preferred_allocation_available(mut self, yes: bool) -> Self {
+        self.options
+            .get_or_insert_default()
+            .get_preferred_allocation_available = yes;
+        self
+    }
+
+    /// Replaces all registration options.
+    #[must_use]
+    pub fn options(self, options: v1beta1::DevicePluginOptions) -> Self {
+        Self {
+            options: Some(options),
+            ..self
+        }
+    }
+}

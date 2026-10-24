@@ -19,7 +19,8 @@ use std::env;
 use std::io;
 
 use async_trait::async_trait;
-use k8s_device_plugin_core::AttributeValue;
+use serde_json as json;
+
 use k8s_device_plugin_core::ClaimPreparer;
 use k8s_device_plugin_core::ClaimRef;
 use k8s_device_plugin_core::DeviceBinding;
@@ -50,10 +51,10 @@ fn cdi_device_id(device_name: &str) -> String {
 }
 
 async fn write_cdi_spec(devices: &[PoolDevice], metadata: bool) -> io::Result<()> {
-    let spec = serde_json::json!({
+    let spec = json::json!({
         "cdiVersion": "0.8.0",
         "kind": CDI_KIND,
-        "devices": devices.iter().map(|device| serde_json::json!({
+        "devices": devices.iter().map(|device| json::json!({
             "name": device.name,
             "containerEdits": {
                 "env": if metadata { vec![format!("DRA_E2E_DEVICE={}", device.name), format!("DRA_METADATA_PHYSICAL_{}=present",device.name.replace('-', "_"))] } else {vec![format!("DRA_E2E_DEVICE={}", device.name)]},
@@ -62,7 +63,7 @@ async fn write_cdi_spec(devices: &[PoolDevice], metadata: bool) -> io::Result<()
     });
 
     tokio::fs::create_dir_all(CDI_SPEC_DIR).await?;
-    let encoded = serde_json::to_vec_pretty(&spec).map_err(io::Error::other)?;
+    let encoded = json::to_vec_pretty(&spec).map_err(io::Error::other)?;
     tokio::fs::write(CDI_SPEC_PATH, encoded).await
 }
 
@@ -143,9 +144,9 @@ impl ClaimPreparer for StaticDraDriver {
         let mut results = BTreeMap::new();
         for resolved in claims {
             tracing::info!(
-                claim_namespace = %resolved.claim.namespace,
-                claim_name = %resolved.claim.name,
-                claim_uid = %resolved.claim.uid,
+                claim_namespace = resolved.claim.namespace,
+                claim_name = resolved.claim.name,
+                claim_uid = resolved.claim.uid,
                 device_count = resolved.devices.len(),
                 "preparing DRA claim"
             );
@@ -178,7 +179,7 @@ impl ClaimPreparer for StaticDraDriver {
             if let Some(status_publisher) = &self.status_publisher {
                 let statuses = prepared.iter().map(|device| {
                     let mut status = ClaimDeviceStatus::new(&device.pool_name, &device.device_name);
-                    status.data = Some(serde_json::json!({"phase": "prepared"}));
+                    status.data = Some(json::json!({"phase": "prepared"}));
                     status
                 });
                 if let Err(error) = status_publisher
@@ -231,9 +232,9 @@ impl ClaimPreparer for StaticDraDriver {
 
     async fn unprepare(&self, claim: &ClaimRef) -> Result<(), PrepareError> {
         tracing::info!(
-            claim_namespace = %claim.namespace,
-            claim_name = %claim.name,
-            claim_uid = %claim.uid,
+            claim_namespace = claim.namespace,
+            claim_name = claim.name,
+            claim_uid = claim.uid,
             "unpreparing DRA claim"
         );
         Ok(())
@@ -267,10 +268,9 @@ async fn main() -> io::Result<()> {
     let mut devices = parse_device_names(&env_or_default("DEVICE_NAMES", DEFAULT_DEVICE_NAMES));
     if metadata_enabled {
         for device in &mut devices {
-            device.attributes.insert(
-                "model".into(),
-                AttributeValue::String("validation-widget".into()),
-            );
+            device
+                .attributes
+                .insert("model".into(), "validation-widget".into());
         }
     }
     let taint = env::var("DRA_EXAMPLE_TAINT_EFFECT")
@@ -301,9 +301,9 @@ async fn main() -> io::Result<()> {
     }
     write_cdi_spec(&devices, metadata_enabled).await?;
     tracing::info!(
-        %driver_name,
-        %pool_name,
-        %node_name,
+        driver_name,
+        pool_name,
+        node_name,
         device_count = devices.len(),
         "starting validation-only DRA driver"
     );
@@ -368,7 +368,10 @@ mod tests {
     fn parse_device_names_splits_trims_and_drops_empty_values() {
         let devices = parse_device_names(" widget-0, ,widget-1 ,, ");
 
-        let names: Vec<&str> = devices.iter().map(|device| device.name.as_str()).collect();
+        let names = devices
+            .iter()
+            .map(|device| device.name.as_str())
+            .collect::<Vec<&str>>();
         assert_eq!(names, ["widget-0", "widget-1"]);
     }
 

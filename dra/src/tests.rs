@@ -1,5 +1,9 @@
 use std::future;
 
+use kube::client::Body;
+use tempfile::TempDir;
+use tokio::sync::oneshot;
+
 use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
 use k8s_device_plugin_test::dra_registration::MockRegistrationClient;
 use k8s_device_plugin_test::kube_mock::allocated_status;
@@ -7,9 +11,6 @@ use k8s_device_plugin_test::kube_mock::mock_kube_client;
 use k8s_device_plugin_test::kube_mock::node_json;
 use k8s_device_plugin_test::kube_mock::resource_claim_json;
 use k8s_device_plugin_test::kube_mock::respond;
-use kube::client::Body;
-use tempfile::TempDir;
-use tokio::sync::oneshot;
 
 use super::*;
 
@@ -128,7 +129,7 @@ async fn run_spawns_all_three_components_and_they_work() {
         .expect("create request sent");
     assert_eq!(create_request.method(), http::Method::POST);
     send.send_response(http::Response::new(Body::from(
-        serde_json::to_vec(&json::json!({})).unwrap(),
+        json::to_vec(&json::json!({})).unwrap(),
     )));
 
     // Registration server came up: GetInfo answers correctly.
@@ -162,7 +163,7 @@ async fn run_spawns_all_three_components_and_they_work() {
             "uid-0",
             allocated_status("pool-0", "widget-0", "req-0"),
         );
-        let bytes = serde_json::to_vec(&body).unwrap();
+        let bytes = json::to_vec(&body).unwrap();
         send.send_response(http::Response::new(Body::from(bytes)));
     });
 

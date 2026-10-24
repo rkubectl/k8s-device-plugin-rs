@@ -43,15 +43,9 @@ impl DraRegistrationServer {
 
     #[cfg(test)]
     pub(crate) fn for_test(driver_name: &str, plugin_endpoint: &str, socket_path: PathBuf) -> Self {
-        let plugin_info = dra::registration::PluginInfo {
-            r#type: "DRAPlugin".to_string(),
-            name: driver_name.to_string(),
-            endpoint: plugin_endpoint.to_string(),
-            supported_versions: vec![dra::DRA_PLUGIN_SERVICE.to_string()],
-        };
         Self {
             socket_path,
-            plugin_info,
+            ..Self::new(driver_name, plugin_endpoint)
         }
     }
 

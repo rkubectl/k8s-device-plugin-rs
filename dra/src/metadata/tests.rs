@@ -1,7 +1,8 @@
-use std::os::unix::fs::{MetadataExt, symlink};
-use std::time::Duration;
+use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::symlink;
 
 use super::*;
+
 fn new_runtime(root: &Path) -> Arc<MetadataRuntime> {
     Arc::new(
         MetadataRuntime::new(
@@ -14,7 +15,42 @@ fn new_runtime(root: &Path) -> Arc<MetadataRuntime> {
     )
 }
 fn claim() -> ResourceClaim {
-    serde_json::from_value(json!({"metadata":{"namespace":"default","name":"test-claim","uid":"claim-uid"},"spec":{"devices":{"requests":[{"name":"a","exactly":{"deviceClassName":"widgets"}},{"name":"b","exactly":{"deviceClassName":"widgets"}}]}},"status":{"allocation":{"devices":{"results":[{"driver":"dra.example.com","pool":"pool-a","device":"widget-0","request":"a"},{"driver":"dra.example.com","pool":"pool-a","device":"widget-1","request":"b"}]}}}})).unwrap()
+    json::from_value(json::json!({
+        "metadata": {
+            "namespace": "default",
+            "name": "test-claim",
+            "uid": "claim-uid"
+        },
+        "spec": {
+            "devices": {
+                "requests": [
+                    {"name": "a", "exactly": {"deviceClassName": "widgets"}},
+                    {"name": "b", "exactly": {"deviceClassName": "widgets"}}
+                ]
+            }
+        },
+        "status": {
+            "allocation": {
+                "devices": {
+                    "results": [
+                        {
+                            "driver": "dra.example.com",
+                            "pool": "pool-a",
+                            "device": "widget-0",
+                            "request": "a"
+                        },
+                        {
+                            "driver": "dra.example.com",
+                            "pool": "pool-a",
+                            "device": "widget-1",
+                            "request": "b"
+                        }
+                    ]
+                }
+            }
+        }
+    }))
+    .unwrap()
 }
 fn prepared(request: &str, device: &str) -> PreparedDeviceWithMetadata {
     PreparedDeviceWithMetadata::new(PreparedDevice {
@@ -23,7 +59,7 @@ fn prepared(request: &str, device: &str) -> PreparedDeviceWithMetadata {
         device_name: device.into(),
         cdi_device_ids: vec![format!("dra.example.com/widget={device}")],
     })
-    .with_attribute("model", AttributeValue::String("widget".into()))
+    .with_attribute("model", "widget")
 }
 fn plan(runtime: &MetadataRuntime) -> Plan {
     Plan::build(
@@ -50,16 +86,34 @@ fn beta_schema_paths_and_request_cdi_edits_are_isolated() {
         vec!["dra.example.com/widget=widget-0"]
     );
     for (request, device) in [("a", "widget-0"), ("b", "widget-1")] {
-        let json: Value = serde_json::from_str(&plan.documents[request]).unwrap();
+        let json = json::from_str::<json::Value>(&plan.documents[request]).unwrap();
         assert_eq!(
             json,
-            json!({"apiVersion":"metadata.resource.k8s.io/v1beta1","kind":"DeviceMetadata","metadata":{"name":"test-claim","namespace":"default","uid":"claim-uid","generation":1},"requests":[{"name":request,"devices":[{"driver":"dra.example.com","pool":"pool-a","name":device,"attributes":{"model":{"string":"widget"}}}]}]})
+            json::json!({
+                "apiVersion": "metadata.resource.k8s.io/v1beta1",
+                "kind": "DeviceMetadata",
+                "metadata": {
+                    "name": "test-claim",
+                    "namespace": "default",
+                    "uid": "claim-uid",
+                    "generation": 1
+                },
+                "requests": [{
+                    "name": request,
+                    "devices": [{
+                        "driver": "dra.example.com",
+                        "pool": "pool-a",
+                        "name": device,
+                        "attributes": {"model": {"string": "widget"}}
+                    }]
+                }]
+            })
         );
         assert!(plan.documents[request].ends_with('\n'));
-        let spec: Value = serde_json::from_str(&plan.specs[request]).unwrap();
+        let spec = json::from_str::<json::Value>(&plan.specs[request]).unwrap();
         assert_eq!(
             spec["devices"][0]["containerEdits"]["mounts"][0]["options"],
-            json!(["ro", "bind"])
+            json::json!(["ro", "bind"])
         );
         assert_eq!(
             spec["devices"][0]["containerEdits"]["mounts"][0]["containerPath"],
@@ -68,12 +122,12 @@ fn beta_schema_paths_and_request_cdi_edits_are_isolated() {
             )
         );
     }
-    let selected: Vec<_> = plan
+    let selected = plan
         .devices
         .iter()
         .filter(|d| d.request_names.is_empty() || d.request_names.iter().any(|r| r == "a"))
         .flat_map(|d| d.cdi_device_ids.iter())
-        .collect();
+        .collect::<Vec<_>>();
     assert_eq!(selected.len(), 2);
     assert!(selected.iter().all(|id| !id.ends_with("_b")));
 }
@@ -81,10 +135,10 @@ fn beta_schema_paths_and_request_cdi_edits_are_isolated() {
 fn template_subrequest_paths_and_full_json_reference() {
     let tmp = tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
-    let mut object = serde_json::to_value(claim()).unwrap();
+    let mut object = json::to_value(claim()).unwrap();
     object["spec"]["devices"]["requests"][0] =
-        json!({"name":"a","firstAvailable":[{"name":"fast","deviceClassName":"widgets"}]});
-    let mut claim: ResourceClaim = serde_json::from_value(object).unwrap();
+        json::json!({"name":"a","firstAvailable":[{"name":"fast","deviceClassName":"widgets"}]});
+    let mut claim: ResourceClaim = json::from_value(object).unwrap();
     claim.metadata.annotations = Some(BTreeMap::from([(
         POD_CLAIM_NAME.into(),
         "pod-local".into(),
@@ -105,10 +159,10 @@ fn template_subrequest_paths_and_full_json_reference() {
         .request = "a/fast".into();
     let plan = Plan::build(&runtime, &claim, vec![prepared("a/fast", "widget-0")]).unwrap();
     assert_eq!(plan.devices[0].request_names, vec!["a"]);
-    let json: Value = serde_json::from_str(&plan.documents["a"]).unwrap();
+    let json = json::from_str::<json::Value>(&plan.documents["a"]).unwrap();
     assert_eq!(json["podClaimName"], "pod-local");
     assert_eq!(json["requests"][0]["name"], "a/fast");
-    let spec: Value = serde_json::from_str(&plan.specs["a"]).unwrap();
+    let spec = json::from_str::<json::Value>(&plan.specs["a"]).unwrap();
     assert_eq!(
         spec["devices"][0]["containerEdits"]["mounts"][0]["containerPath"],
         format!(
@@ -151,15 +205,12 @@ fn rejects_foreign_unallocated_conflicting_or_malformed_payloads() {
             Plan::build(
                 &runtime,
                 &claim(),
-                vec![prepared("a", "widget-0").with_attribute(key, AttributeValue::Int(1))]
+                vec![prepared("a", "widget-0").with_attribute(key, 1)]
             )
             .is_err()
         );
     }
-    for value in [
-        AttributeValue::String("x".repeat(65)),
-        AttributeValue::Version("not-semver".into()),
-    ] {
+    for value in ["x".repeat(65).into(), AttributeValue::version("not-semver")] {
         assert!(
             Plan::build(
                 &runtime,
@@ -175,8 +226,7 @@ fn rejects_foreign_unallocated_conflicting_or_malformed_payloads() {
             &claim(),
             vec![
                 prepared("a", "widget-0"),
-                prepared("a", "widget-0")
-                    .with_attribute("model", AttributeValue::String("other".into()))
+                prepared("a", "widget-0").with_attribute("model", "other")
             ]
         )
         .is_err()
@@ -204,9 +254,9 @@ fn retries_preserve_inode_and_snapshot_and_restart_recovers() {
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
     store::persist(&runtime, &plan).unwrap();
-    let before = std::fs::metadata(data(tmp.path(), "a")).unwrap();
+    let before = fs::metadata(data(tmp.path(), "a")).unwrap();
     store::persist(&runtime, &plan).unwrap();
-    let after = std::fs::metadata(data(tmp.path(), "a")).unwrap();
+    let after = fs::metadata(data(tmp.path(), "a")).unwrap();
     assert_eq!(
         (before.ino(), before.mtime_nsec()),
         (after.ino(), after.mtime_nsec())
@@ -215,14 +265,12 @@ fn retries_preserve_inode_and_snapshot_and_restart_recovers() {
     let restarted = new_runtime(tmp.path());
     store::persist(&restarted, &plan).unwrap();
     let mut changed = prepared("a", "widget-0");
-    changed
-        .attributes
-        .insert("model".into(), AttributeValue::String("changed".into()));
+    changed.attributes.insert("model".into(), "changed".into());
     let changed =
         Plan::build(&runtime, &claim(), vec![changed, prepared("b", "widget-1")]).unwrap();
     assert!(store::persist(&runtime, &changed).is_err());
     assert_eq!(
-        std::fs::metadata(data(tmp.path(), "a")).unwrap().ino(),
+        fs::metadata(data(tmp.path(), "a")).unwrap().ino(),
         before.ino()
     );
     store::cleanup(&restarted, &plan.claim).unwrap();
@@ -234,19 +282,16 @@ fn partial_publication_replays_after_failure_without_replacing_data() {
     let tmp = tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
-    std::fs::create_dir_all(tmp.path().join("cdi")).unwrap();
+    fs::create_dir_all(tmp.path().join("cdi")).unwrap();
     let blocked = tmp
         .path()
         .join("cdi/dra.example.com_metadata_claim-uid_b.json");
-    std::fs::write(&blocked, "foreign").unwrap();
+    fs::write(&blocked, "foreign").unwrap();
     assert!(store::persist(&runtime, &plan).is_err());
-    let before = std::fs::metadata(data(tmp.path(), "a")).unwrap().ino();
-    std::fs::remove_file(&blocked).unwrap();
+    let before = fs::metadata(data(tmp.path(), "a")).unwrap().ino();
+    fs::remove_file(&blocked).unwrap();
     store::persist(&runtime, &plan).unwrap();
-    assert_eq!(
-        std::fs::metadata(data(tmp.path(), "a")).unwrap().ino(),
-        before
-    );
+    assert_eq!(fs::metadata(data(tmp.path(), "a")).unwrap().ino(), before);
     store::cleanup(&runtime, &plan.claim).unwrap();
 }
 #[test]
@@ -255,24 +300,24 @@ fn symlink_descendants_are_refused_and_outside_files_survive() {
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
     let outside = tmp.path().join("outside");
-    std::fs::create_dir_all(&outside).unwrap();
-    std::fs::create_dir_all(tmp.path().join("plugin/dra-device-metadata")).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::create_dir_all(tmp.path().join("plugin/dra-device-metadata")).unwrap();
     symlink(
         &outside,
         tmp.path().join("plugin/dra-device-metadata/claim-uid"),
     )
     .unwrap();
     assert!(store::persist(&runtime, &plan).is_err());
-    assert!(std::fs::read_dir(&outside).unwrap().next().is_none());
-    std::fs::remove_file(tmp.path().join("plugin/dra-device-metadata/claim-uid")).unwrap();
+    assert!(fs::read_dir(&outside).unwrap().next().is_none());
+    fs::remove_file(tmp.path().join("plugin/dra-device-metadata/claim-uid")).unwrap();
     store::persist(&runtime, &plan).unwrap();
     let protected = outside.join("protected");
-    std::fs::write(&protected, "keep").unwrap();
-    std::fs::remove_file(data(tmp.path(), "a")).unwrap();
+    fs::write(&protected, "keep").unwrap();
+    fs::remove_file(data(tmp.path(), "a")).unwrap();
     symlink(&protected, data(tmp.path(), "a")).unwrap();
     assert!(store::persist(&runtime, &plan).is_err());
     store::cleanup(&runtime, &plan.claim).unwrap();
-    assert_eq!(std::fs::read_to_string(&protected).unwrap(), "keep");
+    assert_eq!(fs::read_to_string(&protected).unwrap(), "keep");
 }
 #[test]
 fn stale_uid_cleanup_preserves_replacement_and_foreign_files() {
@@ -287,7 +332,7 @@ fn stale_uid_cleanup_preserves_replacement_and_foreign_files() {
     let foreign = tmp
         .path()
         .join("plugin/dra-device-metadata/claim-uid/foreign");
-    std::fs::write(&foreign, "keep").unwrap();
+    fs::write(&foreign, "keep").unwrap();
     assert!(store::cleanup(&runtime, &old.claim).is_err());
     assert!(foreign.exists());
     assert!(
@@ -295,7 +340,7 @@ fn stale_uid_cleanup_preserves_replacement_and_foreign_files() {
             .join("plugin/dra-device-metadata/claim-uid/journal.json")
             .exists()
     );
-    std::fs::remove_file(&foreign).unwrap();
+    fs::remove_file(&foreign).unwrap();
     store::cleanup(&runtime, &old.claim).unwrap();
     assert!(
         tmp.path()
@@ -312,7 +357,7 @@ fn cleanup_recovers_empty_directory_after_final_journal_removal() {
     let tmp = tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
-    std::fs::create_dir_all(tmp.path().join("plugin/dra-device-metadata/claim-uid")).unwrap();
+    fs::create_dir_all(tmp.path().join("plugin/dra-device-metadata/claim-uid")).unwrap();
     store::cleanup(&runtime, &plan.claim).unwrap();
 }
 #[tokio::test]
@@ -348,27 +393,29 @@ fn foreign_shared_cdi_file_is_never_deleted_by_our_cleanup() {
     let tmp = tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
-    std::fs::create_dir_all(tmp.path().join("cdi")).unwrap();
+    fs::create_dir_all(tmp.path().join("cdi")).unwrap();
     let foreign = tmp
         .path()
         .join("cdi/dra.example.com_metadata_claim-uid_a.json");
-    std::fs::write(&foreign, "foreign").unwrap();
+    fs::write(&foreign, "foreign").unwrap();
     assert!(store::persist(&runtime, &plan).is_err());
     assert!(store::cleanup(&runtime, &plan.claim).is_err());
-    assert_eq!(std::fs::read_to_string(&foreign).unwrap(), "foreign");
-    std::fs::remove_file(foreign).unwrap();
+    assert_eq!(fs::read_to_string(&foreign).unwrap(), "foreign");
+    fs::remove_file(foreign).unwrap();
     store::cleanup(&runtime, &plan.claim).unwrap();
 }
 
 #[tokio::test]
 async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
-    use crate::{ClaimResolver, DraPluginService};
-    use k8s_device_plugin_core::{ClaimPreparer, PrepareError, ResolvedClaim};
-    use k8s_device_plugin_proto::dra::v1::{
-        Claim, DraPlugin as _, NodePrepareResourcesRequest, NodeUnprepareResourcesRequest,
-    };
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use k8s_device_plugin_proto::dra::v1::Claim;
+    use k8s_device_plugin_proto::dra::v1::DraPlugin as _;
+    use k8s_device_plugin_proto::dra::v1::NodePrepareResourcesRequest;
+    use k8s_device_plugin_proto::dra::v1::NodeUnprepareResourcesRequest;
     use k8s_device_plugin_test::kube_mock::mock_kube_client;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     #[derive(Debug, Default)]
     struct Backend {
         prepares: AtomicUsize,
@@ -395,9 +442,9 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
         }
     }
     let tmp = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(tmp.path().join("cdi")).unwrap();
+    fs::create_dir_all(tmp.path().join("cdi")).unwrap();
     let foreign = tmp.path().join("cdi/dra.example.com_metadata_one_a.json");
-    std::fs::write(&foreign, "foreign").unwrap();
+    fs::write(&foreign, "foreign").unwrap();
     let (client, mut handle) = mock_kube_client();
     let backend = Arc::new(Backend::default());
     let service = DraPluginService::new(ClaimResolver::new(client), Arc::clone(&backend))
@@ -416,28 +463,26 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
             } else {
                 "two"
             };
-            let mut object = serde_json::to_value(claim()).unwrap();
-            object["metadata"]["name"] = json!(name);
-            object["metadata"]["uid"] = json!(name);
+            let mut object = json::to_value(claim()).unwrap();
+            object["metadata"]["name"] = json::json!(name);
+            object["metadata"]["uid"] = json::json!(name);
             send.send_response(
                 http::Response::builder()
                     .status(200)
-                    .body(kube::client::Body::from(
-                        serde_json::to_vec(&object).unwrap(),
-                    ))
+                    .body(kube::client::Body::from(json::to_vec(&object).unwrap()))
                     .unwrap(),
             );
         }
         // No ResourceClaim lookup is needed during unprepare, even after deletion.
     });
-    let refs: Vec<_> = ["one", "two"]
+    let refs = ["one", "two"]
         .into_iter()
         .map(|name| Claim {
             namespace: "default".into(),
             name: name.into(),
             uid: name.into(),
         })
-        .collect();
+        .collect::<Vec<_>>();
     let result = service
         .node_prepare_resources(tonic::Request::new(NodePrepareResourcesRequest {
             claims: refs.clone(),
@@ -475,7 +520,7 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
     assert!(!result.claims["one"].error.is_empty());
     assert!(result.claims["two"].error.is_empty());
     assert!(foreign.exists());
-    std::fs::remove_file(foreign).unwrap();
+    fs::remove_file(foreign).unwrap();
     let result = service
         .node_unprepare_resources(tonic::Request::new(NodeUnprepareResourcesRequest {
             claims: refs,
@@ -489,16 +534,18 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
 #[cfg(feature = "resource-health")]
 #[tokio::test]
 async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations() {
-    use k8s_device_plugin_core::{
-        ClaimPreparer, DraDeviceHealth, PrepareError, ResolvedClaim, ResourceHealthError,
-        ResourceHealthReport, ResourceHealthReporter, ResourceHealthStatus,
-    };
-    use k8s_device_plugin_proto::dra::{health::v1alpha1 as health, v1};
-    use k8s_device_plugin_test::{
-        dra_plugin::MockDraPluginClient,
-        kube_mock::{mock_kube_client, respond},
-    };
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use k8s_device_plugin_core::DraDeviceHealth;
+    use k8s_device_plugin_core::ResourceHealthError;
+    use k8s_device_plugin_core::ResourceHealthReport;
+    use k8s_device_plugin_core::ResourceHealthStatus;
+    use k8s_device_plugin_proto::dra::health::v1alpha1 as health;
+    use k8s_device_plugin_proto::dra::v1;
+    use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
+    use k8s_device_plugin_test::kube_mock::mock_kube_client;
+    use k8s_device_plugin_test::kube_mock::respond;
     #[derive(Debug, Default)]
     struct Backend {
         prepares: AtomicUsize,
@@ -547,25 +594,24 @@ async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations(
     let tmp = tempfile::tempdir().unwrap();
     let backend = Arc::new(Backend::default());
     let (client, mut handle) = mock_kube_client();
-    let service =
-        crate::DraPluginService::new(crate::ClaimResolver::new(client), Arc::clone(&backend))
-            .with_resource_health(Arc::clone(&backend))
-            .with_device_metadata(
-                "dra.example.com",
-                DeviceMetadataOptions::v1beta1()
-                    .with_plugin_directories(tmp.path().join("plugin"), tmp.path().join("plugin"))
-                    .with_cdi_directory(tmp.path().join("cdi")),
-            )
-            .unwrap();
+    let service = DraPluginService::new(ClaimResolver::new(client), Arc::clone(&backend))
+        .with_resource_health(Arc::clone(&backend))
+        .with_device_metadata(
+            "dra.example.com",
+            DeviceMetadataOptions::v1beta1()
+                .with_plugin_directories(tmp.path().join("plugin"), tmp.path().join("plugin"))
+                .with_cdi_directory(tmp.path().join("cdi")),
+        )
+        .unwrap();
     let socket = tmp.path().join("plugin.sock");
     let server = service.spawn_at(&socket).await.unwrap();
     let path = socket.clone();
-    let channel = tonic::transport::Endpoint::try_from("http://[::]:50051")
+    let channel = transport::Endpoint::try_from("http://[::]:50051")
         .unwrap()
         .connect_with_connector(tower::service_fn(move |_| {
             let path = path.clone();
             async move {
-                tokio::net::UnixStream::connect(path)
+                net::UnixStream::connect(path)
                     .await
                     .map(hyper_util::rt::TokioIo::new)
             }
@@ -582,7 +628,7 @@ async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations(
     assert_eq!(snapshot.devices.len(), 1);
     let responder = tokio::spawn(async move {
         for _ in 0..2 {
-            respond(&mut handle, 200, &serde_json::to_value(claim()).unwrap()).await;
+            respond(&mut handle, 200, &json::to_value(claim()).unwrap()).await;
         }
     });
     let mut client = MockDraPluginClient::connect(&socket).await.unwrap();
@@ -631,21 +677,21 @@ fn broad_physical_entry_shared_by_requests_exposes_only_each_requests_metadata_i
     assert_eq!(plan.documents.len(), 2);
     assert_eq!(plan.devices.len(), 3);
     for request in ["a", "b"] {
-        let selected: Vec<_> = plan
+        let selected = plan
             .devices
             .iter()
             .filter(|d| d.request_names.is_empty() || d.request_names.iter().any(|r| r == request))
             .flat_map(|d| d.cdi_device_ids.iter())
-            .collect();
+            .collect::<Vec<_>>();
         assert_eq!(selected.len(), 2);
         assert_eq!(selected[0], "dra.example.com/widget=widget-0");
         assert!(selected[1].ends_with(&format!("_{request}")));
     }
-    let all: Vec<_> = plan
+    let all = plan
         .devices
         .iter()
         .flat_map(|d| d.cdi_device_ids.iter())
-        .collect();
+        .collect::<Vec<_>>();
     assert_eq!(all.iter().filter(|id| id.contains("/widget=")).count(), 1);
 }
 
@@ -658,8 +704,8 @@ fn corrupt_journal_refuses_cleanup_and_keeps_owned_data_until_repaired() {
     let journal = tmp
         .path()
         .join("plugin/dra-device-metadata/claim-uid/journal.json");
-    let original = std::fs::read(&journal).unwrap();
-    std::fs::write(&journal, "corrupt").unwrap();
+    let original = fs::read(&journal).unwrap();
+    fs::write(&journal, "corrupt").unwrap();
     assert!(store::cleanup(&runtime, &plan.claim).is_err());
     assert!(data(tmp.path(), "a").exists());
     assert!(
@@ -667,12 +713,12 @@ fn corrupt_journal_refuses_cleanup_and_keeps_owned_data_until_repaired() {
             .join("cdi/dra.example.com_metadata_claim-uid_a.json")
             .exists()
     );
-    let mut future: Value = serde_json::from_slice(&original).unwrap();
-    future["journalVersion"] = json!(2);
-    std::fs::write(&journal, serde_json::to_vec(&future).unwrap()).unwrap();
+    let mut future = json::from_slice::<json::Value>(&original).unwrap();
+    future["journalVersion"] = json::json!(2);
+    fs::write(&journal, json::to_vec(&future).unwrap()).unwrap();
     assert!(store::cleanup(&runtime, &plan.claim).is_err());
     assert!(data(tmp.path(), "a").exists());
-    std::fs::write(journal, original).unwrap();
+    fs::write(journal, original).unwrap();
     store::cleanup(&runtime, &plan.claim).unwrap();
 }
 
@@ -698,7 +744,7 @@ fn zero_device_allocation_has_no_container_edits_and_cleans_its_journal() {
     assert!(plan.specs.is_empty());
     store::persist(&runtime, &plan).unwrap();
     assert!(
-        std::fs::read_dir(tmp.path().join("cdi"))
+        fs::read_dir(tmp.path().join("cdi"))
             .unwrap()
             .next()
             .is_none()

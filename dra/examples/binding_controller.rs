@@ -4,12 +4,17 @@
 
 use std::env;
 use std::io;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
+
+use k8s_openapi::api::resource::v1::ResourceClaim;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 
 use k8s_device_plugin_core::ClaimRef;
-use k8s_device_plugin_dra::{ClaimDeviceStatus, ClaimDeviceStatusPublisher};
-use k8s_openapi::api::resource::v1::ResourceClaim;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::{Condition, Time};
+use k8s_device_plugin_dra::ClaimDeviceStatus;
+use k8s_device_plugin_dra::ClaimDeviceStatusPublisher;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BindingState {
@@ -194,10 +199,12 @@ async fn main() -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use serde_json as json;
+
     use super::*;
 
     fn allocated_claim() -> ResourceClaim {
-        serde_json::from_value(serde_json::json!({
+        json::from_value(json::json!({
             "metadata": {"name":"claim", "namespace":"default", "uid":"uid", "generation":1},
             "spec": {"devices":{}},
             "status": {"allocation":{"devices":{"results":[{

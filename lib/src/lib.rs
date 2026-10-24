@@ -12,9 +12,6 @@ use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport;
 use tower::service_fn;
 
-use k8s_device_plugin_proto as proto;
-pub use proto::v1beta1;
-
 pub use k8s_device_plugin_core::AllocationError;
 pub use k8s_device_plugin_core::ContainerAllocation;
 pub use k8s_device_plugin_core::Device;
@@ -26,6 +23,8 @@ pub use k8s_device_plugin_core::Health;
 pub use k8s_device_plugin_core::HostMount;
 pub use k8s_device_plugin_core::K8sDevicePlugin;
 pub use k8s_device_plugin_core::ValidationError;
+pub use k8s_device_plugin_proto::v1beta1;
+
 pub use registration::RegistrationClient;
 pub use static_plugin::StaticDevicePlugin;
 
@@ -62,7 +61,7 @@ fn valid_devices(devices: &[Device]) -> Vec<Device> {
         .filter(|device| match validate_device(device) {
             Ok(()) => true,
             Err(err) => {
-                tracing::warn!(device_id = %device.id, %err, "dropping invalid device from ListAndWatch");
+                tracing::warn!(device_id = device.id, %err, "dropping invalid device from ListAndWatch");
                 false
             }
         })
@@ -185,7 +184,7 @@ impl DevicePlugin {
         }
     }
 
-    #[tracing::instrument(skip(self), fields(resource_name = %self.resource_name))]
+    #[tracing::instrument(skip(self), fields(resource_name = self.resource_name))]
     pub async fn run(&self) -> io::Result<()> {
         let mut server_handle = self.spawn_server()?;
         loop {
@@ -217,7 +216,7 @@ impl DevicePlugin {
             .await
     }
 
-    #[tracing::instrument(skip(self, kubelet_socket), fields(resource_name = %self.resource_name))]
+    #[tracing::instrument(skip(self, kubelet_socket), fields(resource_name = self.resource_name))]
     async fn try_register(
         &self,
         kubelet_socket: String,

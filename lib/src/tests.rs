@@ -732,9 +732,10 @@ async fn try_register_retries_until_success() {
 
 #[tokio::test]
 async fn run_reregisters_after_kubelet_disconnects() {
+    use tempfile::TempDir;
+
     use k8s_device_plugin_test::device_plugin::MockDevicePluginClient;
     use k8s_device_plugin_test::registration::start_mock_registration_server;
-    use tempfile::TempDir;
 
     let registration_server = start_mock_registration_server(None);
     let plugin_dir = TempDir::new().expect("create temp dir for plugin socket");

@@ -74,7 +74,7 @@ pub fn validate_device_id(id: &str) -> Result<(), ValidationError> {
 
 /// Validates that a host or container path is non-empty and absolute.
 pub fn validate_absolute_path(path: &Path) -> Result<(), ValidationError> {
-    if path.as_os_str().is_empty() {
+    if path.is_empty() {
         return Err(ValidationError::EmptyPath);
     }
     if !path.is_absolute() {
