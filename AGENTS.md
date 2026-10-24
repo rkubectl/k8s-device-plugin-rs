@@ -108,6 +108,15 @@ the future phases.
   `fs::File`, and `task::JoinHandle`, with `use serde_json as json`. Reuse an
   existing parent scope via `use super::*` in child modules where that is the
   established pattern; avoid redundant imports.
+- Alias Kubernetes API modules consistently: `corev1`, `resourcev1`,
+  `resourcev1alpha3`, and `metav1`, then qualify their types (for example,
+  `metav1::ObjectMeta` and `metav1::Condition`). Keep API versions visible in
+  aliases for other groups. Prefer `apiresource::Quantity`,
+  `runtime::RawExtension`, and `client::Body` over single-type renames or
+  repeated deep paths. Reuse parent aliases; keep trait imports needed for
+  method resolution. DRA protobuf aliases follow the same pattern (`drav1`,
+  `healthv1alpha1`), or retain an explicit short group/version path such as
+  `dra::v1`.
 - Keep type hints next to the operation that needs them when clear, for example
   `.collect::<BTreeMap<_, _>>()` and `json::from_slice::<json::Value>(bytes)`.
   Retain annotations that clarify complex types or trait-object boundaries.

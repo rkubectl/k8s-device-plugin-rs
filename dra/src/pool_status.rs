@@ -1,9 +1,6 @@
 //! Opt-in requests to Kubernetes' pool-status controller. No driver accounting.
 
-use k8s_openapi::api::resource::v1alpha3::ResourcePoolStatusRequest;
-use k8s_openapi::api::resource::v1alpha3::ResourcePoolStatusRequestSpec;
-use k8s_openapi::api::resource::v1alpha3::ResourcePoolStatusRequestStatus;
-use kube::Api;
+use k8s_openapi::api::resource::v1alpha3 as resourcev1alpha3;
 
 use super::*;
 
@@ -57,7 +54,7 @@ impl PoolStatusClient {
     /// object; callers must account for ambiguous writes in their own recovery.
     pub async fn create(
         &self,
-        spec: ResourcePoolStatusRequestSpec,
+        spec: resourcev1alpha3::ResourcePoolStatusRequestSpec,
     ) -> Result<PoolStatusQuery, PoolStatusError> {
         let discovery = match self.client.list_api_group_resources(API_VERSION).await {
             Ok(discovery) => discovery,
@@ -73,9 +70,10 @@ impl PoolStatusClient {
         {
             return Err(PoolStatusError::Unsupported);
         }
-        let api: Api<ResourcePoolStatusRequest> = Api::all(self.client.clone());
-        let request = ResourcePoolStatusRequest {
-            metadata: api::ObjectMeta {
+        let api: api::Api<resourcev1alpha3::ResourcePoolStatusRequest> =
+            api::Api::all(self.client.clone());
+        let request = resourcev1alpha3::ResourcePoolStatusRequest {
+            metadata: metav1::ObjectMeta {
                 generate_name: Some("dra-pool-status-".to_string()),
                 ..default()
             },
@@ -100,7 +98,7 @@ impl PoolStatusClient {
 /// immutable snapshot: create a new request to observe later allocation changes.
 #[must_use = "pool-status requests require explicit UID-safe deletion"]
 pub struct PoolStatusQuery {
-    api: Api<ResourcePoolStatusRequest>,
+    api: api::Api<resourcev1alpha3::ResourcePoolStatusRequest>,
     name: String,
     uid: String,
 }
@@ -126,7 +124,7 @@ impl PoolStatusQuery {
     pub async fn wait(
         &self,
         timeout: Duration,
-    ) -> Result<ResourcePoolStatusRequestStatus, PoolStatusError> {
+    ) -> Result<resourcev1alpha3::ResourcePoolStatusRequestStatus, PoolStatusError> {
         tokio::time::timeout(timeout, async {
             loop {
                 let current = self.api.get(&self.name).await?;
@@ -184,12 +182,9 @@ mod tests {
     use super::*;
 
     fn discovery() -> metav1::APIResourceList {
-        use k8s_openapi::apimachinery::pkg::apis::meta::v1::APIResource;
-        use k8s_openapi::apimachinery::pkg::apis::meta::v1::APIResourceList;
-
-        APIResourceList {
+        metav1::APIResourceList {
             group_version: API_VERSION.into(),
-            resources: vec![APIResource {
+            resources: vec![metav1::APIResource {
                 name: "resourcepoolstatusrequests".into(),
                 singular_name: "resourcepoolstatusrequest".into(),
                 namespaced: false,
@@ -200,14 +195,16 @@ mod tests {
         }
     }
 
-    fn request(status: Option<ResourcePoolStatusRequestStatus>) -> ResourcePoolStatusRequest {
-        ResourcePoolStatusRequest {
-            metadata: api::ObjectMeta {
+    fn request(
+        status: Option<resourcev1alpha3::ResourcePoolStatusRequestStatus>,
+    ) -> resourcev1alpha3::ResourcePoolStatusRequest {
+        resourcev1alpha3::ResourcePoolStatusRequest {
+            metadata: metav1::ObjectMeta {
                 name: Some("dra-pool-status-test".into()),
                 uid: Some("request-uid".into()),
                 ..default()
             },
-            spec: ResourcePoolStatusRequestSpec {
+            spec: resourcev1alpha3::ResourcePoolStatusRequestSpec {
                 driver: "dra.example.com".into(),
                 ..default()
             },
@@ -215,22 +212,18 @@ mod tests {
         }
     }
 
-    fn status(condition: &str) -> ResourcePoolStatusRequestStatus {
-        use k8s_openapi::api::resource::v1alpha3::PoolStatus;
-        use k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition;
-        use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
-
-        ResourcePoolStatusRequestStatus {
+    fn status(condition: &str) -> resourcev1alpha3::ResourcePoolStatusRequestStatus {
+        resourcev1alpha3::ResourcePoolStatusRequestStatus {
             pool_count: 1,
-            conditions: Some(vec![Condition {
+            conditions: Some(vec![metav1::Condition {
                 type_: condition.into(),
                 status: "True".into(),
                 reason: "Test".into(),
                 message: "controller result".into(),
-                last_transition_time: Time("2026-10-23T00:00:00Z".parse().unwrap()),
+                last_transition_time: metav1::Time("2026-10-23T00:00:00Z".parse().unwrap()),
                 observed_generation: None,
             }]),
-            pools: Some(vec![PoolStatus {
+            pools: Some(vec![resourcev1alpha3::PoolStatus {
                 driver: "dra.example.com".into(),
                 pool_name: "widget-pool".into(),
                 generation: 7,
@@ -242,7 +235,7 @@ mod tests {
 
     fn query(client: kube::Client) -> PoolStatusQuery {
         PoolStatusQuery {
-            api: Api::all(client),
+            api: api::Api::all(client),
             name: "dra-pool-status-test".into(),
             uid: "request-uid".into(),
         }
@@ -276,7 +269,7 @@ mod tests {
             assert_eq!(body, json::json!({"preconditions": {"uid": "request-uid"}}));
         });
         let query = PoolStatusClient::new(client)
-            .create(ResourcePoolStatusRequestSpec {
+            .create(resourcev1alpha3::ResourcePoolStatusRequestSpec {
                 driver: "dra.example.com".into(),
                 pool_name: Some("widget-pool".into()),
                 limit: Some(1),
@@ -310,7 +303,7 @@ mod tests {
                 }
             });
             let result = PoolStatusClient::new(client)
-                .create(ResourcePoolStatusRequestSpec::default())
+                .create(resourcev1alpha3::ResourcePoolStatusRequestSpec::default())
                 .await;
             assert!(matches!(result, Err(PoolStatusError::Unsupported)));
             responder.await.unwrap();
@@ -329,7 +322,7 @@ mod tests {
             .await;
         });
         let result = PoolStatusClient::new(client)
-            .create(ResourcePoolStatusRequestSpec::default())
+            .create(resourcev1alpha3::ResourcePoolStatusRequestSpec::default())
             .await;
         assert!(
             matches!(result, Err(PoolStatusError::Api(kube::Error::Api(error))) if error.code == 403)

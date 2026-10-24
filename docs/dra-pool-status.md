@@ -22,12 +22,14 @@ Discovery distinguishes an unserved API from authorization/network errors.
 
 ```rust,no_run
 use std::time::Duration;
+
+use k8s_openapi::api::resource::v1alpha3 as resourcev1alpha3;
+
 use k8s_device_plugin_dra::PoolStatusClient;
-use k8s_openapi::api::resource::v1alpha3::ResourcePoolStatusRequestSpec;
 
 # async fn inspect(client: kube::Client) -> Result<(), Box<dyn std::error::Error>> {
 let query = PoolStatusClient::new(client)
-    .create(ResourcePoolStatusRequestSpec {
+    .create(resourcev1alpha3::ResourcePoolStatusRequestSpec {
         driver: "dra.example.com".into(),
         pool_name: Some("widget-pool".into()),
         limit: Some(100),

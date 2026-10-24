@@ -1,7 +1,7 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-use kube::client::Body;
+use kube::client;
 use tempfile::TempDir;
 
 use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
@@ -53,13 +53,13 @@ fn spawn_kube_responder(
             let response = match body {
                 Some(body) => {
                     let bytes = json::to_vec(&body).expect("serialize response body");
-                    http::Response::new(Body::from(bytes))
+                    http::Response::new(client::Body::from(bytes))
                 }
                 None => {
                     let bytes = json::to_vec(&not_found()).expect("serialize response body");
                     http::Response::builder()
                         .status(404)
-                        .body(Body::from(bytes))
+                        .body(client::Body::from(bytes))
                         .expect("build 404 response")
                 }
             };

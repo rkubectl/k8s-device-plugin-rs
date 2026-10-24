@@ -8,9 +8,9 @@ use std::time::Duration;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
-use k8s_openapi::api::resource::v1::ResourceClaim;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
+use k8s_openapi::api::resource::v1 as resourcev1;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1 as metav1;
+use k8s_openapi::jiff;
 
 use k8s_device_plugin_core::ClaimRef;
 use k8s_device_plugin_dra::ClaimDeviceStatus;
@@ -40,10 +40,10 @@ impl std::str::FromStr for BindingState {
 }
 
 fn statuses_for_claim(
-    claim: &ResourceClaim,
+    claim: &resourcev1::ResourceClaim,
     driver: &str,
     state: BindingState,
-    now: &Time,
+    now: &metav1::Time,
 ) -> io::Result<Vec<ClaimDeviceStatus>> {
     let allocation = claim
         .status
@@ -104,7 +104,7 @@ fn statuses_for_claim(
                         || now.clone(),
                         |condition| condition.last_transition_time.clone(),
                     );
-                let condition = Condition {
+                let condition = metav1::Condition {
                     type_: name.clone(),
                     status: status.to_string(),
                     observed_generation: claim.metadata.generation,
@@ -162,7 +162,8 @@ async fn main() -> io::Result<()> {
     config.read_timeout = Some(Duration::from_secs(15));
     config.connect_timeout = Some(Duration::from_secs(10));
     let client = kube::Client::try_from(config).map_err(io::Error::other)?;
-    let api: kube::Api<ResourceClaim> = kube::Api::namespaced(client.clone(), &namespace);
+    let api: kube::Api<resourcev1::ResourceClaim> =
+        kube::Api::namespaced(client.clone(), &namespace);
     let claim = api.get(&name).await.map_err(io::Error::other)?;
     if claim.metadata.uid.as_deref() != Some(&uid) {
         return Err(io::Error::new(
@@ -174,11 +175,9 @@ async fn main() -> io::Result<()> {
         .duration_since(UNIX_EPOCH)
         .map_err(io::Error::other)?
         .as_secs();
-    let now = Time(
-        k8s_openapi::jiff::Timestamp::from_second(
-            i64::try_from(seconds).map_err(io::Error::other)?,
-        )
-        .map_err(io::Error::other)?,
+    let now = metav1::Time(
+        jiff::Timestamp::from_second(i64::try_from(seconds).map_err(io::Error::other)?)
+            .map_err(io::Error::other)?,
     );
     let statuses = statuses_for_claim(&claim, &driver, state, &now)?;
     let claim_ref = ClaimRef {
@@ -203,14 +202,11 @@ fn default<T: Default>() -> T {
 
 #[cfg(test)]
 mod tests {
-    use k8s_openapi::api::resource::v1 as resourcev1;
-    use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
-
     use super::*;
 
-    fn allocated_claim() -> ResourceClaim {
-        ResourceClaim {
-            metadata: ObjectMeta {
+    fn allocated_claim() -> resourcev1::ResourceClaim {
+        resourcev1::ResourceClaim {
+            metadata: metav1::ObjectMeta {
                 name: Some("claim".into()),
                 namespace: Some("default".into()),
                 uid: Some("uid".into()),
@@ -245,7 +241,7 @@ mod tests {
 
     #[test]
     fn reports_pending_ready_and_failed_on_per_device_status() {
-        let now = Time(k8s_openapi::jiff::Timestamp::from_second(100).unwrap());
+        let now = metav1::Time(jiff::Timestamp::from_second(100).unwrap());
         for (state, expected) in [
             (BindingState::Pending, ["False", "False"]),
             (BindingState::Ready, ["True", "False"]),
@@ -267,11 +263,11 @@ mod tests {
     #[test]
     fn repeated_reports_preserve_transition_times_but_status_changes_advance_them() {
         let mut claim = allocated_claim();
-        let old = Time(k8s_openapi::jiff::Timestamp::from_second(100).unwrap());
-        let now = Time(k8s_openapi::jiff::Timestamp::from_second(200).unwrap());
+        let old = metav1::Time(jiff::Timestamp::from_second(100).unwrap());
+        let now = metav1::Time(jiff::Timestamp::from_second(200).unwrap());
         let reports =
             statuses_for_claim(&claim, "dra.example.com", BindingState::Ready, &old).unwrap();
-        let status = k8s_openapi::api::resource::v1::AllocatedDeviceStatus {
+        let status = resourcev1::AllocatedDeviceStatus {
             device: "widget-0".to_string(),
             pool: "pool-0".to_string(),
             driver: "dra.example.com".to_string(),
@@ -295,7 +291,7 @@ mod tests {
 
     #[test]
     fn refuses_unallocated_and_other_driver_claims_and_unknown_states() {
-        let now = Time(k8s_openapi::jiff::Timestamp::from_second(100).unwrap());
+        let now = metav1::Time(jiff::Timestamp::from_second(100).unwrap());
         assert!(
             statuses_for_claim(
                 &allocated_claim(),

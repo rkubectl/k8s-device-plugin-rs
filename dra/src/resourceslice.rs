@@ -1,5 +1,6 @@
 //! Authoritative `ResourceSlice` publisher.
 
+use k8s_openapi::jiff;
 use kube::Resource as _;
 
 use super::*;
@@ -66,7 +67,7 @@ fn pool_device_to_wire(device: PoolDevice) -> resourcev1::Device {
                     name,
                     resourcev1::DeviceCapacity {
                         request_policy: None,
-                        value: K8sQuantity(quantity.0.to_string()),
+                        value: apiresource::Quantity(quantity.0.to_string()),
                     },
                 )
             })
@@ -104,7 +105,7 @@ fn inventory_device_to_wire(
             let time_added = taint
                 .time_added
                 .map(|seconds| {
-                    k8s_openapi::jiff::Timestamp::from_second(seconds)
+                    jiff::Timestamp::from_second(seconds)
                         .map(metav1::Time)
                         .map_err(|_| {
                             invalid_pool_error(pool_name, "has an invalid taint timestamp")

@@ -24,7 +24,7 @@ use tonic::transport;
 
 use k8s_openapi::api::core::v1 as corev1;
 use k8s_openapi::api::resource::v1 as resourcev1;
-use k8s_openapi::apimachinery::pkg::api::resource::Quantity as K8sQuantity;
+use k8s_openapi::apimachinery::pkg::api::resource as apiresource;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1 as metav1;
 use kube::api;
 

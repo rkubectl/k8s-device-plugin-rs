@@ -2,7 +2,6 @@
 use std::path::Component;
 use std::sync::Weak;
 
-use k8s_openapi::api::resource::v1::ResourceClaim;
 use parking_lot::Mutex;
 
 use k8s_device_plugin_core::PreparedDeviceWithMetadata;
@@ -89,7 +88,7 @@ impl MetadataRuntime {
 
     pub async fn publish(
         self: &Arc<Self>,
-        claim: ResourceClaim,
+        claim: resourcev1::ResourceClaim,
         devices: Vec<PreparedDeviceWithMetadata>,
         guards: Arc<Vec<tokio::sync::OwnedMutexGuard<()>>>,
     ) -> io::Result<Vec<PreparedDevice>> {
@@ -201,7 +200,7 @@ struct Plan {
 impl Plan {
     fn build(
         runtime: &MetadataRuntime,
-        claim: &ResourceClaim,
+        claim: &resourcev1::ResourceClaim,
         prepared: Vec<PreparedDeviceWithMetadata>,
     ) -> io::Result<Self> {
         let identity = ClaimRef {

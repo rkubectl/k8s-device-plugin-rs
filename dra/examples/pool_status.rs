@@ -3,9 +3,8 @@ use std::env;
 use std::io;
 use std::time::Duration;
 
+use k8s_openapi::api::resource::v1alpha3 as resourcev1alpha3;
 use serde_json as json;
-
-use k8s_openapi::api::resource::v1alpha3::ResourcePoolStatusRequestSpec;
 
 use k8s_device_plugin_dra::PoolStatusClient;
 
@@ -30,7 +29,7 @@ async fn main() -> io::Result<()> {
     config.connect_timeout = Some(Duration::from_secs(10));
     let client = kube::Client::try_from(config).map_err(io::Error::other)?;
     let query = PoolStatusClient::new(client)
-        .create(ResourcePoolStatusRequestSpec {
+        .create(resourcev1alpha3::ResourcePoolStatusRequestSpec {
             driver,
             pool_name,
             limit: Some(100),

@@ -1,5 +1,5 @@
 use http_body_util::BodyExt;
-use kube::client::Body;
+use kube::client;
 
 use k8s_device_plugin_test::kube_mock::MockKubeHandle;
 use k8s_device_plugin_test::kube_mock::device;
@@ -103,7 +103,7 @@ fn widgets(count: usize) -> Vec<PoolDevice> {
         .collect()
 }
 
-async fn request_body_json(request: http::Request<Body>) -> json::Value {
+async fn request_body_json(request: http::Request<client::Body>) -> json::Value {
     let bytes = request
         .into_body()
         .collect()
@@ -138,7 +138,7 @@ async fn publish_once_creates_slice_when_absent() {
         assert_eq!(body["spec"]["pool"]["resourceSliceCount"], 1);
         assert_eq!(body["spec"]["devices"][0]["name"], "widget-0");
         assert_eq!(body["metadata"]["ownerReferences"][0]["uid"], "node-uid-0");
-        send.send_response(http::Response::new(Body::from(
+        send.send_response(http::Response::new(client::Body::from(
             json::to_vec(&body).expect("serialize created slice"),
         )));
     };
@@ -224,7 +224,7 @@ async fn publish_once_updates_changed_pool_with_next_generation() {
         let body = request_body_json(replace_request).await;
         assert_eq!(body["spec"]["pool"]["generation"], 5);
         assert_eq!(body["spec"]["devices"][0]["name"], "widget-1");
-        send.send_response(http::Response::new(Body::from(
+        send.send_response(http::Response::new(client::Body::from(
             json::to_vec(&body).expect("serialize replaced slice"),
         )));
     };
@@ -251,7 +251,7 @@ async fn publish_once_splits_large_pool_with_one_generation_and_count() {
                 body["spec"]["devices"].as_array().map(Vec::len),
                 Some(expected_devices)
             );
-            send.send_response(http::Response::new(Body::from(
+            send.send_response(http::Response::new(client::Body::from(
                 json::to_vec(&body).expect("serialize created slice"),
             )));
         }
@@ -288,7 +288,7 @@ async fn publish_once_completes_new_generation_before_deleting_stale_slices() {
         assert_eq!(replace_request.method(), http::Method::PUT);
         let body = request_body_json(replace_request).await;
         assert_eq!(body["spec"]["pool"]["generation"], 5);
-        send.send_response(http::Response::new(Body::from(
+        send.send_response(http::Response::new(client::Body::from(
             json::to_vec(&body).expect("serialize replaced slice"),
         )));
 
@@ -303,7 +303,7 @@ async fn publish_once_completes_new_generation_before_deleting_stale_slices() {
         send.send_response(
             http::Response::builder()
                 .status(200)
-                .body(Body::from(
+                .body(client::Body::from(
                     json::to_vec(&metav1::Status {
                         status: Some("Success".into()),
                         ..default()
@@ -466,7 +466,7 @@ async fn tainted_pool_splits_at_64_devices_with_coherent_generation_and_count() 
                     .get("timeAdded")
                     .is_none()
             );
-            send.send_response(http::Response::new(Body::from(
+            send.send_response(http::Response::new(client::Body::from(
                 json::to_vec(&body).unwrap(),
             )));
         }
@@ -527,7 +527,7 @@ async fn changing_a_taint_effect_gets_a_new_time_and_generation() {
                 .get("timeAdded")
                 .is_none()
         );
-        send.send_response(http::Response::new(Body::from(
+        send.send_response(http::Response::new(client::Body::from(
             json::to_vec(&body).unwrap(),
         )));
     };
@@ -550,7 +550,7 @@ async fn removing_a_taint_is_published_with_next_generation() {
         let body = request_body_json(request).await;
         assert_eq!(body["spec"]["pool"]["generation"], 5);
         assert!(body["spec"]["devices"][0].get("taints").is_none());
-        send.send_response(http::Response::new(Body::from(
+        send.send_response(http::Response::new(client::Body::from(
             json::to_vec(&body).unwrap(),
         )));
     };
@@ -608,7 +608,7 @@ async fn newly_added_taint_converges_after_server_defaults_its_time() {
         let mut body = request_body_json(request).await;
         assert_eq!(body["spec"]["pool"]["generation"], 5);
         body["spec"]["devices"][0]["taints"][0]["timeAdded"] = json::json!("2026-10-23T11:00:00Z");
-        send.send_response(http::Response::new(Body::from(
+        send.send_response(http::Response::new(client::Body::from(
             json::to_vec(&body).unwrap(),
         )));
         respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
@@ -652,7 +652,7 @@ async fn backend_can_explicitly_change_a_taint_timestamp() {
             body["spec"]["devices"][0]["taints"][0]["timeAdded"],
             "1970-01-01T00:00:00Z"
         );
-        send.send_response(http::Response::new(Body::from(
+        send.send_response(http::Response::new(client::Body::from(
             json::to_vec(&body).unwrap(),
         )));
     };
@@ -768,7 +768,7 @@ async fn adding_binding_conditions_advances_generation_and_preserves_taints() {
             "2026-10-23T10:00:00Z"
         );
         assert_eq!(body["spec"]["devices"][0]["bindsToNode"], true);
-        send.send_response(http::Response::new(Body::from(
+        send.send_response(http::Response::new(client::Body::from(
             json::to_vec(&body).unwrap(),
         )));
     };

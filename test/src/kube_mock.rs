@@ -10,18 +10,19 @@
 use k8s_openapi::api::core::v1 as corev1;
 use k8s_openapi::api::resource::v1 as resourcev1;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1 as metav1;
-use kube::client::Body;
+use kube::client;
 use serde_json as json;
 
 use super::default;
 
-pub type MockKubeHandle = tower_test::mock::Handle<http::Request<Body>, http::Response<Body>>;
+pub type MockKubeHandle =
+    tower_test::mock::Handle<http::Request<client::Body>, http::Response<client::Body>>;
 
 /// Builds a [`kube::Client`] backed by a mock HTTP service, and the
 /// [`MockKubeHandle`] used to script its responses.
 pub fn mock_kube_client() -> (kube::Client, MockKubeHandle) {
     let (mock_service, handle) =
-        tower_test::mock::pair::<http::Request<Body>, http::Response<Body>>();
+        tower_test::mock::pair::<http::Request<client::Body>, http::Response<client::Body>>();
     let client = kube::Client::new(mock_service, "default");
     (client, handle)
 }
@@ -33,12 +34,12 @@ pub async fn respond<T: serde::Serialize + ?Sized>(
     handle: &mut MockKubeHandle,
     status: u16,
     body: &T,
-) -> http::Request<Body> {
+) -> http::Request<client::Body> {
     let (request, send) = handle.next_request().await.expect("request sent");
     let bytes = json::to_vec(body).expect("serialize response body");
     let response = http::Response::builder()
         .status(status)
-        .body(Body::from(bytes))
+        .body(client::Body::from(bytes))
         .expect("build response");
     send.send_response(response);
     request

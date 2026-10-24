@@ -1,6 +1,6 @@
 //! Driver-owned `ResourceClaim.status.devices` publication.
 
-use k8s_openapi::apimachinery::pkg::runtime::RawExtension;
+use k8s_openapi::apimachinery::pkg::runtime;
 
 use super::*;
 
@@ -87,7 +87,7 @@ impl ClaimDeviceStatus {
                         bytes: raw.len(),
                     });
                 }
-                Ok(RawExtension(data))
+                Ok(runtime::RawExtension(data))
             })
             .transpose()?;
 
@@ -470,7 +470,7 @@ impl ClaimDeviceStatusPublisher {
 #[cfg(test)]
 mod tests {
     use http_body_util::BodyExt;
-    use kube::client::Body;
+    use kube::client;
 
     use k8s_device_plugin_test::kube_mock::allocated_claim_status;
     use k8s_device_plugin_test::kube_mock::mock_kube_client;
@@ -519,10 +519,10 @@ mod tests {
         }
     }
 
-    fn response(status: u16, body: impl serde::Serialize) -> http::Response<Body> {
+    fn response(status: u16, body: impl serde::Serialize) -> http::Response<client::Body> {
         http::Response::builder()
             .status(status)
-            .body(Body::from(
+            .body(client::Body::from(
                 json::to_vec(&body).expect("serialize mock body"),
             ))
             .expect("build mock response")
@@ -682,7 +682,7 @@ mod tests {
         ));
     }
 
-    async fn read_patch(request: http::Request<Body>) -> json::Value {
+    async fn read_patch(request: http::Request<client::Body>) -> json::Value {
         assert_eq!(request.method(), http::Method::PATCH);
         assert_eq!(
             request.headers()[http::header::CONTENT_TYPE],
@@ -697,7 +697,7 @@ mod tests {
         json::from_slice(&bytes).expect("decode patch")
     }
 
-    fn conflict_response() -> http::Response<Body> {
+    fn conflict_response() -> http::Response<client::Body> {
         response(
             409,
             kube::core::Status::failure("test failure", "Conflict").with_code(409),
@@ -899,7 +899,7 @@ mod tests {
         json::to_value(status.into_kubernetes(DRIVER).unwrap()).unwrap()
     }
 
-    async fn patch_json(request: http::Request<Body>) -> json::Value {
+    async fn patch_json(request: http::Request<client::Body>) -> json::Value {
         let bytes = request.into_body().collect().await.unwrap().to_bytes();
         json::from_slice(&bytes).unwrap()
     }

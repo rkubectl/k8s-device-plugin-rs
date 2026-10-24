@@ -1,4 +1,4 @@
-use kube::client::Body;
+use kube::client;
 
 use k8s_device_plugin_test::kube_mock::allocated_claim_status;
 use k8s_device_plugin_test::kube_mock::mock_kube_client;
@@ -21,11 +21,11 @@ fn mock_resolver() -> (
 fn respond_once(
     mut handle: k8s_device_plugin_test::kube_mock::MockKubeHandle,
     body: impl serde::Serialize,
-) -> task::JoinHandle<http::Request<Body>> {
+) -> task::JoinHandle<http::Request<client::Body>> {
     let bytes = json::to_vec(&body).expect("serialize response body");
     tokio::spawn(async move {
         let (request, send) = handle.next_request().await.expect("request sent");
-        send.send_response(http::Response::new(Body::from(bytes)));
+        send.send_response(http::Response::new(client::Body::from(bytes)));
         request
     })
 }
@@ -153,7 +153,7 @@ async fn resolve_all_resolves_a_batch_concurrently() {
                 )),
             );
             let bytes = json::to_vec(&body).expect("serialize response body");
-            send.send_response(http::Response::new(Body::from(bytes)));
+            send.send_response(http::Response::new(client::Body::from(bytes)));
         }
     });
 
@@ -199,7 +199,7 @@ async fn resolve_retries_a_transient_api_failure() {
         send.send_response(
             http::Response::builder()
                 .status(500)
-                .body(Body::from(
+                .body(client::Body::from(
                     json::to_vec(
                         &kube::core::Status::failure("test failure", "InternalError")
                             .with_code(500),
@@ -211,7 +211,7 @@ async fn resolve_retries_a_transient_api_failure() {
 
         let (second, send) = handle.next_request().await.expect("retry request sent");
         assert_eq!(second.method(), http::Method::GET);
-        send.send_response(http::Response::new(Body::from(
+        send.send_response(http::Response::new(client::Body::from(
             json::to_vec(&expected).expect("serialize resolved claim"),
         )));
     });
@@ -247,7 +247,7 @@ async fn resolve_all_honors_the_concurrency_bound_and_request_order() {
         second_before_first_response.is_err(),
         "the configured bound must prevent a second in-flight request"
     );
-    send.send_response(http::Response::new(Body::from(
+    send.send_response(http::Response::new(client::Body::from(
         json::to_vec(&resource_claim(
             "claim-a",
             "default",
@@ -264,7 +264,7 @@ async fn resolve_all_honors_the_concurrency_bound_and_request_order() {
 
     let (second, send) = handle.next_request().await.expect("second request sent");
     assert!(second.uri().path().contains("claim-b"));
-    send.send_response(http::Response::new(Body::from(
+    send.send_response(http::Response::new(client::Body::from(
         json::to_vec(&resource_claim(
             "claim-b",
             "default",
@@ -304,7 +304,7 @@ async fn resolve_retries_only_transient_http_errors_and_respects_attempt_limit()
                 send.send_response(
                     http::Response::builder()
                         .status(code)
-                        .body(Body::from(
+                        .body(client::Body::from(
                             json::to_vec(
                                 &kube::core::Status::failure("test failure", "TestError")
                                     .with_code(code),

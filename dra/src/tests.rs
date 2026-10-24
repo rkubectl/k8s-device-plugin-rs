@@ -1,6 +1,6 @@
 use std::future;
 
-use kube::client::Body;
+use kube::client;
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 
@@ -158,7 +158,7 @@ async fn run_spawns_all_three_components_and_they_work() {
             allocated_status("pool-0", "widget-0", "req-0"),
         );
         let bytes = json::to_vec(&body).unwrap();
-        send.send_response(http::Response::new(Body::from(bytes)));
+        send.send_response(http::Response::new(client::Body::from(bytes)));
     });
 
     let response = plugin_client

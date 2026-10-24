@@ -14,8 +14,8 @@ fn new_runtime(root: &Path) -> Arc<MetadataRuntime> {
         .unwrap(),
     )
 }
-fn claim() -> ResourceClaim {
-    ResourceClaim {
+fn claim() -> resourcev1::ResourceClaim {
+    resourcev1::ResourceClaim {
         metadata: metav1::ObjectMeta {
             namespace: Some("default".into()),
             name: Some("test-claim".into()),
@@ -427,10 +427,8 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
-    use k8s_device_plugin_proto::dra::v1::Claim;
-    use k8s_device_plugin_proto::dra::v1::DraPlugin as _;
-    use k8s_device_plugin_proto::dra::v1::NodePrepareResourcesRequest;
-    use k8s_device_plugin_proto::dra::v1::NodeUnprepareResourcesRequest;
+    use drav1::DraPlugin as _;
+    use k8s_device_plugin_proto::dra::v1 as drav1;
     use k8s_device_plugin_test::kube_mock::mock_kube_client;
     #[derive(Debug, Default)]
     struct Backend {
@@ -493,14 +491,14 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
     });
     let refs = ["one", "two"]
         .into_iter()
-        .map(|name| Claim {
+        .map(|name| drav1::Claim {
             namespace: "default".into(),
             name: name.into(),
             uid: name.into(),
         })
         .collect::<Vec<_>>();
     let result = service
-        .node_prepare_resources(tonic::Request::new(NodePrepareResourcesRequest {
+        .node_prepare_resources(tonic::Request::new(drav1::NodePrepareResourcesRequest {
             claims: refs.clone(),
         }))
         .await
@@ -513,7 +511,7 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
     assert_eq!(result.claims["two"].devices.len(), 2);
     backend.unprepare_fails.store(true, Ordering::SeqCst);
     let result = service
-        .node_unprepare_resources(tonic::Request::new(NodeUnprepareResourcesRequest {
+        .node_unprepare_resources(tonic::Request::new(drav1::NodeUnprepareResourcesRequest {
             claims: vec![refs[1].clone()],
         }))
         .await
@@ -527,7 +525,7 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
     );
     backend.unprepare_fails.store(false, Ordering::SeqCst);
     let result = service
-        .node_unprepare_resources(tonic::Request::new(NodeUnprepareResourcesRequest {
+        .node_unprepare_resources(tonic::Request::new(drav1::NodeUnprepareResourcesRequest {
             claims: refs.clone(),
         }))
         .await
@@ -538,7 +536,7 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
     assert!(foreign.exists());
     fs::remove_file(foreign).unwrap();
     let result = service
-        .node_unprepare_resources(tonic::Request::new(NodeUnprepareResourcesRequest {
+        .node_unprepare_resources(tonic::Request::new(drav1::NodeUnprepareResourcesRequest {
             claims: refs,
         }))
         .await
@@ -557,8 +555,8 @@ async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations(
     use k8s_device_plugin_core::ResourceHealthError;
     use k8s_device_plugin_core::ResourceHealthReport;
     use k8s_device_plugin_core::ResourceHealthStatus;
-    use k8s_device_plugin_proto::dra::health::v1alpha1 as health;
-    use k8s_device_plugin_proto::dra::v1;
+    use k8s_device_plugin_proto::dra::health::v1alpha1 as healthv1alpha1;
+    use k8s_device_plugin_proto::dra::v1 as drav1;
     use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
     use k8s_device_plugin_test::kube_mock::mock_kube_client;
     use k8s_device_plugin_test::kube_mock::respond;
@@ -634,9 +632,9 @@ async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations(
         }))
         .await
         .unwrap();
-    let mut client = health::DraResourceHealthClient::new(channel);
+    let mut client = healthv1alpha1::DraResourceHealthClient::new(channel);
     let mut stream = client
-        .node_watch_resources(health::NodeWatchResourcesRequest {})
+        .node_watch_resources(healthv1alpha1::NodeWatchResourcesRequest {})
         .await
         .unwrap()
         .into_inner();
@@ -650,7 +648,7 @@ async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations(
     let mut client = MockDraPluginClient::connect(&socket).await.unwrap();
     for _ in 0..2 {
         let result = client
-            .prepare_resources(vec![v1::Claim {
+            .prepare_resources(vec![drav1::Claim {
                 namespace: "default".into(),
                 name: "test-claim".into(),
                 uid: "claim-uid".into(),
