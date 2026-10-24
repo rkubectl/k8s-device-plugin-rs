@@ -117,6 +117,11 @@ the future phases.
   method resolution. DRA protobuf aliases follow the same pattern (`drav1`,
   `healthv1alpha1`), or retain an explicit short group/version path such as
   `dra::v1`.
+- Construct Kubernetes APIs exclusively through `KubeClientExt`. Add a typed
+  factory there when a new resource is needed, and preserve its cluster or
+  namespace scope. Direct `Api::all` and `Api::namespaced` calls belong only in
+  that trait's implementation; Clippy enforces this boundary across runtime
+  code, tests, and examples.
 - Keep type hints next to the operation that needs them when clear, for example
   `.collect::<BTreeMap<_, _>>()` and `json::from_slice::<json::Value>(bytes)`.
   Retain annotations that clarify complex types or trait-object boundaries.

@@ -1,7 +1,5 @@
 //! Opt-in requests to Kubernetes' pool-status controller. No driver accounting.
 
-use k8s_openapi::api::resource::v1alpha3 as resourcev1alpha3;
-
 use super::*;
 
 const API_VERSION: &str = "resource.k8s.io/v1alpha3";
@@ -70,8 +68,7 @@ impl PoolStatusClient {
         {
             return Err(PoolStatusError::Unsupported);
         }
-        let api: api::Api<resourcev1alpha3::ResourcePoolStatusRequest> =
-            api::Api::all(self.client.clone());
+        let api = self.client.resource_pool_status_requests();
         let request = resourcev1alpha3::ResourcePoolStatusRequest {
             metadata: metav1::ObjectMeta {
                 generate_name: Some("dra-pool-status-".to_string()),
@@ -235,7 +232,7 @@ mod tests {
 
     fn query(client: kube::Client) -> PoolStatusQuery {
         PoolStatusQuery {
-            api: api::Api::all(client),
+            api: client.resource_pool_status_requests(),
             name: "dra-pool-status-test".into(),
             uid: "request-uid".into(),
         }
@@ -248,6 +245,10 @@ mod tests {
             let get = respond(&mut handle, 200, &discovery()).await;
             assert_eq!(get.uri().path(), "/apis/resource.k8s.io/v1alpha3");
             let create = respond(&mut handle, 201, &request(None)).await;
+            assert_eq!(
+                create.uri().path(),
+                "/apis/resource.k8s.io/v1alpha3/resourcepoolstatusrequests"
+            );
             assert_eq!(create.method(), http::Method::POST);
             let body = json::from_slice::<json::Value>(
                 &create.into_body().collect().await.unwrap().to_bytes(),

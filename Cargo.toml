@@ -48,6 +48,7 @@ k8s-device-plugin-test = { path = "test", version = "0.1.0" }
 
 
 [workspace.lints.clippy]
+disallowed_methods = "warn"
 disallowed_types = "warn"
 large_futures = "warn"
 map_flatten = "warn"

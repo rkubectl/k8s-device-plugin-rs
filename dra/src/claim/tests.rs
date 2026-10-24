@@ -34,13 +34,13 @@ fn respond_once(
 async fn resolve_returns_resolved_claim_for_allocated_claim() {
     let (resolver, handle) = mock_resolver();
     let claim_ref = ClaimRef {
-        namespace: "default".to_string(),
+        namespace: "tenant-a".to_string(),
         uid: "claim-uid-0".to_string(),
         name: "my-claim".to_string(),
     };
     let body = resource_claim(
         "my-claim",
-        "default",
+        "tenant-a",
         "claim-uid-0",
         Some(allocated_claim_status(
             "example.com",
@@ -58,6 +58,10 @@ async fn resolve_returns_resolved_claim_for_allocated_claim() {
     let request = server.await.expect("server task completes");
 
     assert_eq!(request.method(), http::Method::GET);
+    assert_eq!(
+        request.uri().path(),
+        "/apis/resource.k8s.io/v1/namespaces/tenant-a/resourceclaims/my-claim"
+    );
     assert_eq!(resolved.claim, claim_ref);
     assert_eq!(resolved.devices.len(), 1);
     assert_eq!(resolved.devices[0].pool_name, "node-0");

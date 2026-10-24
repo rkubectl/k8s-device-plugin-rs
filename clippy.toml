@@ -1,3 +1,8 @@
+disallowed-methods = [
+    { path = "kube::api::Api::all", reason = "Construct typed Kubernetes APIs through KubeClientExt; direct constructors belong only in dra/src/ext.rs." },
+    { path = "kube::api::Api::namespaced", reason = "Use KubeClientExt so namespace selection stays centralized in dra/src/ext.rs." },
+]
+
 disallowed-types = [
     { path = "std::sync::Mutex", reason = "Prefer parking_lot::Mutex for short synchronous critical sections; use tokio::sync::Mutex when asynchronous acquisition or guards across await are required." },
     { path = "std::sync::RwLock", reason = "Prefer parking_lot::RwLock for synchronous access; use tokio::sync::RwLock when tasks need asynchronous waiting." },

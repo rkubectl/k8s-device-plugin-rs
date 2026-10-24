@@ -15,6 +15,7 @@ use k8s_openapi::jiff;
 use k8s_device_plugin_core::ClaimRef;
 use k8s_device_plugin_dra::ClaimDeviceStatus;
 use k8s_device_plugin_dra::ClaimDeviceStatusPublisher;
+use k8s_device_plugin_dra::KubeClientExt as _;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BindingState {
@@ -162,10 +163,14 @@ async fn main() -> io::Result<()> {
     config.read_timeout = Some(Duration::from_secs(15));
     config.connect_timeout = Some(Duration::from_secs(10));
     let client = kube::Client::try_from(config).map_err(io::Error::other)?;
-    let api: kube::Api<resourcev1::ResourceClaim> =
-        kube::Api::namespaced(client.clone(), &namespace);
-    let claim = api.get(&name).await.map_err(io::Error::other)?;
-    if claim.metadata.uid.as_deref() != Some(&uid) {
+    let claim_ref = ClaimRef {
+        namespace,
+        name,
+        uid,
+    };
+    let api = client.resource_claims(&claim_ref);
+    let claim = api.get(&claim_ref.name).await.map_err(io::Error::other)?;
+    if claim.metadata.uid.as_deref() != Some(&claim_ref.uid) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "claim UID changed before reporting binding state",
@@ -180,11 +185,6 @@ async fn main() -> io::Result<()> {
             .map_err(io::Error::other)?,
     );
     let statuses = statuses_for_claim(&claim, &driver, state, &now)?;
-    let claim_ref = ClaimRef {
-        namespace,
-        name,
-        uid,
-    };
     let result = ClaimDeviceStatusPublisher::new(client, driver)
         .publish_fields(&claim_ref, statuses)
         .await
