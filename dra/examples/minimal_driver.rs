@@ -371,7 +371,7 @@ mod tests {
         let names = devices
             .iter()
             .map(|device| device.name.as_str())
-            .collect::<Vec<&str>>();
+            .collect::<Vec<_>>();
         assert_eq!(names, ["widget-0", "widget-1"]);
     }
 

@@ -10,6 +10,41 @@ use k8s_device_plugin_test::kube_mock::respond;
 
 use super::*;
 
+#[test]
+fn owned_device_conversion_preserves_typed_attributes_and_capacity() {
+    use k8s_device_plugin_core::Quantity;
+
+    let device = PoolDevice::new("widget-0")
+        .attribute("model", "widget")
+        .attribute("count", 7)
+        .attribute("enabled", true)
+        .attribute("firmware", AttributeValue::version("1.2.3"))
+        .capacity("memory", Quantity(4096));
+    let wire = pool_device_to_wire(device);
+    assert_eq!(
+        json::to_value(wire).unwrap(),
+        json::json!({
+            "name": "widget-0",
+            "attributes": {
+                "model": {"string": "widget"},
+                "count": {"int": 7},
+                "enabled": {"bool": true},
+                "firmware": {"version": "1.2.3"}
+            },
+            "capacity": {"memory": {"value": "4096"}}
+        })
+    );
+}
+
+#[test]
+fn owned_device_conversion_omits_empty_optional_maps() {
+    let wire = pool_device_to_wire(PoolDevice::new("widget-0"));
+    assert_eq!(
+        json::to_value(wire).unwrap(),
+        json::json!({"name": "widget-0"})
+    );
+}
+
 struct StaticPool(BTreeMap<String, Vec<PoolDevice>>);
 
 #[tonic::async_trait]
@@ -366,7 +401,7 @@ fn taint_conversion_preserves_effects_values_and_explicit_times() {
                 .with_value("yes")
                 .with_time_added(0),
         );
-        let wire = inventory_device_to_wire(&device, "pool-0").unwrap();
+        let wire = inventory_device_to_wire(device, "pool-0").unwrap();
         let taint = &wire.taints.unwrap()[0];
         assert_eq!(taint.effect, effect.as_str());
         assert_eq!(taint.value.as_deref(), Some("yes"));
@@ -394,7 +429,7 @@ fn invalid_taints_are_rejected_before_publication() {
         ));
     }
     for inventory in [duplicate, invalid_time, too_many] {
-        let error = inventory_device_to_wire(&inventory, "pool-0").unwrap_err();
+        let error = inventory_device_to_wire(inventory, "pool-0").unwrap_err();
         assert!(matches!(error, kube::Error::Api(status) if status.code == 422));
     }
 }
@@ -614,7 +649,7 @@ fn binding_metadata_is_optional_and_maps_to_the_device() {
             .with_failure_condition("example.com/AttachFailed")
             .with_node_binding(),
     );
-    let wire = inventory_device_to_wire(&inventory, "pool-0").unwrap();
+    let wire = inventory_device_to_wire(inventory, "pool-0").unwrap();
     assert_eq!(
         wire.binding_conditions,
         Some(vec!["example.com/Attached".to_string()])
@@ -624,7 +659,7 @@ fn binding_metadata_is_optional_and_maps_to_the_device() {
         Some(vec!["example.com/AttachFailed".to_string()])
     );
     assert_eq!(wire.binds_to_node, Some(true));
-    let plain = inventory_device_to_wire(&PoolDevice::new("widget-0").into(), "pool-0").unwrap();
+    let plain = inventory_device_to_wire(PoolDevice::new("widget-0").into(), "pool-0").unwrap();
     assert!(plain.binding_conditions.is_none());
     assert!(plain.binding_failure_conditions.is_none());
     assert!(plain.binds_to_node.is_none());
@@ -649,7 +684,7 @@ fn binding_condition_limits_and_duplicates_are_rejected() {
     for binding in [duplicate, duplicate_failure, too_many, too_many_failures] {
         let inventory = InventoryDevice::new(PoolDevice::new("widget-0")).with_binding(binding);
         assert!(
-            matches!(inventory_device_to_wire(&inventory, "pool-0"), Err(kube::Error::Api(status)) if status.code == 422)
+            matches!(inventory_device_to_wire(inventory, "pool-0"), Err(kube::Error::Api(status)) if status.code == 422)
         );
     }
 }

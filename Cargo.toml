@@ -52,6 +52,7 @@ large_futures = "warn"
 map_flatten = "warn"
 map_unwrap_or = "warn"
 redundant_type_annotations = "warn"
+redundant_clone = "warn"
 unused_async = "warn"
 use_self = "warn"
 

@@ -26,44 +26,44 @@ fn slice_name(driver_name: &str, node_name: &str, pool_name: &str, index: usize)
     }
 }
 
-pub(crate) fn attribute_value_to_wire(value: &AttributeValue) -> resourcev1::DeviceAttribute {
+pub(crate) fn attribute_value_to_wire(value: AttributeValue) -> resourcev1::DeviceAttribute {
     match value {
         AttributeValue::String(s) => resourcev1::DeviceAttribute {
-            string: Some(s.clone()),
+            string: Some(s),
             ..default()
         },
         AttributeValue::Int(i) => resourcev1::DeviceAttribute {
-            int: Some(*i),
+            int: Some(i),
             ..default()
         },
         AttributeValue::Bool(b) => resourcev1::DeviceAttribute {
-            bool: Some(*b),
+            bool: Some(b),
             ..default()
         },
         AttributeValue::Version(v) => resourcev1::DeviceAttribute {
-            version: Some(v.clone()),
+            version: Some(v),
             ..default()
         },
     }
 }
 
-fn pool_device_to_wire(device: &PoolDevice) -> resourcev1::Device {
+fn pool_device_to_wire(device: PoolDevice) -> resourcev1::Device {
     // Omit empty maps entirely: the API server normalizes empty optional
     // maps to None, and retaining Some({}) would cause endless updates.
     let attributes = (!device.attributes.is_empty()).then(|| {
         device
             .attributes
-            .iter()
-            .map(|(name, value)| (name.clone(), attribute_value_to_wire(value)))
+            .into_iter()
+            .map(|(name, value)| (name, attribute_value_to_wire(value)))
             .collect()
     });
     let capacity = (!device.capacity.is_empty()).then(|| {
         device
             .capacity
-            .iter()
+            .into_iter()
             .map(|(name, quantity)| {
                 (
-                    name.clone(),
+                    name,
                     resourcev1::DeviceCapacity {
                         request_policy: None,
                         value: K8sQuantity(quantity.0.to_string()),
@@ -73,7 +73,7 @@ fn pool_device_to_wire(device: &PoolDevice) -> resourcev1::Device {
             .collect()
     });
     resourcev1::Device {
-        name: device.name.clone(),
+        name: device.name,
         attributes,
         capacity,
         ..default()
@@ -81,7 +81,7 @@ fn pool_device_to_wire(device: &PoolDevice) -> resourcev1::Device {
 }
 
 fn inventory_device_to_wire(
-    inventory: &InventoryDevice,
+    inventory: InventoryDevice,
     pool_name: &str,
 ) -> kube::Result<resourcev1::Device> {
     if inventory.taints.len() > MAX_TAINTS_PER_DEVICE {
@@ -93,9 +93,9 @@ fn inventory_device_to_wire(
     let mut identities = BTreeSet::new();
     let taints = inventory
         .taints
-        .iter()
+        .into_iter()
         .map(|taint| {
-            if !identities.insert((&taint.key, taint.effect.as_str())) {
+            if !identities.insert((taint.key.clone(), taint.effect.as_str())) {
                 return Err(invalid_pool_error(
                     pool_name,
                     "has duplicate device taint keys/effects",
@@ -112,8 +112,8 @@ fn inventory_device_to_wire(
                 })
                 .transpose()?;
             Ok(resourcev1::DeviceTaint {
-                key: taint.key.clone(),
-                value: (!taint.value.is_empty()).then(|| taint.value.clone()),
+                key: taint.key,
+                value: (!taint.value.is_empty()).then_some(taint.value),
                 effect: taint.effect.as_str().to_string(),
                 time_added,
             })
@@ -121,9 +121,9 @@ fn inventory_device_to_wire(
         .collect::<kube::Result<Vec<_>>>()?;
     let mut wire = resourcev1::Device {
         taints: (!taints.is_empty()).then_some(taints),
-        ..pool_device_to_wire(&inventory.device)
+        ..pool_device_to_wire(inventory.device)
     };
-    if let Some(binding) = &inventory.binding {
+    if let Some(binding) = inventory.binding {
         for conditions in [&binding.conditions, &binding.failure_conditions] {
             if conditions.len() > MAX_BINDING_CONDITIONS_PER_DEVICE {
                 return Err(invalid_pool_error(
@@ -138,10 +138,9 @@ fn inventory_device_to_wire(
                 ));
             }
         }
-        wire.binding_conditions =
-            (!binding.conditions.is_empty()).then(|| binding.conditions.clone());
+        wire.binding_conditions = (!binding.conditions.is_empty()).then_some(binding.conditions);
         wire.binding_failure_conditions =
-            (!binding.failure_conditions.is_empty()).then(|| binding.failure_conditions.clone());
+            (!binding.failure_conditions.is_empty()).then_some(binding.failure_conditions);
         wire.binds_to_node = binding.binds_to_node.then_some(true);
     }
     Ok(wire)
@@ -302,14 +301,8 @@ impl ResourceSlicePublisher {
             .collect::<BTreeMap<_, _>>();
 
         for (pool_name, devices) in self.resource_pool.inventory().await {
-            self.reconcile_pool(
-                &resource_slices,
-                &owner,
-                &mut existing,
-                &pool_name,
-                &devices,
-            )
-            .await?;
+            self.reconcile_pool(&resource_slices, &owner, &mut existing, &pool_name, devices)
+                .await?;
         }
 
         // Desired slices were created or updated first. Deleting the
@@ -345,10 +338,10 @@ impl ResourceSlicePublisher {
         owner: &metav1::OwnerReference,
         existing: &mut BTreeMap<String, resourcev1::ResourceSlice>,
         pool_name: &str,
-        devices: &[InventoryDevice],
+        devices: Vec<InventoryDevice>,
     ) -> kube::Result<()> {
         let wire_devices = devices
-            .iter()
+            .into_iter()
             .map(|device| inventory_device_to_wire(device, pool_name))
             .collect::<kube::Result<Vec<_>>>()?;
         let mut wire_devices = canonicalize_devices(wire_devices);
@@ -372,10 +365,11 @@ impl ResourceSlicePublisher {
         } else {
             MAX_DEVICES_PER_SLICE
         };
-        let chunks = wire_devices
-            .chunks(chunk_size)
-            .map(<[resourcev1::Device]>::to_vec)
-            .collect::<Vec<_>>();
+        let mut wire_devices = wire_devices.into_iter();
+        let mut chunks = Vec::new();
+        while wire_devices.len() > 0 {
+            chunks.push(wire_devices.by_ref().take(chunk_size).collect());
+        }
         if chunks.is_empty() {
             return Ok(());
         }
@@ -502,8 +496,13 @@ fn pool_generation(
         && existing.iter().all(|(name, slice)| {
             expected.get(*name).is_some_and(|devices| {
                 slice.spec.pool.resource_slice_count == expected_count
-                    && slice.spec.devices.clone().map(canonicalize_devices)
-                        == Some((*devices).clone())
+                    && slice
+                        .spec
+                        .devices
+                        .clone()
+                        .map(canonicalize_devices)
+                        .as_ref()
+                        == Some(*devices)
             })
         });
     if unchanged && let Some(generation) = generations.first() {

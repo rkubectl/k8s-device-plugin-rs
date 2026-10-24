@@ -63,7 +63,7 @@ mod tests {
     fn parse_devices_splits_trims_and_derives_ids_from_basenames() {
         let devices = parse_devices(" /dev/widget0 , /dev/nested/widget1,/dev/widget2 ");
 
-        let ids = devices.iter().map(|d| d.id.as_str()).collect::<Vec<&str>>();
+        let ids = devices.iter().map(|d| d.id.as_str()).collect::<Vec<_>>();
         assert_eq!(ids, ["widget0", "widget1", "widget2"]);
     }
 

@@ -284,7 +284,7 @@ impl Plan {
             }
             let attributes = entry
                 .attributes
-                .iter()
+                .into_iter()
                 .map(|(k, v)| (k, resourceslice::attribute_value_to_wire(v)))
                 .collect::<BTreeMap<_, _>>();
             let requested = if device.request_names.is_empty() {
@@ -419,13 +419,13 @@ impl Plan {
                 json::to_string(&spec).map_err(io::Error::other)? + "\n",
             );
             let representative = devices
-                .keys()
+                .into_keys()
                 .next()
                 .ok_or_else(|| invalid("empty metadata request group"))?;
             wire.push(PreparedDevice {
                 request_names: vec![base],
-                pool_name: representative.0.clone(),
-                device_name: representative.1.clone(),
+                pool_name: representative.0,
+                device_name: representative.1,
                 cdi_device_ids: vec![format!("{}/metadata={id}", runtime.driver)],
             });
         }

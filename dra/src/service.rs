@@ -5,11 +5,11 @@ use tokio_stream::wrappers::UnixListenerStream;
 
 use super::*;
 
-fn claim_from_wire(claim: &dra::v1::Claim) -> ClaimRef {
+fn claim_from_wire(claim: dra::v1::Claim) -> ClaimRef {
     ClaimRef {
-        namespace: claim.namespace.clone(),
-        uid: claim.uid.clone(),
-        name: claim.name.clone(),
+        namespace: claim.namespace,
+        uid: claim.uid,
+        name: claim.name,
     }
 }
 
@@ -101,14 +101,14 @@ impl DraPluginService {
 
     async fn prepare_metadata(
         &self,
-        refs: &[ClaimRef],
+        refs: Vec<ClaimRef>,
         metadata: &Arc<metadata::MetadataRuntime>,
     ) -> BTreeMap<String, dra::v1::NodePrepareResourceResponse> {
-        let guards = Arc::new(metadata.lock_claims(refs).await);
+        let guards = Arc::new(metadata.lock_claims(&refs).await);
         let mut errors = BTreeMap::new();
         let mut objects = BTreeMap::new();
         let mut resolved = Vec::new();
-        for (claim, result) in self.resolver.resolve_all_context(refs).await {
+        for (claim, result) in self.resolver.resolve_all_context(&refs).await {
             match result {
                 Ok(context) => {
                     objects.insert(claim, context.object);
@@ -122,10 +122,10 @@ impl DraPluginService {
         let mut prepared = self.preparer.prepare_with_metadata(&resolved).await;
         let mut results = BTreeMap::new();
         for claim in refs {
-            let result = if let Some(error) = errors.remove(claim) {
+            let result = if let Some(error) = errors.remove(&claim) {
                 Err(error)
             } else {
-                match (prepared.remove(claim), objects.remove(claim)) {
+                match (prepared.remove(&claim), objects.remove(&claim)) {
                     (Some(Ok(devices)), Some(object)) => metadata
                         .publish(object, devices, Arc::clone(&guards))
                         .await
@@ -138,7 +138,7 @@ impl DraPluginService {
                     )),
                 }
             };
-            results.insert(claim.uid.clone(), node_prepare_response(result));
+            results.insert(claim.uid, node_prepare_response(result));
         }
         results
     }
@@ -193,12 +193,12 @@ impl dra::v1::DraPlugin for DraPluginService {
         let claim_refs = request
             .into_inner()
             .claims
-            .iter()
+            .into_iter()
             .map(claim_from_wire)
-            .collect::<Vec<ClaimRef>>();
+            .collect::<Vec<_>>();
 
         if let Some(metadata) = &self.metadata {
-            let claims = self.prepare_metadata(&claim_refs, metadata).await;
+            let claims = self.prepare_metadata(claim_refs, metadata).await;
             return Ok(tonic::Response::new(
                 dra::v1::NodePrepareResourcesResponse {
                     claims: claims.into_iter().collect(),
@@ -269,9 +269,9 @@ impl dra::v1::DraPlugin for DraPluginService {
         let claim_refs = request
             .into_inner()
             .claims
-            .iter()
+            .into_iter()
             .map(claim_from_wire)
-            .collect::<Vec<ClaimRef>>();
+            .collect::<Vec<_>>();
 
         let claims = futures::future::join_all(claim_refs.into_iter().map(|claim_ref| {
             let preparer = Arc::clone(&self.preparer);

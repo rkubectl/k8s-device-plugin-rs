@@ -104,6 +104,14 @@ the future phases.
 - Keep type hints next to the operation that needs them when clear, for example
   `.collect::<BTreeMap<_, _>>()` and `json::from_slice::<json::Value>(bytes)`.
   Retain annotations that clarify complex types or trait-object boundaries.
+- When a transformation owns an input that is no longer needed, consume it:
+  use `.into_iter()` and move fields rather than borrowing and cloning them.
+  Let inference supply iterator item types, such as `.collect::<Vec<_>>()`.
+  Extend this ownership through private conversion helpers and their callers;
+  keep borrowed public APIs, shared snapshots, retry state, and independently
+  owned outputs intact. Do not add clones just to fit a borrowed helper or
+  force moves that complicate an otherwise clear borrow. Clippy's
+  `redundant_clone` rule catches mechanically detectable cases.
 - Prefer standard-library helpers and direct expressions over manual glue.
   Preserve behavior, wire values, coordination filenames, and the declared
   minimum Rust version when replacing an implementation.

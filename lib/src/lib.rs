@@ -55,9 +55,9 @@ fn validate_device(device: &Device) -> Result<(), ValidationError> {
 /// before the `ListAndWatch` change-detection comparison, so a device that
 /// flaps in and out of validity doesn't cause spurious pushes of an
 /// otherwise-unchanged filtered list.
-fn valid_devices(devices: &[Device]) -> Vec<Device> {
+fn valid_devices(devices: Vec<Device>) -> Vec<Device> {
     devices
-        .iter()
+        .into_iter()
         .filter(|device| match validate_device(device) {
             Ok(()) => true,
             Err(err) => {
@@ -65,7 +65,6 @@ fn valid_devices(devices: &[Device]) -> Vec<Device> {
                 false
             }
         })
-        .cloned()
         .collect()
 }
 
@@ -339,7 +338,7 @@ impl v1beta1::DevicePlugin for DevicePluginService {
     ) -> tonic::Result<tonic::Response<Self::ListAndWatchStream>> {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
 
-        let mut last_devices = valid_devices(&self.plugin.discover().await);
+        let mut last_devices = valid_devices(self.plugin.discover().await);
         let response = v1beta1::ListAndWatchResponse {
             devices: last_devices.iter().map(device_to_proto).collect(),
         };
@@ -352,7 +351,7 @@ impl v1beta1::DevicePlugin for DevicePluginService {
             loop {
                 tokio::select! {
                     () = tokio::time::sleep(poll_interval) => {
-                        let devices = valid_devices(&plugin.discover().await);
+                        let devices = valid_devices(plugin.discover().await);
                         if !devices_equal_ignoring_order(&devices, &last_devices) {
                             tracing::debug!(device_count = devices.len(), "device state changed; pushing update");
                             let response = v1beta1::ListAndWatchResponse {
