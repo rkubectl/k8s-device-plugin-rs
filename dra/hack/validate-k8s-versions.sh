@@ -21,6 +21,7 @@ TAINT_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-taints.sh
 BINDING_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-binding.sh
 WORKLOAD_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-workload.sh
 POOL_STATUS_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-pool-status.sh
+METADATA_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-metadata.sh
 ACTIVE_CLUSTER=
 
 require_command() {
@@ -157,6 +158,12 @@ run_profile() {
         KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" JQ="$JQ" "$POOL_STATUS_SMOKE_SCRIPT"
     fi
 
+    if [[ ${DRA_E2E_METADATA:-0} == 1 ]]; then
+        local shared=0
+        if [[ "$expected_version" == v1.37.0 ]]; then shared=${DRA_E2E_METADATA_SHARED:-0}; fi
+        DRA_E2E_METADATA_SHARED="$shared" KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" CONTAINER="$CONTAINER" JQ="$JQ" "$METADATA_SMOKE_SCRIPT"
+    fi
+
     capture_driver_logs "$cluster"
     stop_if_running "$cluster"
     ACTIVE_CLUSTER=
@@ -180,6 +187,10 @@ fi
 
 if [[ ${DRA_E2E_POOL_STATUS:-0} == 1 ]]; then
     test -x "$POOL_STATUS_SMOKE_SCRIPT"
+fi
+
+if [[ ${DRA_E2E_METADATA:-0} == 1 ]]; then
+    test -x "$METADATA_SMOKE_SCRIPT"
 fi
 
 if [[ "$V136_CLUSTER" == "$V137_CLUSTER" ]]; then

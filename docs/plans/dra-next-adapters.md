@@ -175,6 +175,8 @@ scope rather than implying the entire advanced-feature roadmap is complete.
 
 The maintainer selected container metadata as the next capability and chose
 identity plus driver-selected attributes for its first implementation.
-[The separate design](dra-container-metadata.md) is tracked as `qt7.6.7`;
-implementation `qt7.6.8` follows the design discussion. Network/post-CNI and
-live updates remain deferred. The four-adapter cycle above remains complete.
+[The separate design](dra-container-metadata.md) is tracked as `qt7.6.7`.
+Implementation `qt7.6.8` completed on 2026-10-24; the
+[metadata guide](../dra-container-metadata.md) records native acceptance,
+compatible APIs and persistence/cleanup behavior. Network/post-CNI and live
+updates remain deferred. The four-adapter cycle above remains complete.

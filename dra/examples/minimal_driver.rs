@@ -19,6 +19,7 @@ use std::env;
 use std::io;
 
 use async_trait::async_trait;
+use k8s_device_plugin_core::AttributeValue;
 use k8s_device_plugin_core::ClaimPreparer;
 use k8s_device_plugin_core::ClaimRef;
 use k8s_device_plugin_core::DeviceBinding;
@@ -29,10 +30,12 @@ use k8s_device_plugin_core::InventoryDevice;
 use k8s_device_plugin_core::PoolDevice;
 use k8s_device_plugin_core::PrepareError;
 use k8s_device_plugin_core::PreparedDevice;
+use k8s_device_plugin_core::PreparedDeviceWithMetadata;
 use k8s_device_plugin_core::ResolvedClaim;
 use k8s_device_plugin_core::ResourcePool;
 use k8s_device_plugin_dra::ClaimDeviceStatus;
 use k8s_device_plugin_dra::ClaimDeviceStatusPublisher;
+use k8s_device_plugin_dra::DeviceMetadataOptions;
 use k8s_device_plugin_dra::DraPlugin;
 
 const DEFAULT_DRIVER_NAME: &str = "dra.example.com";
@@ -46,14 +49,14 @@ fn cdi_device_id(device_name: &str) -> String {
     format!("{CDI_KIND}={device_name}")
 }
 
-async fn write_cdi_spec(devices: &[PoolDevice]) -> io::Result<()> {
+async fn write_cdi_spec(devices: &[PoolDevice], metadata: bool) -> io::Result<()> {
     let spec = serde_json::json!({
         "cdiVersion": "0.8.0",
         "kind": CDI_KIND,
         "devices": devices.iter().map(|device| serde_json::json!({
             "name": device.name,
             "containerEdits": {
-                "env": [format!("DRA_E2E_DEVICE={}", device.name)],
+                "env": if metadata { vec![format!("DRA_E2E_DEVICE={}", device.name), format!("DRA_METADATA_PHYSICAL_{}=present",device.name.replace('-', "_"))] } else {vec![format!("DRA_E2E_DEVICE={}", device.name)]},
             },
         })).collect::<Vec<_>>(),
     });
@@ -196,6 +199,36 @@ impl ClaimPreparer for StaticDraDriver {
         results
     }
 
+    async fn prepare_with_metadata(
+        &self,
+        claims: &[ResolvedClaim],
+    ) -> BTreeMap<ClaimRef, Result<Vec<PreparedDeviceWithMetadata>, PrepareError>> {
+        self.prepare(claims)
+            .await
+            .into_iter()
+            .map(|(claim, result)| {
+                (
+                    claim,
+                    result.map(|devices| {
+                        devices
+                            .into_iter()
+                            .map(|device| {
+                                let attributes = self
+                                    .devices
+                                    .iter()
+                                    .find(|source| source.name == device.device_name)
+                                    .map_or_else(BTreeMap::new, |source| source.attributes.clone());
+                                let mut metadata = PreparedDeviceWithMetadata::new(device);
+                                metadata.attributes = attributes;
+                                metadata
+                            })
+                            .collect()
+                    }),
+                )
+            })
+            .collect()
+    }
+
     async fn unprepare(&self, claim: &ClaimRef) -> Result<(), PrepareError> {
         tracing::info!(
             claim_namespace = %claim.namespace,
@@ -221,7 +254,25 @@ async fn main() -> io::Result<()> {
 
     let driver_name = env_or_default("DRIVER_NAME", DEFAULT_DRIVER_NAME);
     let pool_name = env_or_default("POOL_NAME", DEFAULT_POOL_NAME);
-    let devices = parse_device_names(&env_or_default("DEVICE_NAMES", DEFAULT_DEVICE_NAMES));
+    let metadata_enabled = match env_or_default("DRA_EXAMPLE_DEVICE_METADATA", "0").as_str() {
+        "0" => false,
+        "1" => true,
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "DRA_EXAMPLE_DEVICE_METADATA must be 0 or 1",
+            ));
+        }
+    };
+    let mut devices = parse_device_names(&env_or_default("DEVICE_NAMES", DEFAULT_DEVICE_NAMES));
+    if metadata_enabled {
+        for device in &mut devices {
+            device.attributes.insert(
+                "model".into(),
+                AttributeValue::String("validation-widget".into()),
+            );
+        }
+    }
     let taint = env::var("DRA_EXAMPLE_TAINT_EFFECT")
         .ok()
         .map(|value| parse_taint_effect(&value))
@@ -248,7 +299,7 @@ async fn main() -> io::Result<()> {
     if devices.is_empty() {
         tracing::warn!("no DEVICE_NAMES configured -- publishing an empty ResourceSlice");
     }
-    write_cdi_spec(&devices).await?;
+    write_cdi_spec(&devices, metadata_enabled).await?;
     tracing::info!(
         %driver_name,
         %pool_name,
@@ -266,6 +317,11 @@ async fn main() -> io::Result<()> {
         .with_taint(taint)
         .with_binding(binding);
     let plugin = DraPlugin::new(client, driver_name.clone(), node_name, driver);
+    let plugin = if metadata_enabled {
+        plugin.with_device_metadata(DeviceMetadataOptions::v1beta1())?
+    } else {
+        plugin
+    };
     plugin.run().await
 }
 

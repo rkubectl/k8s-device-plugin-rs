@@ -7,10 +7,11 @@ its allocated devices from standard read-only JSON files inside its container,
 without Kubernetes API credentials. A container sees only metadata associated
 with the claim requests it consumes.
 
-Status: proposed design, 2026-10-23. Design task `qt7.6.7`; implementation
-`qt7.6.8`. The maintainer selected **device identity and attributes first**.
-This document describes future APIs; none of the proposed APIs exists yet.
-Implementation is a separate step after the design discussion.
+Design selected on 2026-10-23; implementation accepted on 2026-10-24.
+Design task `qt7.6.7`; implementation `qt7.6.8`. The maintainer selected
+**device identity and attributes first** and explicitly authorized execution.
+The [integration guide](../dra-container-metadata.md) describes the resulting
+API and validation evidence. The phases below retain the design rationale.
 
 ## Phase 0: Protocol and source discovery
 
@@ -97,11 +98,11 @@ one coherent result; the runtime does not call both preparation methods.
 
 Add a fallible `DraPlugin::with_device_metadata(options)` builder and matching
 service configuration. Metadata is disabled by default. When enabled, the
-service invokes only `prepare_with_metadata`; otherwise it follows today's
-`prepare` path. Options explicitly select `V1Beta1` and configure the CDI
-output directory, default `/var/run/cdi`. Unsupported/empty version selection
-fails before socket registration or backend side effects. Initial support is
-**beta only**, not an implicit latest-version alias or alpha compatibility.
+service invokes only `prepare_with_metadata`; otherwise it follows the existing
+`prepare` path. `DeviceMetadataOptions::v1beta1()` explicitly selects the
+implemented beta version, making empty/unsupported version lists
+unrepresentable. Options configure the CDI output directory, default
+`/var/run/cdi`; there is no implicit latest-version alias or alpha encoding.
 The wrapper retains current resource-health configuration and re-exports
 through the unified crate.
 
@@ -251,8 +252,9 @@ creation of two active mutexes for a UID during lock-registry pruning.
 
 Persist an owned manifest with claim identity, canonical snapshot and planned
 artifact paths before publishing CDI references. Use create-new private
-staging and atomic publication for initial unmounted files; publish CDI last,
-then mark the manifest ready. Never replace a ready metadata source just to
+staging and atomic publication for initial unmounted files; publish CDI last.
+The immutable complete journal plus create-only publication is sufficient for
+retry/restart replay; a separate mutable ready flag adds no invariant. Never replace a ready metadata source just to
 make retries appear atomic. A pending manifest supports replay after a crash
 between metadata and CDI publication. Filesystem work that needs no-follow
 or durable create/rename semantics may use a bounded `spawn_blocking` helper;
@@ -274,9 +276,9 @@ and a subsequent unprepare retries it. Cleanup uses the supplied UID and
 owned manifest, without requiring the ResourceClaim still to exist. A stale
 unprepare for an old UID cannot remove a new claim's artifacts.
 
-On restart inspect only manifests under the configured private root. Validate
+After restart retain manifests under the configured private root. Validate
 record identity/paths and reconstruct or finish that UID's transaction when
-its operation is retried. Do not globally glob-delete CDI files or discard
+its operation is retried; no startup sweep assumes kubelet will replay prepare. Do not globally glob-delete CDI files or discard
 unknown active claims. Ambiguous/corrupt records produce actionable errors;
 they do not authorize cleanup outside the owned UID directory. Disabling the
 feature must not silently delete previous metadata while consumers may still
@@ -361,3 +363,18 @@ attribute mechanism and is not a prerequisite.
 The selected scope is sufficient to implement and validate the generic adapter.
 A real application's attribute keys remain a backend contract; the framework
 does not standardize vendor-specific attributes beyond existing DRA rules.
+
+## Implementation outcome — 2026-10-24
+
+`qt7.6.8` implemented the selected identity/scalar-attribute contract. The
+[integration guide](../dra-container-metadata.md#validation-evidence--2026-10-24)
+records source/API boundaries, full CI, both pinned native profiles, shared
+claim lifetime and final-image journal-version validation.
+
+The protocol feasibility gate passed on both standard profiles. The final
+API uses `DeviceMetadataOptions::v1beta1()` instead of accepting invalid version
+lists. Persistence uses an immutable version-1 journal and create-only atomic
+publication rather than a mutable ready flag. Existing public struct layouts
+and the default preparation path remain intact. `rustix`/`semver` reuse already
+locked versions; no existing dependency version changed. Network data, live
+updates and the other deferred capabilities remain outside this completion.

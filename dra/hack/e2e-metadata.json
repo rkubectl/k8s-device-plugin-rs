@@ -1,0 +1,160 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "resource.k8s.io/v1",
+      "kind": "DeviceClass",
+      "metadata": {
+        "name": "dra-example-metadata"
+      },
+      "spec": {
+        "selectors": [
+          {
+            "cel": {
+              "expression": "device.driver == \"dra.example.com\""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "resource.k8s.io/v1",
+      "kind": "ResourceClaim",
+      "metadata": {
+        "name": "dra-example-metadata",
+        "namespace": "k8s-device-plugin-dra-example"
+      },
+      "spec": {
+        "devices": {
+          "requests": [
+            {
+              "name": "a",
+              "exactly": {
+                "deviceClassName": "dra-example-metadata"
+              }
+            },
+            {
+              "name": "b",
+              "exactly": {
+                "deviceClassName": "dra-example-metadata"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "dra-example-metadata",
+        "namespace": "k8s-device-plugin-dra-example"
+      },
+      "spec": {
+        "automountServiceAccountToken": false,
+        "restartPolicy": "Never",
+        "terminationGracePeriodSeconds": 1,
+        "containers": [
+          {
+            "name": "a",
+            "image": "busybox:1.37",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-ec",
+              "set -eu\ncount=$(env | grep -c \"^DRA_METADATA_PHYSICAL_\" || true)\ntest \"$count\" -eq 1\ntest -r \"$DRA_METADATA_BASE/a/dra.example.com-metadata.json\"\ngrep -F '\"apiVersion\":\"metadata.resource.k8s.io/v1beta1\"' \"$DRA_METADATA_BASE/a/dra.example.com-metadata.json\"\ngrep -F '\"model\":{\"string\":\"validation-widget\"}' \"$DRA_METADATA_BASE/a/dra.example.com-metadata.json\"\ntest ! -e \"$DRA_METADATA_BASE/b/dra.example.com-metadata.json\"\necho \"metadata a passed\"\nsleep 3600"
+            ],
+            "env": [
+              {
+                "name": "DRA_METADATA_BASE",
+                "value": "/var/run/kubernetes.io/dra-device-attributes/resourceclaims/dra-example-metadata"
+              }
+            ],
+            "securityContext": {
+              "runAsUser": 1000,
+              "runAsGroup": 1000
+            },
+            "resources": {
+              "claims": [
+                {
+                  "name": "widgets",
+                  "request": "a"
+                }
+              ]
+            }
+          },
+          {
+            "name": "b",
+            "image": "busybox:1.37",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-ec",
+              "set -eu\ncount=$(env | grep -c \"^DRA_METADATA_PHYSICAL_\" || true)\ntest \"$count\" -eq 1\ntest ! -e \"$DRA_METADATA_BASE/a/dra.example.com-metadata.json\"\ntest -r \"$DRA_METADATA_BASE/b/dra.example.com-metadata.json\"\ngrep -F '\"apiVersion\":\"metadata.resource.k8s.io/v1beta1\"' \"$DRA_METADATA_BASE/b/dra.example.com-metadata.json\"\ngrep -F '\"model\":{\"string\":\"validation-widget\"}' \"$DRA_METADATA_BASE/b/dra.example.com-metadata.json\"\necho \"metadata b passed\"\nsleep 3600"
+            ],
+            "env": [
+              {
+                "name": "DRA_METADATA_BASE",
+                "value": "/var/run/kubernetes.io/dra-device-attributes/resourceclaims/dra-example-metadata"
+              }
+            ],
+            "resources": {
+              "claims": [
+                {
+                  "name": "widgets",
+                  "request": "b"
+                }
+              ]
+            }
+          },
+          {
+            "name": "all",
+            "image": "busybox:1.37",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-ec",
+              "set -eu\ncount=$(env | grep -c \"^DRA_METADATA_PHYSICAL_\" || true)\ntest \"$count\" -eq 2\ntest -r \"$DRA_METADATA_BASE/a/dra.example.com-metadata.json\"\ngrep -F '\"apiVersion\":\"metadata.resource.k8s.io/v1beta1\"' \"$DRA_METADATA_BASE/a/dra.example.com-metadata.json\"\ngrep -F '\"model\":{\"string\":\"validation-widget\"}' \"$DRA_METADATA_BASE/a/dra.example.com-metadata.json\"\nif (echo broken > \"$DRA_METADATA_BASE/a/dra.example.com-metadata.json\"); then exit 17; fi\ntest -r \"$DRA_METADATA_BASE/b/dra.example.com-metadata.json\"\ngrep -F '\"apiVersion\":\"metadata.resource.k8s.io/v1beta1\"' \"$DRA_METADATA_BASE/b/dra.example.com-metadata.json\"\ngrep -F '\"model\":{\"string\":\"validation-widget\"}' \"$DRA_METADATA_BASE/b/dra.example.com-metadata.json\"\nif (echo broken > \"$DRA_METADATA_BASE/b/dra.example.com-metadata.json\"); then exit 17; fi\necho \"metadata all passed\"\nsleep 3600"
+            ],
+            "env": [
+              {
+                "name": "DRA_METADATA_BASE",
+                "value": "/var/run/kubernetes.io/dra-device-attributes/resourceclaims/dra-example-metadata"
+              }
+            ],
+            "resources": {
+              "claims": [
+                {
+                  "name": "widgets"
+                }
+              ]
+            }
+          },
+          {
+            "name": "none",
+            "image": "busybox:1.37",
+            "imagePullPolicy": "IfNotPresent",
+            "command": [
+              "sh",
+              "-ec",
+              "set -eu\ncount=$(env | grep -c \"^DRA_METADATA_PHYSICAL_\" || true)\ntest \"$count\" -eq 0\ntest ! -e \"$DRA_METADATA_BASE/a/dra.example.com-metadata.json\"\ntest ! -e \"$DRA_METADATA_BASE/b/dra.example.com-metadata.json\"\necho \"metadata none passed\"\nsleep 3600"
+            ],
+            "env": [
+              {
+                "name": "DRA_METADATA_BASE",
+                "value": "/var/run/kubernetes.io/dra-device-attributes/resourceclaims/dra-example-metadata"
+              }
+            ]
+          }
+        ],
+        "resourceClaims": [
+          {
+            "name": "widgets",
+            "resourceClaimName": "dra-example-metadata"
+          }
+        ]
+      }
+    }
+  ]
+}

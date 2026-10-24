@@ -277,6 +277,9 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
    [Resource-pool status](dra-pool-status.md) now supplies an opt-in client and
    verified controller snapshots on that profile. The four selected adapters
    and remaining deferred scope are recorded in [the tracked plan](plans/dra-next-adapters.md).
+   The next selected [container-metadata adapter](dra-container-metadata.md)
+   adds opt-in read-only identity and scalar attributes, preserving current
+   preparation APIs and default behavior.
 
 ## Deployment note: no rolling updates in Phase 1
 

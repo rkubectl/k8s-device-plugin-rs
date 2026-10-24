@@ -23,6 +23,7 @@ pub use dra::InventoryDevice;
 pub use dra::PoolDevice;
 pub use dra::PrepareError;
 pub use dra::PreparedDevice;
+pub use dra::PreparedDeviceWithMetadata;
 pub use dra::Quantity;
 pub use dra::ResolvedClaim;
 #[cfg(feature = "resource-health")]

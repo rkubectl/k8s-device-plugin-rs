@@ -26,6 +26,13 @@ impl fmt::Debug for ClaimResolver {
     }
 }
 
+/// Metadata retains the original UID-checked object instead of fetching it again.
+#[derive(Debug)]
+pub(crate) struct ResolvedClaimContext {
+    pub resolved: ResolvedClaim,
+    pub object: resourcev1::ResourceClaim,
+}
+
 impl ClaimResolver {
     pub fn new(client: kube::Client) -> Self {
         Self {
@@ -57,6 +64,15 @@ impl ClaimResolver {
 
     /// Resolves one claim reference to what the scheduler actually allocated.
     pub async fn resolve(&self, claim_ref: &ClaimRef) -> Result<ResolvedClaim, PrepareError> {
+        self.resolve_context(claim_ref)
+            .await
+            .map(|context| context.resolved)
+    }
+
+    async fn resolve_context(
+        &self,
+        claim_ref: &ClaimRef,
+    ) -> Result<ResolvedClaimContext, PrepareError> {
         let api = self.client.resource_claims(claim_ref);
         let mut attempt = 0;
         let claim = loop {
@@ -111,9 +127,12 @@ impl ClaimResolver {
             })
             .collect();
 
-        Ok(ResolvedClaim {
-            claim: claim_ref.clone(),
-            devices,
+        Ok(ResolvedClaimContext {
+            resolved: ResolvedClaim {
+                claim: claim_ref.clone(),
+                devices,
+            },
+            object: claim,
         })
     }
 
@@ -125,9 +144,20 @@ impl ClaimResolver {
         &self,
         claim_refs: &[ClaimRef],
     ) -> Vec<(ClaimRef, Result<ResolvedClaim, PrepareError>)> {
+        self.resolve_all_context(claim_refs)
+            .await
+            .into_iter()
+            .map(|(claim, result)| (claim, result.map(|context| context.resolved)))
+            .collect()
+    }
+
+    pub(crate) async fn resolve_all_context(
+        &self,
+        claim_refs: &[ClaimRef],
+    ) -> Vec<(ClaimRef, Result<ResolvedClaimContext, PrepareError>)> {
         let mut resolved = futures::stream::iter(claim_refs.iter().cloned().enumerate())
             .map(|(index, claim_ref)| async move {
-                let result = self.resolve(&claim_ref).await;
+                let result = self.resolve_context(&claim_ref).await;
                 (index, claim_ref, result)
             })
             .buffer_unordered(self.max_concurrent_resolves)

@@ -49,6 +49,7 @@ pub use device_status::ClaimDeviceStatusPublishOutcome;
 pub use device_status::ClaimDeviceStatusPublisher;
 pub use ext::KubeClientExt;
 pub use health::DraPluginLivenessProbe;
+pub use metadata::DeviceMetadataOptions;
 pub use pool_status::{PoolStatusClient, PoolStatusError, PoolStatusQuery};
 pub use registration::DraRegistrationServer;
 #[cfg(feature = "resource-health")]
@@ -60,6 +61,7 @@ mod claim;
 mod device_status;
 mod ext;
 mod health;
+mod metadata;
 mod pool_status;
 mod registration;
 #[cfg(feature = "resource-health")]
@@ -157,6 +159,15 @@ impl DraPlugin {
             service,
             publisher,
         }
+    }
+
+    /// Enables read-only container metadata using an explicitly selected
+    /// protocol. The default lifecycle creates no metadata artifacts.
+    pub fn with_device_metadata(mut self, options: DeviceMetadataOptions) -> io::Result<Self> {
+        self.service = self
+            .service
+            .with_device_metadata(self.driver_name.clone(), options)?;
+        Ok(self)
     }
 
     /// Creates a DRA plugin that also serves the opt-in resource-health

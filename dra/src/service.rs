@@ -64,6 +64,7 @@ async fn setup_listener(socket_path: &Path) -> io::Result<UnixListenerStream> {
 pub struct DraPluginService {
     resolver: ClaimResolver,
     preparer: Arc<dyn ClaimPreparer>,
+    metadata: Option<Arc<metadata::MetadataRuntime>>,
     #[cfg(feature = "resource-health")]
     health: DraResourceHealthService,
 }
@@ -79,9 +80,81 @@ impl DraPluginService {
         Self {
             resolver,
             preparer: Arc::new(preparer),
+            metadata: None,
             #[cfg(feature = "resource-health")]
             health: DraResourceHealthService::unsupported(),
         }
+    }
+
+    /// Enables standard beta container metadata. No files are written until a
+    /// claim is prepared. Existing health configuration remains in effect.
+    pub fn with_device_metadata(
+        mut self,
+        driver_name: impl Into<String>,
+        options: DeviceMetadataOptions,
+    ) -> io::Result<Self> {
+        self.metadata = Some(Arc::new(metadata::MetadataRuntime::new(
+            driver_name.into(),
+            options,
+        )?));
+        Ok(self)
+    }
+
+    async fn prepare_metadata(
+        &self,
+        refs: &[ClaimRef],
+        metadata: &Arc<metadata::MetadataRuntime>,
+    ) -> BTreeMap<String, dra::v1::NodePrepareResourceResponse> {
+        let guards = match metadata.lock_claims(refs).await {
+            Ok(guards) => Arc::new(guards),
+            Err(error) => {
+                return refs
+                    .iter()
+                    .map(|claim| {
+                        (
+                            claim.uid.clone(),
+                            node_prepare_response(Err(PrepareError::HookFailed(error.to_string()))),
+                        )
+                    })
+                    .collect();
+            }
+        };
+        let mut errors = BTreeMap::new();
+        let mut objects = BTreeMap::new();
+        let mut resolved = Vec::new();
+        for (claim, result) in self.resolver.resolve_all_context(refs).await {
+            match result {
+                Ok(context) => {
+                    objects.insert(claim, context.object);
+                    resolved.push(context.resolved);
+                }
+                Err(error) => {
+                    errors.insert(claim, error);
+                }
+            }
+        }
+        let mut prepared = self.preparer.prepare_with_metadata(&resolved).await;
+        let mut results = BTreeMap::new();
+        for claim in refs {
+            let result = if let Some(error) = errors.remove(claim) {
+                Err(error)
+            } else {
+                match (prepared.remove(claim), objects.remove(claim)) {
+                    (Some(Ok(devices)), Some(object)) => metadata
+                        .publish(object, devices, Arc::clone(&guards))
+                        .await
+                        .map_err(|error| {
+                            PrepareError::HookFailed(format!("container metadata: {error}"))
+                        }),
+                    (Some(Err(error)), _) => Err(error),
+                    _ => Err(PrepareError::HookFailed(
+                        "claim preparer returned no result for this claim".into(),
+                    )),
+                }
+            };
+            results.insert(claim.uid.clone(), node_prepare_response(result));
+        }
+        results
     }
 
     #[cfg(feature = "resource-health")]
@@ -137,6 +210,15 @@ impl dra::v1::DraPlugin for DraPluginService {
             .iter()
             .map(claim_from_wire)
             .collect();
+
+        if let Some(metadata) = &self.metadata {
+            let claims = self.prepare_metadata(&claim_refs, metadata).await;
+            return Ok(tonic::Response::new(
+                dra::v1::NodePrepareResourcesResponse {
+                    claims: claims.into_iter().collect(),
+                },
+            ));
+        }
 
         // `ClaimResolver::resolve_all` already resolves a batch
         // concurrently via `futures::future::join_all` -- reused directly
@@ -207,12 +289,32 @@ impl dra::v1::DraPlugin for DraPluginService {
 
         let claims = futures::future::join_all(claim_refs.into_iter().map(|claim_ref| {
             let preparer = Arc::clone(&self.preparer);
+            let metadata = self.metadata.clone();
             async move {
-                let error = preparer
-                    .unprepare(&claim_ref)
-                    .await
-                    .err()
-                    .map_or_default(|err| err.to_string());
+                let result = async {
+                    let guards = if let Some(metadata) = &metadata {
+                        Some(Arc::new(
+                            metadata
+                                .lock_claims(std::slice::from_ref(&claim_ref))
+                                .await
+                                .map_err(|e| PrepareError::HookFailed(e.to_string()))?,
+                        ))
+                    } else {
+                        None
+                    };
+                    preparer.unprepare(&claim_ref).await?;
+                    if let (Some(metadata), Some(guards)) = (metadata, guards) {
+                        metadata
+                            .cleanup(claim_ref.clone(), guards)
+                            .await
+                            .map_err(|e| {
+                                PrepareError::HookFailed(format!("container metadata cleanup: {e}"))
+                            })?;
+                    }
+                    Ok::<(), PrepareError>(())
+                }
+                .await;
+                let error = result.err().map_or_default(|error| error.to_string());
                 (
                     claim_ref.uid,
                     dra::v1::NodeUnprepareResourceResponse { error },

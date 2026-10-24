@@ -208,6 +208,7 @@ The example reads these environment variables:
 | `POOL_NAME` | `widget-pool` | Resource pool advertised by the `ResourceSlice`. |
 | `DEVICE_NAMES` | `widget-0` | Comma-separated static device names. |
 | `NODE_NAME` | *(required)* | Kubernetes node that owns the published `ResourceSlice`. |
+| `DRA_EXAMPLE_DEVICE_METADATA` | `0` | Set `1` to expose validation identity/attributes through read-only CDI files. |
 | `DRA_EXAMPLE_BINDING_CONDITIONS` | `0` | Set `1` to require simulated external attachment readiness before binding. |
 | `DRA_EXAMPLE_TAINT_EFFECT` | *(unset)* | Optional fake-device maintenance policy: `None`, `NoSchedule`, or `NoExecute`. |
 | `RUST_LOG` | *(unset)* | Standard `tracing-subscriber` filter, for example `info`. |
@@ -224,6 +225,12 @@ conditions while reporting data.
 For controller-calculated pool snapshots, see [resource-pool status](../docs/dra-pool-status.md)
 and the explicit `PoolStatusClient`/`pool_status` example. The alpha API is
 discovered on demand and does not change the node-driver lifecycle.
+
+For standard read-only identity and attributes inside consuming containers,
+see [container device metadata](../docs/dra-container-metadata.md). Enable
+`DeviceMetadataOptions::v1beta1()` explicitly and override
+`ClaimPreparer::prepare_with_metadata` to select backend attributes; existing
+preparation APIs and struct literals remain compatible.
 
 For the opt-in resource-health protocol, see the standalone
 [`examples/resource_health_reporter.rs`](examples/resource_health_reporter.rs)
@@ -393,6 +400,9 @@ and `DRA_E2E_WORKLOAD=1` with the isolated advanced profile. Its configuration
 transforms are tested with `mise run dra-test-profile-config`.
 Use `DRA_E2E_POOL_STATUS=1` on that profile for the
 [resource-pool count fixture](../docs/dra-pool-status.md).
+Use `DRA_E2E_METADATA=1` for the native
+[metadata fixture](../docs/dra-container-metadata.md), with
+`DRA_E2E_METADATA_SHARED=1` on the advanced v1.37 profile to include shared claims.
 Set `DRA_E2E_SKIP_BUILD=1` only when the
 current local `docker.io/library/k8s-device-plugin-dra-example:latest` image
 has already been built.

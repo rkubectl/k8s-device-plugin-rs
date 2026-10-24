@@ -26,7 +26,7 @@ fn slice_name(driver_name: &str, node_name: &str, pool_name: &str, index: usize)
     }
 }
 
-fn attribute_value_to_wire(value: &AttributeValue) -> resourcev1::DeviceAttribute {
+pub(crate) fn attribute_value_to_wire(value: &AttributeValue) -> resourcev1::DeviceAttribute {
     match value {
         AttributeValue::String(s) => resourcev1::DeviceAttribute {
             string: Some(s.clone()),

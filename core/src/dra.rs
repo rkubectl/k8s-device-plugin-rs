@@ -132,6 +132,31 @@ pub struct PreparedDevice {
     pub cdi_device_ids: Vec<String>,
 }
 
+/// One preparation result with explicitly selected, public container metadata.
+/// Existing [`PreparedDevice`] literals remain source-compatible.
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct PreparedDeviceWithMetadata {
+    pub device: PreparedDevice,
+    pub attributes: BTreeMap<String, AttributeValue>,
+}
+
+impl PreparedDeviceWithMetadata {
+    #[must_use]
+    pub fn new(device: PreparedDevice) -> Self {
+        Self {
+            device,
+            attributes: BTreeMap::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_attribute(mut self, name: impl Into<String>, value: AttributeValue) -> Self {
+        self.attributes.insert(name.into(), value);
+        self
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PrepareError {
     #[error("claim is not allocated: {0:?}")]
@@ -168,6 +193,30 @@ pub trait ClaimPreparer: Send + Sync {
         claims: &[ResolvedClaim],
     ) -> BTreeMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>>;
 
+    /// Opt-in metadata preparation. The default calls the ordinary preparation
+    /// method once for the batch and exposes device identity only. Override
+    /// this to select attributes from the same coherent preparation result.
+    async fn prepare_with_metadata(
+        &self,
+        claims: &[ResolvedClaim],
+    ) -> BTreeMap<ClaimRef, Result<Vec<PreparedDeviceWithMetadata>, PrepareError>> {
+        self.prepare(claims)
+            .await
+            .into_iter()
+            .map(|(claim, result)| {
+                (
+                    claim,
+                    result.map(|devices| {
+                        devices
+                            .into_iter()
+                            .map(PreparedDeviceWithMetadata::new)
+                            .collect()
+                    }),
+                )
+            })
+            .collect()
+    }
+
     async fn unprepare(&self, claim: &ClaimRef) -> Result<(), PrepareError>;
 }
 
@@ -193,6 +242,13 @@ impl<T: ClaimPreparer + ?Sized> ClaimPreparer for Arc<T> {
         claims: &[ResolvedClaim],
     ) -> BTreeMap<ClaimRef, Result<Vec<PreparedDevice>, PrepareError>> {
         (**self).prepare(claims).await
+    }
+
+    async fn prepare_with_metadata(
+        &self,
+        claims: &[ResolvedClaim],
+    ) -> BTreeMap<ClaimRef, Result<Vec<PreparedDeviceWithMetadata>, PrepareError>> {
+        (**self).prepare_with_metadata(claims).await
     }
 
     async fn unprepare(&self, claim: &ClaimRef) -> Result<(), PrepareError> {

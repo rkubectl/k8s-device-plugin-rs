@@ -925,6 +925,8 @@ dependencies = [
  "k8s-device-plugin-test",
  "k8s-openapi",
  "kube",
+ "rustix",
+ "semver",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",

@@ -23,6 +23,8 @@ prometheus_exporter = "0.8"
 prost = "0.14"
 protox = "0.10"
 serde_json = "1.0"
+rustix = { version = "1.1.5", features = ["fs"] }
+semver = "1.0.28"
 tempfile = "3.27"
 thiserror = "2.0"
 tokio = { version = "1.52", features = ["macros"] }

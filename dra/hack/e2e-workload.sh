@@ -31,6 +31,15 @@ cleanup() {
     exit "$result"
 }
 claim_json() { kubectl_run -n "$NAMESPACE" get "resourceclaim/$CLAIM_NAME" -o json; }
+assert_metadata() {
+    local pod=$1 object base
+    object=$(claim_json)
+    base=$("$JQ" -er '.metadata.annotations["resource.kubernetes.io/pod-claim-name"] as $local |
+        if ($local // "") != "" then "resourceclaimtemplates/" + $local else "resourceclaims/" + .metadata.name end' <<< "$object")
+    kubectl_run -n "$NAMESPACE" exec "$pod" -- cat "/var/run/kubernetes.io/dra-device-attributes/$base/widget/dra.example.com-metadata.json" |
+        "$JQ" -e --arg uid "$CLAIM_UID" '.metadata.uid == $uid and .requests[0].name == "widget" and
+            all(.requests[0].devices[]; .attributes.model.string == "validation-widget")' >/dev/null
+}
 assert_group_reservation() {
     claim_json | "$JQ" -e --arg uid "$CLAIM_UID" --arg group_uid "$GROUP_UID" '
         .metadata.uid == $uid and
@@ -56,6 +65,7 @@ wait_unprepared() {
 
 command -v "$KUBECTL" >/dev/null
 command -v "$JQ" >/dev/null
+if [[ ${DRA_E2E_WORKLOAD_METADATA:-0} == 1 ]]; then command -v "${CONTAINER:-container}" >/dev/null; fi
 kubectl_run get --raw /apis/scheduling.k8s.io/v1beta1 |
     "$JQ" -e 'any(.resources[]; .name == "podgroups") and any(.resources[]; .name == "workloads")' >/dev/null
 test -z "$(kubectl_run get -f "$FIXTURE" --ignore-not-found -o name)"
@@ -77,6 +87,7 @@ printf 'PodGroup UID %s generated shared claim %s (UID %s)\n' "$GROUP_UID" "$CLA
 for index in 1 2; do
     kubectl_run -n "$NAMESPACE" wait --for=condition=Ready "pod/${NAME}-${index}" --timeout=180s
     kubectl_run -n "$NAMESPACE" logs "pod/${NAME}-${index}" | grep -F 'DRA_E2E_DEVICE=widget-0'
+    if [[ ${DRA_E2E_WORKLOAD_METADATA:-0} == 1 ]]; then assert_metadata "${NAME}-${index}"; fi
     kubectl_run -n "$NAMESPACE" get "pod/${NAME}-${index}" -o json |
         "$JQ" -e --arg claim "$CLAIM_NAME" 'any(.status.resourceClaimStatuses[]?;
             .name == "widget" and .resourceClaimName == $claim)' >/dev/null
@@ -95,8 +106,16 @@ for attempt in {1..5}; do
     sleep 2
 done
 kubectl_run -n "$NAMESPACE" exec "pod/${NAME}-2" -- sh -ec 'test "$DRA_E2E_DEVICE" = "widget-0"'
+if [[ ${DRA_E2E_WORKLOAD_METADATA:-0} == 1 ]]; then assert_metadata "${NAME}-2"; fi
 kubectl_run -n "$NAMESPACE" delete "pod/${NAME}-2" --wait=true --timeout=180s
 wait_unprepared
+if [[ ${DRA_E2E_WORKLOAD_METADATA:-0} == 1 ]]; then
+    for attempt in {1..60}; do
+        if "${CONTAINER:-container}" exec "$KUBE_CONTEXT" test ! -e "/var/lib/kubelet/plugins/dra.example.com/dra-device-metadata/$CLAIM_UID"; then break; fi
+        sleep 2
+    done
+    "${CONTAINER:-container}" exec "$KUBE_CONTEXT" test ! -e "/var/lib/kubelet/plugins/dra.example.com/dra-device-metadata/$CLAIM_UID"
+fi
 kubectl_run -n "$NAMESPACE" delete "podgroup/$NAME" --wait=true --timeout=180s
 kubectl_run -n "$NAMESPACE" wait --for=delete "resourceclaim/$CLAIM_NAME" --timeout=180s
 printf 'Workload ResourceClaims shared lifecycle smoke passed\n'

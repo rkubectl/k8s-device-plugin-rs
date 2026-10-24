@@ -29,6 +29,8 @@ pub use k8s_device_plugin_dra::ClaimDeviceStatusPublisher;
 #[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra::ClaimResolver;
 #[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra::DeviceMetadataOptions;
+#[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra::DraPlugin;
 #[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra::DraPluginLivenessProbe;
