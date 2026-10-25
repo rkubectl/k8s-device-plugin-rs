@@ -14,8 +14,20 @@ fn claim_from_wire(claim: dra::v1::Claim) -> ClaimRef {
 }
 
 fn prepared_device_to_wire(device: PreparedDevice) -> dra::v1::Device {
+    let request_names = device
+        .request_names
+        .into_iter()
+        .map(|mut name| {
+            if let Some(index) = name.find('/') {
+                name.truncate(index);
+            }
+            name
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     dra::v1::Device {
-        request_names: device.request_names,
+        request_names,
         pool_name: device.pool_name,
         device_name: device.device_name,
         cdi_device_ids: device.cdi_device_ids,
@@ -41,13 +53,13 @@ fn node_prepare_response(
 /// The `DRAPlugin` gRPC service's own socket path -- shared with the
 /// lifecycle harness (`DraPlugin::new`, crate root), which needs the same
 /// path to advertise as the registration server's `GetInfo.endpoint`.
-pub(crate) fn plugin_socket_path(driver_name: &str) -> PathBuf {
-    Path::new(dra::KUBELET_PLUGINS_PATH)
+pub(crate) fn plugin_socket_path(driver_name: &str) -> Utf8PathBuf {
+    Utf8Path::new(dra::KUBELET_PLUGINS_PATH)
         .join(driver_name)
         .join("plugin.sock")
 }
 
-async fn setup_listener(socket_path: &Path) -> io::Result<UnixListenerStream> {
+async fn setup_listener(socket_path: &Utf8Path) -> io::Result<UnixListenerStream> {
     let socket_path = socket_path.to_path_buf();
     let listener =
         task::spawn_blocking(move || k8s_device_plugin_core::bind_unix_listener(&socket_path))
@@ -92,8 +104,12 @@ impl DraPluginService {
         driver_name: impl Into<String>,
         options: DeviceMetadataOptions,
     ) -> io::Result<Self> {
+        let driver_name = driver_name.into();
+        self.resolver
+            .validate_identity(&driver_name)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         self.metadata = Some(Arc::new(metadata::MetadataRuntime::new(
-            driver_name.into(),
+            driver_name,
             options,
         )?));
         Ok(self)
@@ -165,12 +181,15 @@ impl DraPluginService {
         self,
         driver_name: &str,
     ) -> io::Result<task::JoinHandle<Result<(), transport::Error>>> {
+        self.resolver
+            .validate_identity(driver_name)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         self.spawn_at(&plugin_socket_path(driver_name)).await
     }
 
     pub(crate) async fn spawn_at(
         self,
-        socket_path: &Path,
+        socket_path: &Utf8Path,
     ) -> io::Result<task::JoinHandle<Result<(), transport::Error>>> {
         let incoming = setup_listener(socket_path).await?;
         let mut router = transport::Server::builder();

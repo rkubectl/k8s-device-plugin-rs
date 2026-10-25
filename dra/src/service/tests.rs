@@ -1,8 +1,8 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use camino_tempfile::Utf8TempDir;
 use kube::client;
-use tempfile::TempDir;
 
 use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
 use k8s_device_plugin_test::kube_mock::MockKubeHandle;
@@ -15,7 +15,10 @@ use super::*;
 
 fn mock_resolver() -> (ClaimResolver, MockKubeHandle) {
     let (client, handle) = mock_kube_client();
-    (ClaimResolver::new(client), handle)
+    (
+        ClaimResolver::new(client, "example.com").expect("valid driver"),
+        handle,
+    )
 }
 
 fn claim(
@@ -138,10 +141,10 @@ async fn start_service(
     service: DraPluginService,
 ) -> (
     MockDraPluginClient,
-    TempDir,
+    Utf8TempDir,
     task::JoinHandle<Result<(), transport::Error>>,
 ) {
-    let socket_dir = TempDir::new().expect("create temp dir for plugin socket");
+    let socket_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
     let socket_path = socket_dir.path().join("plugin.sock");
     let handle = service
         .spawn_at(&socket_path)
@@ -155,7 +158,7 @@ async fn start_service(
 
 #[tokio::test]
 async fn spawn_at_refuses_an_active_plugin_socket() {
-    let socket_dir = TempDir::new().expect("create temp dir for plugin socket");
+    let socket_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
     let socket_path = socket_dir.path().join("plugin.sock");
     let (active_resolver, _active_kube_handle) = mock_resolver();
     let active_service = DraPluginService::new(active_resolver, FakeClaimPreparer::default());
@@ -352,4 +355,59 @@ async fn node_unprepare_resources_reports_failure_in_response_not_as_rpc_error()
     assert!(!entry.error.is_empty());
 
     server.abort();
+}
+
+#[tokio::test]
+async fn first_available_is_normalized_without_metadata() {
+    let (resolver, handle) = mock_resolver();
+    let responder = spawn_kube_responder(
+        handle,
+        vec![(
+            "claim",
+            Some(claim("claim", "uid", "pool", "device", "a/fast")),
+        )],
+    );
+    let service = DraPluginService::new(resolver, FakeClaimPreparer::default());
+    let (mut client, _dir, server) = start_service(service).await;
+    let response = client
+        .prepare_resources(vec![wire_claim("claim", "uid")])
+        .await
+        .unwrap();
+    let result = &response.claims["uid"];
+    assert!(result.error.is_empty());
+    assert_eq!(result.devices[0].request_names, ["a"]);
+    assert_eq!(
+        result.devices[0].cdi_device_ids,
+        ["example.com/pool=device"]
+    );
+    responder.await.unwrap();
+    server.abort();
+}
+
+#[test]
+fn wire_request_names_deduplicate_base_names_and_preserve_all_requests() {
+    let wire = prepared_device_to_wire(PreparedDevice {
+        request_names: vec!["a/fast".into(), "a/slow".into(), "a".into(), "b".into()],
+        ..default()
+    });
+    assert_eq!(wire.request_names, ["a", "b"]);
+    assert!(
+        prepared_device_to_wire(PreparedDevice::default())
+            .request_names
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn standalone_service_rejects_identity_changes_before_startup_or_metadata() {
+    let (resolver, _) = mock_resolver();
+    let service = DraPluginService::new(resolver, FakeClaimPreparer::default());
+    let error = service
+        .with_device_metadata("other.example", DeviceMetadataOptions::v1beta1())
+        .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    let (resolver, _) = mock_resolver();
+    let service = DraPluginService::new(resolver, FakeClaimPreparer::default());
+    let error = service.spawn("other.example").await.unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
 }

@@ -60,7 +60,8 @@ fn one_pool(pool_name: &str, devices: Vec<PoolDevice>) -> StaticPool {
 
 fn mock_publisher(resource_pool: StaticPool) -> (ResourceSlicePublisher, MockKubeHandle) {
     let (client, handle) = mock_kube_client();
-    let publisher = ResourceSlicePublisher::new(client, "example.com", "node-0", resource_pool);
+    let publisher = ResourceSlicePublisher::new(client, "example.com", "node-0", resource_pool)
+        .expect("valid publisher");
     (publisher, handle)
 }
 
@@ -85,6 +86,8 @@ fn owned_slice(
         pool_name,
         devices,
     );
+    slice.metadata.uid = Some(format!("uid-{name}"));
+    slice.metadata.resource_version = Some("7".into());
     slice.spec.pool.resource_slice_count = slice_count;
     slice.metadata.owner_references = Some(vec![metav1::OwnerReference {
         api_version: "v1".into(),
@@ -155,7 +158,7 @@ async fn publish_once_is_a_noop_when_existing_pool_is_complete() {
     let script = async {
         respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         let existing = owned_slice(
-            "example.com-node-0-pool-0",
+            &slice_name("example.com", "node-0", "pool-0", 0),
             4,
             "pool-0",
             1,
@@ -184,7 +187,7 @@ async fn publish_once_is_a_noop_when_existing_devices_are_reordered() {
     let script = async {
         respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         let existing = owned_slice(
-            "example.com-node-0-pool-0",
+            &slice_name("example.com", "node-0", "pool-0", 0),
             4,
             "pool-0",
             1,
@@ -211,7 +214,7 @@ async fn publish_once_updates_changed_pool_with_next_generation() {
     let script = async {
         respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         let existing = owned_slice(
-            "example.com-node-0-pool-0",
+            &slice_name("example.com", "node-0", "pool-0", 0),
             4,
             "pool-0",
             1,
@@ -269,7 +272,7 @@ async fn publish_once_completes_new_generation_before_deleting_stale_slices() {
     let script = async {
         respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         let current = owned_slice(
-            "example.com-node-0-pool-0",
+            &slice_name("example.com", "node-0", "pool-0", 0),
             4,
             "pool-0",
             1,
@@ -375,7 +378,8 @@ fn inventory_publisher(devices: Vec<InventoryDevice>) -> (ResourceSlicePublisher
     let (client, handle) = mock_kube_client();
     let pool: Arc<dyn ResourcePool> = Arc::new(TaintedInventory(devices));
     (
-        ResourceSlicePublisher::new(client, "example.com", "node-0", pool),
+        ResourceSlicePublisher::new(client, "example.com", "node-0", pool)
+            .expect("valid publisher"),
         handle,
     )
 }
@@ -388,7 +392,13 @@ fn tainted_slice(effect: &str) -> resourcev1::ResourceSlice {
         time_added: Some(metav1::Time("2026-10-23T10:00:00Z".parse().unwrap())),
         ..default()
     }]);
-    owned_slice("example.com-node-0-pool-0", 4, "pool-0", 1, vec![device])
+    owned_slice(
+        &slice_name("example.com", "node-0", "pool-0", 0),
+        4,
+        "pool-0",
+        1,
+        vec![device],
+    )
 }
 
 #[test]
@@ -597,7 +607,7 @@ async fn newly_added_taint_converges_after_server_defaults_its_time() {
     let script = async {
         respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
         let existing = owned_slice(
-            "example.com-node-0-pool-0",
+            &slice_name("example.com", "node-0", "pool-0", 0),
             4,
             "pool-0",
             1,
@@ -727,7 +737,13 @@ async fn binding_condition_order_and_default_false_do_not_advance_generation() {
         ]);
         device.binding_failure_conditions = Some(vec![]);
         device.binds_to_node = Some(false);
-        let existing = owned_slice("example.com-node-0-pool-0", 4, "pool-0", 1, vec![device]);
+        let existing = owned_slice(
+            &slice_name("example.com", "node-0", "pool-0", 0),
+            4,
+            "pool-0",
+            1,
+            vec![device],
+        );
         respond(&mut handle, 200, &resource_slice_list(vec![existing])).await;
         assert!(
             tokio::time::timeout(Duration::from_millis(50), handle.next_request())
@@ -774,4 +790,175 @@ async fn adding_binding_conditions_advances_generation_and_preserves_taints() {
     };
     let (_, result) = tokio::join!(script, publisher.publish_once());
     result.unwrap();
+}
+
+#[test]
+fn slice_names_are_bounded_dns_safe_and_disambiguate_components() {
+    let longest_node = [
+        "a".repeat(63),
+        "b".repeat(63),
+        "c".repeat(63),
+        "d".repeat(61),
+    ]
+    .join(".");
+    for index in [0, 1, usize::MAX] {
+        let name = slice_name(
+            &"d".repeat(63),
+            &longest_node,
+            &longest_node.replace('.', "/"),
+            index,
+        );
+        assert!(name.len() <= 63);
+        assert!(
+            name.bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        );
+        assert!(!name.ends_with('-'));
+        assert_eq!(
+            name,
+            slice_name(
+                &"d".repeat(63),
+                &longest_node,
+                &longest_node.replace('.', "/"),
+                index
+            )
+        );
+    }
+    assert_ne!(
+        slice_name("driver", "node", "a", 1),
+        slice_name("driver", "node", "a-1", 0)
+    );
+    assert_ne!(
+        slice_name("driver", "a", "b-c", 0),
+        slice_name("driver", "a-b", "c", 0)
+    );
+    assert_ne!(
+        slice_name("driver", "node", "pool/tenant-a", 0),
+        slice_name("driver", "node", "pool-tenant-a", 0)
+    );
+}
+
+#[tokio::test]
+async fn migrate_legacy_slice_creates_new_generation_before_conditional_delete() {
+    let (publisher, mut handle) =
+        mock_publisher(one_pool("pool/tenant-a", vec![PoolDevice::new("widget-0")]));
+    let script = async {
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
+        let legacy = owned_slice(
+            "legacy-slice",
+            4,
+            "pool/tenant-a",
+            1,
+            vec![device("widget-0")],
+        );
+        respond(&mut handle, 200, &resource_slice_list(vec![legacy])).await;
+        let (request, send) = handle.next_request().await.unwrap();
+        assert_eq!(request.method(), http::Method::POST);
+        let body = request_body_json(request).await;
+        assert_eq!(body["spec"]["pool"]["generation"], 5);
+        assert_eq!(body["spec"]["pool"]["name"], "pool/tenant-a");
+        assert!(body["metadata"]["name"].as_str().unwrap().len() <= 63);
+        send.send_response(http::Response::new(client::Body::from(
+            json::to_vec(&body).unwrap(),
+        )));
+        let (request, send) = handle.next_request().await.unwrap();
+        assert_eq!(request.method(), http::Method::DELETE);
+        assert!(request.uri().path().ends_with("/legacy-slice"));
+        let body = request_body_json(request).await;
+        assert_eq!(
+            body["preconditions"],
+            json::json!({"uid": "uid-legacy-slice", "resourceVersion": "7"})
+        );
+        send.send_response(
+            http::Response::builder()
+                .status(409)
+                .body(client::Body::from(
+                    json::to_vec(&metav1::Status {
+                        code: Some(409),
+                        reason: Some("Conflict".into()),
+                        message: Some("replacement object".into()),
+                        status: Some("Failure".into()),
+                        ..default()
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        );
+    };
+    let (_, result) = tokio::join!(script, publisher.publish_once());
+    assert!(matches!(result, Err(kube::Error::Api(status)) if status.code == 409));
+}
+
+#[tokio::test]
+async fn refuse_cross_pool_name_collision_before_replacing_a_slice() {
+    let (publisher, mut handle) =
+        mock_publisher(one_pool("pool-0", vec![PoolDevice::new("widget-0")]));
+    let script = async {
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
+        let foreign = owned_slice(
+            &slice_name("example.com", "node-0", "pool-0", 0),
+            4,
+            "foreign-pool",
+            1,
+            vec![device("foreign-device")],
+        );
+        respond(&mut handle, 200, &resource_slice_list(vec![foreign])).await;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), handle.next_request())
+                .await
+                .is_err()
+        );
+    };
+    let (_, result) = tokio::join!(script, publisher.publish_once());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("owned by another pool")
+    );
+}
+
+#[tokio::test]
+async fn refuse_invalid_pool_and_unidentified_stale_slices_without_mutation() {
+    for invalid_pool in [true, false] {
+        let (publisher, mut handle) = mock_publisher(one_pool(
+            if invalid_pool {
+                "pool//invalid"
+            } else {
+                "empty"
+            },
+            vec![],
+        ));
+        let script = async {
+            respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
+            let mut stale = owned_slice("stale", 1, "removed", 1, vec![]);
+            stale.metadata.uid = None;
+            respond(&mut handle, 200, &resource_slice_list(vec![stale])).await;
+            assert!(
+                tokio::time::timeout(Duration::from_millis(50), handle.next_request())
+                    .await
+                    .is_err()
+            );
+        };
+        let (_, result) = tokio::join!(script, publisher.publish_once());
+        let error = result.unwrap_err().to_string();
+        assert!(
+            error.contains(if invalid_pool {
+                "slash-separated"
+            } else {
+                "missing a UID"
+            }),
+            "{error}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn zero_poll_and_backoff_intervals_have_positive_lower_bounds() {
+    let (publisher, _) = mock_publisher(one_pool("pool", vec![]));
+    let publisher = publisher
+        .with_poll_interval(Duration::ZERO)
+        .with_retry_backoff(Duration::ZERO, Duration::ZERO);
+    assert!(publisher.poll_interval > Duration::ZERO);
+    assert!(retry_delay(publisher.retry_base_delay, publisher.retry_max_delay, 1) > Duration::ZERO);
 }

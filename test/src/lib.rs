@@ -1,9 +1,9 @@
-use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
+use camino_tempfile::Utf8TempDir;
 use hyper_util::rt::TokioIo;
-use tempfile::TempDir;
 use tokio::net;
 // Public mock state exposes async lock acquisition to consumer test tasks.
 use tokio::sync::Mutex;

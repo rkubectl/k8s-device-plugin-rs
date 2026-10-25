@@ -24,6 +24,9 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features: ["", "--all-features"]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -32,18 +35,21 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --locked --workspace --all-targets ${{ matrix.features }} -- -D warnings
 
   test:
     name: Test (unit + integration)
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features: ["", "--all-features"]
     steps:
       - uses: actions/checkout@v5
         with:
           submodules: true
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace
+      - run: cargo test --locked --workspace ${{ matrix.features }}
 
   proto:
     name: Protocol generation without protoc
@@ -67,6 +73,15 @@ jobs:
   docker:
     name: Docker build (example)
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - dockerfile: example/Dockerfile
+            features: ""
+          - dockerfile: dra/Dockerfile
+            features: ""
+          - dockerfile: dra/Dockerfile
+            features: resource-health
     steps:
       - uses: actions/checkout@v5
         with:
@@ -75,5 +90,6 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: example/Dockerfile
+          file: ${{ matrix.dockerfile }}
+          build-args: CARGO_FEATURES=${{ matrix.features }}
           push: false

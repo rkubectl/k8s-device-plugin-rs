@@ -1,5 +1,5 @@
+use camino_tempfile::Utf8TempDir;
 use parking_lot::Mutex;
-use tempfile::TempDir;
 use tracing::Level;
 use tracing::field::Field;
 use tracing::field::Visit;
@@ -12,12 +12,12 @@ use k8s_device_plugin_test::dra_registration::MockRegistrationClient;
 
 use super::*;
 
-fn make_server() -> (DraRegistrationServer, TempDir) {
-    let dir = TempDir::new().expect("create temp dir for registration socket");
+fn make_server() -> (DraRegistrationServer, Utf8TempDir) {
+    let dir = Utf8TempDir::new().expect("create temp dir for registration socket");
     let socket_path = dir.path().join("plugin-reg.sock");
     let server = DraRegistrationServer::for_test(
-        "example.com/widget",
-        "/var/lib/kubelet/plugins/example.com/widget/plugin.sock",
+        "example.com",
+        "/var/lib/kubelet/plugins/example.com/plugin.sock",
         socket_path,
     );
     (server, dir)
@@ -35,10 +35,10 @@ async fn get_info_returns_configured_plugin_info() {
     let info = client.get_info().await.expect("get_info call");
 
     assert_eq!(info.r#type, "DRAPlugin");
-    assert_eq!(info.name, "example.com/widget");
+    assert_eq!(info.name, "example.com");
     assert_eq!(
         info.endpoint,
-        "/var/lib/kubelet/plugins/example.com/widget/plugin.sock"
+        "/var/lib/kubelet/plugins/example.com/plugin.sock"
     );
     assert_eq!(
         info.supported_versions,

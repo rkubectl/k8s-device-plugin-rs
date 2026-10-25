@@ -10,6 +10,7 @@ ARG RUST_VERSION=1.98
 
 FROM rust:${RUST_VERSION}-slim AS builder
 ARG TARGETARCH
+ARG CARGO_FEATURES=""
 RUN apt-get update \
     && apt-get install -y --no-install-recommends musl-tools \
     && rm -rf /var/lib/apt/lists/*
@@ -23,6 +24,7 @@ WORKDIR /src
 COPY . .
 RUN mkdir /out \
     && cargo build --release --locked --target "$(cat /rust_target)" \
+        --features "${CARGO_FEATURES}" \
         -p k8s-device-plugin-dra --example minimal_driver --example liveness_probe \
     && cp "target/$(cat /rust_target)/release/examples/minimal_driver" \
         /out/k8s-device-plugin-dra-example \

@@ -3,7 +3,7 @@ use std::os::unix::fs::symlink;
 
 use super::*;
 
-fn new_runtime(root: &Path) -> Arc<MetadataRuntime> {
+fn new_runtime(root: &Utf8Path) -> Arc<MetadataRuntime> {
     Arc::new(
         MetadataRuntime::new(
             "dra.example.com".into(),
@@ -80,7 +80,7 @@ fn plan(runtime: &MetadataRuntime) -> Plan {
     )
     .unwrap()
 }
-fn data(root: &Path, request: &str) -> PathBuf {
+fn data(root: &Utf8Path, request: &str) -> Utf8PathBuf {
     root.join("plugin/dra-device-metadata/claim-uid")
         .join(request)
         .join("metadata.json")
@@ -88,7 +88,7 @@ fn data(root: &Path, request: &str) -> PathBuf {
 
 #[test]
 fn beta_schema_paths_and_request_cdi_edits_are_isolated() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
     assert_eq!(plan.devices.len(), 4);
@@ -144,7 +144,7 @@ fn beta_schema_paths_and_request_cdi_edits_are_isolated() {
 }
 #[test]
 fn template_subrequest_paths_and_full_json_reference() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let mut claim = claim();
     claim
@@ -196,7 +196,7 @@ fn template_subrequest_paths_and_full_json_reference() {
 }
 #[test]
 fn all_requests_preserves_physical_cdi_scope_without_inventing_metadata_memberships() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let mut device = prepared("a", "widget-0");
     device.device.request_names.clear();
@@ -208,7 +208,7 @@ fn all_requests_preserves_physical_cdi_scope_without_inventing_metadata_membersh
 }
 #[test]
 fn rejects_foreign_unallocated_conflicting_or_malformed_payloads() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     for device in [
         prepared("b", "widget-0"),
@@ -274,7 +274,7 @@ fn rejects_foreign_unallocated_conflicting_or_malformed_payloads() {
 }
 #[test]
 fn retries_preserve_inode_and_snapshot_and_restart_recovers() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
     store::persist(&runtime, &plan).unwrap();
@@ -303,7 +303,7 @@ fn retries_preserve_inode_and_snapshot_and_restart_recovers() {
 }
 #[test]
 fn partial_publication_replays_after_failure_without_replacing_data() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
     fs::create_dir_all(tmp.path().join("cdi")).unwrap();
@@ -320,7 +320,7 @@ fn partial_publication_replays_after_failure_without_replacing_data() {
 }
 #[test]
 fn symlink_descendants_are_refused_and_outside_files_survive() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
     let outside = tmp.path().join("outside");
@@ -345,7 +345,7 @@ fn symlink_descendants_are_refused_and_outside_files_survive() {
 }
 #[test]
 fn stale_uid_cleanup_preserves_replacement_and_foreign_files() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let old = plan(&runtime);
     store::persist(&runtime, &old).unwrap();
@@ -378,7 +378,7 @@ fn stale_uid_cleanup_preserves_replacement_and_foreign_files() {
 }
 #[test]
 fn cleanup_recovers_empty_directory_after_final_journal_removal() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
     fs::create_dir_all(tmp.path().join("plugin/dra-device-metadata/claim-uid")).unwrap();
@@ -386,7 +386,7 @@ fn cleanup_recovers_empty_directory_after_final_journal_removal() {
 }
 #[tokio::test]
 async fn uid_lock_serializes_operations_and_is_shared_through_guard_ownership() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let claim = plan(&runtime).claim;
     let guards = Arc::new(runtime.lock_claims(std::slice::from_ref(&claim)).await);
@@ -406,7 +406,7 @@ async fn uid_lock_serializes_operations_and_is_shared_through_guard_ownership() 
 
 #[test]
 fn foreign_shared_cdi_file_is_never_deleted_by_our_cleanup() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
     fs::create_dir_all(tmp.path().join("cdi")).unwrap();
@@ -427,9 +427,9 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
-    use drav1::DraPlugin as _;
-    use k8s_device_plugin_proto::dra::v1 as drav1;
+    use dra::v1::DraPlugin as _;
     use k8s_device_plugin_test::kube_mock::mock_kube_client;
+
     #[derive(Debug, Default)]
     struct Backend {
         prepares: AtomicUsize,
@@ -455,20 +455,23 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
             }
         }
     }
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     fs::create_dir_all(tmp.path().join("cdi")).unwrap();
     let foreign = tmp.path().join("cdi/dra.example.com_metadata_one_a.json");
     fs::write(&foreign, "foreign").unwrap();
     let (client, mut handle) = mock_kube_client();
     let backend = Arc::new(Backend::default());
-    let service = DraPluginService::new(ClaimResolver::new(client), Arc::clone(&backend))
-        .with_device_metadata(
-            "dra.example.com",
-            DeviceMetadataOptions::v1beta1()
-                .with_plugin_directories(tmp.path().join("plugin"), tmp.path().join("plugin"))
-                .with_cdi_directory(tmp.path().join("cdi")),
-        )
-        .unwrap();
+    let service = DraPluginService::new(
+        ClaimResolver::new(client, "dra.example.com").expect("valid driver"),
+        Arc::clone(&backend),
+    )
+    .with_device_metadata(
+        "dra.example.com",
+        DeviceMetadataOptions::v1beta1()
+            .with_plugin_directories(tmp.path().join("plugin"), tmp.path().join("plugin"))
+            .with_cdi_directory(tmp.path().join("cdi")),
+    )
+    .unwrap();
     let responder = tokio::spawn(async move {
         for _ in 0..2 {
             let (request, send) = handle.next_request().await.unwrap();
@@ -491,14 +494,14 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
     });
     let refs = ["one", "two"]
         .into_iter()
-        .map(|name| drav1::Claim {
+        .map(|name| dra::v1::Claim {
             namespace: "default".into(),
             name: name.into(),
             uid: name.into(),
         })
         .collect::<Vec<_>>();
     let result = service
-        .node_prepare_resources(tonic::Request::new(drav1::NodePrepareResourcesRequest {
+        .node_prepare_resources(tonic::Request::new(dra::v1::NodePrepareResourcesRequest {
             claims: refs.clone(),
         }))
         .await
@@ -511,9 +514,11 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
     assert_eq!(result.claims["two"].devices.len(), 2);
     backend.unprepare_fails.store(true, Ordering::SeqCst);
     let result = service
-        .node_unprepare_resources(tonic::Request::new(drav1::NodeUnprepareResourcesRequest {
-            claims: vec![refs[1].clone()],
-        }))
+        .node_unprepare_resources(tonic::Request::new(
+            dra::v1::NodeUnprepareResourcesRequest {
+                claims: vec![refs[1].clone()],
+            },
+        ))
         .await
         .unwrap()
         .into_inner();
@@ -525,9 +530,11 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
     );
     backend.unprepare_fails.store(false, Ordering::SeqCst);
     let result = service
-        .node_unprepare_resources(tonic::Request::new(drav1::NodeUnprepareResourcesRequest {
-            claims: refs.clone(),
-        }))
+        .node_unprepare_resources(tonic::Request::new(
+            dra::v1::NodeUnprepareResourcesRequest {
+                claims: refs.clone(),
+            },
+        ))
         .await
         .unwrap()
         .into_inner();
@@ -536,9 +543,9 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
     assert!(foreign.exists());
     fs::remove_file(foreign).unwrap();
     let result = service
-        .node_unprepare_resources(tonic::Request::new(drav1::NodeUnprepareResourcesRequest {
-            claims: refs,
-        }))
+        .node_unprepare_resources(tonic::Request::new(
+            dra::v1::NodeUnprepareResourcesRequest { claims: refs },
+        ))
         .await
         .unwrap()
         .into_inner();
@@ -555,11 +562,10 @@ async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations(
     use k8s_device_plugin_core::ResourceHealthError;
     use k8s_device_plugin_core::ResourceHealthReport;
     use k8s_device_plugin_core::ResourceHealthStatus;
-    use k8s_device_plugin_proto::dra::health::v1alpha1 as healthv1alpha1;
-    use k8s_device_plugin_proto::dra::v1 as drav1;
     use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
     use k8s_device_plugin_test::kube_mock::mock_kube_client;
     use k8s_device_plugin_test::kube_mock::respond;
+
     #[derive(Debug, Default)]
     struct Backend {
         prepares: AtomicUsize,
@@ -605,18 +611,21 @@ async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations(
             Ok(())
         }
     }
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let backend = Arc::new(Backend::default());
     let (client, mut handle) = mock_kube_client();
-    let service = DraPluginService::new(ClaimResolver::new(client), Arc::clone(&backend))
-        .with_resource_health(Arc::clone(&backend))
-        .with_device_metadata(
-            "dra.example.com",
-            DeviceMetadataOptions::v1beta1()
-                .with_plugin_directories(tmp.path().join("plugin"), tmp.path().join("plugin"))
-                .with_cdi_directory(tmp.path().join("cdi")),
-        )
-        .unwrap();
+    let service = DraPluginService::new(
+        ClaimResolver::new(client, "dra.example.com").expect("valid driver"),
+        Arc::clone(&backend),
+    )
+    .with_resource_health(Arc::clone(&backend))
+    .with_device_metadata(
+        "dra.example.com",
+        DeviceMetadataOptions::v1beta1()
+            .with_plugin_directories(tmp.path().join("plugin"), tmp.path().join("plugin"))
+            .with_cdi_directory(tmp.path().join("cdi")),
+    )
+    .unwrap();
     let socket = tmp.path().join("plugin.sock");
     let server = service.spawn_at(&socket).await.unwrap();
     let path = socket.clone();
@@ -632,9 +641,9 @@ async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations(
         }))
         .await
         .unwrap();
-    let mut client = healthv1alpha1::DraResourceHealthClient::new(channel);
+    let mut client = dra::health::v1alpha1::DraResourceHealthClient::new(channel);
     let mut stream = client
-        .node_watch_resources(healthv1alpha1::NodeWatchResourcesRequest {})
+        .node_watch_resources(dra::health::v1alpha1::NodeWatchResourcesRequest {})
         .await
         .unwrap()
         .into_inner();
@@ -648,7 +657,7 @@ async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations(
     let mut client = MockDraPluginClient::connect(&socket).await.unwrap();
     for _ in 0..2 {
         let result = client
-            .prepare_resources(vec![drav1::Claim {
+            .prepare_resources(vec![dra::v1::Claim {
                 namespace: "default".into(),
                 name: "test-claim".into(),
                 uid: "claim-uid".into(),
@@ -668,7 +677,7 @@ async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations(
 
 #[test]
 fn broad_physical_entry_shared_by_requests_exposes_only_each_requests_metadata_id() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let mut object = claim();
     object
@@ -711,7 +720,7 @@ fn broad_physical_entry_shared_by_requests_exposes_only_each_requests_metadata_i
 
 #[test]
 fn corrupt_journal_refuses_cleanup_and_keeps_owned_data_until_repaired() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
     store::persist(&runtime, &plan).unwrap();
@@ -738,7 +747,7 @@ fn corrupt_journal_refuses_cleanup_and_keeps_owned_data_until_repaired() {
 
 #[test]
 fn zero_device_allocation_has_no_container_edits_and_cleans_its_journal() {
-    let tmp = tempfile::tempdir().unwrap();
+    let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let mut object = claim();
     object.spec.devices = None;
@@ -767,6 +776,57 @@ fn zero_device_allocation_has_no_container_edits_and_cleans_its_journal() {
     assert!(
         !tmp.path()
             .join("plugin/dra-device-metadata/claim-uid")
+            .exists()
+    );
+}
+
+#[test]
+fn unicode_host_paths_preserve_cdi_spec_bytes() {
+    let tmp = camino_tempfile::tempdir().unwrap();
+    let runtime = MetadataRuntime::new(
+        "dra.example.com".into(),
+        DeviceMetadataOptions::v1beta1()
+            .with_plugin_directories(tmp.path().join("plugin"), "/node/נתונים")
+            .with_cdi_directory(tmp.path().join("cdi")),
+    )
+    .unwrap();
+    let plan = plan(&runtime);
+    let expected = json::json!({
+        "cdiVersion": "0.8.0",
+        "kind": "dra.example.com/metadata",
+        "devices": [{
+            "name": "claim-uid_a",
+            "containerEdits": {
+                "mounts": [{
+                    "hostPath": "/node/נתונים/dra-device-metadata/claim-uid/a/metadata.json",
+                    "containerPath": "/var/run/kubernetes.io/dra-device-attributes/resourceclaims/test-claim/a/dra.example.com-metadata.json",
+                    "options": ["ro", "bind"]
+                }]
+            }
+        }]
+    });
+    assert_eq!(plan.specs["a"], json::to_string(&expected).unwrap() + "\n");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn configured_utf8_alias_can_resolve_to_a_non_utf8_filesystem_directory() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    let tmp = camino_tempfile::tempdir().unwrap();
+    let target = tmp
+        .path()
+        .as_std_path()
+        .join(OsStr::from_bytes(b"root-\xff"));
+    fs::create_dir(&target).unwrap();
+    let alias = tmp.path().join("root-alias");
+    symlink(&target, &alias).unwrap();
+    let runtime = new_runtime(&alias);
+    let plan = plan(&runtime);
+    store::persist(&runtime, &plan).unwrap();
+    assert!(
+        target
+            .join("plugin/dra-device-metadata/claim-uid/a/metadata.json")
             .exists()
     );
 }

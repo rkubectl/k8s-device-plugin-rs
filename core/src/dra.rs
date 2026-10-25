@@ -24,6 +24,10 @@ pub struct PoolDevice {
     pub name: String,
     pub attributes: BTreeMap<String, AttributeValue>,
     pub capacity: BTreeMap<String, Quantity>,
+    /// Informational backend state. The DRA publisher does not read this field
+    /// or exclude unhealthy devices. Remove unavailable devices from inventory
+    /// or publish explicit device taints to control scheduling. Use
+    /// `ResourceHealthReporter` for health of already-allocated devices.
     pub health: Health,
 }
 
@@ -93,7 +97,8 @@ pub struct ClaimRef {
 pub struct AllocatedDevice {
     pub pool_name: String,
     pub device_name: String,
-    /// The claim request this device satisfies. `None` if the device is
+    /// The allocation request reference, including any `/subrequest` suffix.
+    /// `None` if the device is
     /// associated with every request in the claim.
     pub request_name: Option<String>,
 }
@@ -110,6 +115,9 @@ pub struct ResolvedClaim {
 /// for a claim. The DRA analog of [`crate::ContainerAllocation`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PreparedDevice {
+    /// Request references satisfied by this device. The runtime strips
+    /// `/subrequest` suffixes and deduplicates them for kubelet. An empty list
+    /// associates the device with every request in the claim.
     pub request_names: Vec<String>,
     /// The pool and device this was prepared from, required by the
     /// wire-level `dra.v1.Device` message -- not necessarily inferable

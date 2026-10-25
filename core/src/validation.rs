@@ -1,6 +1,7 @@
 use super::*;
 
 const MAX_DEVICE_ID_LEN: usize = 63;
+const MAX_DRIVER_NAME_LEN: usize = 63;
 const MAX_DNS_LABEL_LEN: usize = 63;
 const MAX_DNS_SUBDOMAIN_LEN: usize = 253;
 const RESERVED_RESOURCE_DOMAIN: &str = "kubernetes.io";
@@ -9,6 +10,18 @@ const RESERVED_RESOURCE_DOMAIN: &str = "kubernetes.io";
 // whitespace/control characters remain visible in validation diagnostics.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ValidationError {
+    #[error(
+        "DRA driver name {0:?} must be a DNS subdomain of at most {MAX_DRIVER_NAME_LEN} characters"
+    )]
+    InvalidDriverName(String),
+    #[error("node name {0:?} must be a DNS subdomain of at most 253 characters")]
+    InvalidNodeName(String),
+    #[error(
+        "pool name {0:?} must be slash-separated DNS subdomains of at most 253 characters in total"
+    )]
+    InvalidPoolName(String),
+    #[error("runtime driver name {runtime:?} differs from backend driver name {backend:?}")]
+    DriverNameMismatch { runtime: String, backend: String },
     #[error("resource name must not be empty")]
     EmptyResourceName,
     #[error("resource name {0:?} must have the form \"<domain>/<name>\"")]
@@ -26,7 +39,31 @@ pub enum ValidationError {
     #[error("path must not be empty")]
     EmptyPath,
     #[error("path {0:?} must be absolute")]
-    RelativePath(PathBuf),
+    RelativePath(Utf8PathBuf),
+}
+
+/// Validates the Kubernetes DRA driver identity, also used in plugin paths.
+pub fn validate_driver_name(name: &str) -> Result<(), ValidationError> {
+    if name.len() > MAX_DRIVER_NAME_LEN || !is_valid_dns_subdomain(name) {
+        return Err(ValidationError::InvalidDriverName(name.to_string()));
+    }
+    Ok(())
+}
+
+/// Validates a Kubernetes Node name.
+pub fn validate_node_name(name: &str) -> Result<(), ValidationError> {
+    if !is_valid_dns_subdomain(name) {
+        return Err(ValidationError::InvalidNodeName(name.to_string()));
+    }
+    Ok(())
+}
+
+/// Validates the slash-separated DNS subdomains permitted for DRA pools.
+pub fn validate_pool_name(name: &str) -> Result<(), ValidationError> {
+    if name.len() > MAX_DNS_SUBDOMAIN_LEN || !name.split('/').all(is_valid_dns_subdomain) {
+        return Err(ValidationError::InvalidPoolName(name.to_string()));
+    }
+    Ok(())
 }
 
 /// Validates a Kubernetes extended resource name, e.g. `"example.com/widget"`.
@@ -74,9 +111,9 @@ pub fn validate_device_id(id: &str) -> Result<(), ValidationError> {
     Ok(())
 }
 
-/// Validates that a host or container path is non-empty and absolute.
-pub fn validate_absolute_path(path: &Path) -> Result<(), ValidationError> {
-    if path.is_empty() {
+/// Validates that a UTF-8 host or container path is non-empty and absolute.
+pub fn validate_absolute_path(path: &Utf8Path) -> Result<(), ValidationError> {
+    if path.as_str().is_empty() {
         return Err(ValidationError::EmptyPath);
     }
     if !path.is_absolute() {
@@ -202,7 +239,7 @@ mod tests {
     #[test]
     fn path_rejects_empty() {
         assert_eq!(
-            validate_absolute_path(Path::new("")),
+            validate_absolute_path(Utf8Path::new("")),
             Err(ValidationError::EmptyPath)
         );
     }
@@ -210,13 +247,61 @@ mod tests {
     #[test]
     fn path_rejects_relative() {
         assert_eq!(
-            validate_absolute_path(Path::new("dev/widget0")),
-            Err(ValidationError::RelativePath(PathBuf::from("dev/widget0")))
+            validate_absolute_path(Utf8Path::new("dev/widget0")),
+            Err(ValidationError::RelativePath(Utf8PathBuf::from(
+                "dev/widget0"
+            )))
         );
     }
 
     #[test]
     fn path_accepts_absolute() {
-        assert!(validate_absolute_path(Path::new("/dev/widget0")).is_ok());
+        assert!(validate_absolute_path(Utf8Path::new("/dev/widget0")).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod dra_validation_tests {
+    use super::*;
+
+    #[test]
+    fn validates_driver_node_and_slash_separated_pool_names() {
+        for name in ["", ".", "..", "a/b", "UPPER.example", "a-", "-a"] {
+            assert!(validate_driver_name(name).is_err(), "{name:?}");
+            assert!(validate_node_name(name).is_err(), "{name:?}");
+        }
+        assert!(validate_driver_name(&"a".repeat(63)).is_ok());
+        assert!(validate_driver_name(&"a".repeat(64)).is_err());
+        let longest = [
+            "a".repeat(63),
+            "b".repeat(63),
+            "c".repeat(63),
+            "d".repeat(61),
+        ]
+        .join(".");
+        assert_eq!(longest.len(), 253);
+        assert!(validate_node_name(&longest).is_ok());
+        assert!(validate_node_name(&(longest + "x")).is_err());
+        assert!(validate_pool_name("pool.example/tenant-a.example").is_ok());
+        for name in [
+            "",
+            "/pool",
+            "pool/",
+            "pool//tenant",
+            "pool/..",
+            "pool/UPPER",
+        ] {
+            assert!(validate_pool_name(name).is_err(), "{name:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_non_utf8_os_paths_at_the_conversion_boundary() {
+        use std::os::unix::ffi::OsStrExt;
+        let original = std::path::PathBuf::from(std::ffi::OsStr::from_bytes(b"/dev/widget-\xff"));
+        assert_eq!(
+            Utf8PathBuf::from_path_buf(original.clone()).unwrap_err(),
+            original
+        );
     }
 }

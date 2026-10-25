@@ -108,15 +108,18 @@ the future phases.
   `fs::File`, and `task::JoinHandle`, with `use serde_json as json`. Reuse an
   existing parent scope via `use super::*` in child modules where that is the
   established pattern; avoid redundant imports.
-- Alias Kubernetes API modules consistently: `corev1`, `resourcev1`,
-  `resourcev1alpha3`, and `metav1`, then qualify their types (for example,
-  `metav1::ObjectMeta` and `metav1::Condition`). Keep API versions visible in
+- Alias Kubernetes REST API modules from `k8s_openapi` consistently:
+  `corev1`, `resourcev1`, `resourcev1alpha3`, and `metav1`, then qualify their
+  types (for example, `metav1::ObjectMeta` and `metav1::Condition`). Keep API versions visible in
   aliases for other groups. Prefer `apiresource::Quantity`,
   `runtime::RawExtension`, and `client::Body` over single-type renames or
   repeated deep paths. Reuse parent aliases; keep trait imports needed for
-  method resolution. DRA protobuf aliases follow the same pattern (`drav1`,
-  `healthv1alpha1`), or retain an explicit short group/version path such as
-  `dra::v1`.
+  method resolution.
+- Do not rename generated protobuf modules imported from
+  `k8s_device_plugin_proto`. Import parent modules without aliases and retain
+  explicit group/version paths such as `dra::v1`, `dra::health::v1alpha1`,
+  `dra::registration`, and `v1beta1`. Reuse parent imports in child modules.
+  Trait-only imports such as `use dra::v1::DraPlugin as _;` remain appropriate.
 - Construct Kubernetes APIs exclusively through `KubeClientExt`. Add a typed
   factory there when a new resource is needed, and preserve its cluster or
   namespace scope. Direct `Api::all` and `Api::namespaced` calls belong only in

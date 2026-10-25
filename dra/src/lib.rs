@@ -12,11 +12,11 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::fs;
 use std::io;
-use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use serde_json as json;
 use tokio::net;
 use tokio::task;
@@ -42,6 +42,10 @@ use k8s_device_plugin_core::ResolvedClaim;
 #[cfg(feature = "resource-health")]
 use k8s_device_plugin_core::ResourceHealthReporter;
 use k8s_device_plugin_core::ResourcePool;
+use k8s_device_plugin_core::ValidationError;
+use k8s_device_plugin_core::validate_driver_name;
+use k8s_device_plugin_core::validate_node_name;
+use k8s_device_plugin_core::validate_pool_name;
 use k8s_device_plugin_proto::dra;
 
 pub use claim::ClaimResolver;
@@ -137,33 +141,52 @@ pub struct DraPlugin {
 }
 
 impl DraPlugin {
-    /// `client` and `node_name` are injected rather than built/read
-    /// internally (e.g. via `kube::Client::try_default()` and a `NODE_NAME`
-    /// env var) so this stays testable against a mocked `kube::Client`,
-    /// matching every other DRA component this crate builds
-    /// (`ClaimResolver::new`, `ResourceSlicePublisher::new`). Real-world
-    /// wiring of both belongs to a future deployable `dra-example` binary
-    /// -- explicitly deferred past Phase 1 in `docs/dra-design.md`.
+    /// Constructs a runtime with an injected client, node and backend.
+    /// `driver_name` must agree with [`DraDriver::driver_name`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a validation error for invalid driver/node names or a backend
+    /// whose driver identity differs from the supplied name.
     pub fn new<D: DraDriver + 'static>(
         client: kube::Client,
         driver_name: impl Into<String>,
         node_name: impl Into<String>,
         driver: D,
-    ) -> Self {
-        let driver_name = driver_name.into();
-        let driver = Arc::new(driver);
+    ) -> Result<Self, ValidationError> {
+        Self::from_driver(
+            client,
+            driver_name.into(),
+            node_name.into(),
+            Arc::new(driver),
+        )
+    }
+
+    fn from_driver<D: DraDriver + 'static>(
+        client: kube::Client,
+        driver_name: String,
+        node_name: String,
+        driver: Arc<D>,
+    ) -> Result<Self, ValidationError> {
+        validate_driver_name(&driver_name)?;
+        if driver.driver_name() != driver_name {
+            return Err(ValidationError::DriverNameMismatch {
+                runtime: driver_name,
+                backend: driver.driver_name().to_string(),
+            });
+        }
         let plugin_endpoint = service::plugin_socket_path(&driver_name);
-        let registration =
-            DraRegistrationServer::new(&driver_name, &plugin_endpoint.to_string_lossy());
-        let service =
-            DraPluginService::new(ClaimResolver::new(client.clone()), Arc::clone(&driver));
-        let publisher = ResourceSlicePublisher::new(client, driver_name.clone(), node_name, driver);
-        Self {
+        let registration = DraRegistrationServer::new(&driver_name, &plugin_endpoint)?;
+        let resolver = ClaimResolver::new(client.clone(), driver_name.clone())?;
+        let service = DraPluginService::new(resolver, Arc::clone(&driver));
+        let publisher =
+            ResourceSlicePublisher::new(client, driver_name.clone(), node_name, driver)?;
+        Ok(Self {
             driver_name,
             registration,
             service,
             publisher,
-        }
+        })
     }
 
     /// Enables read-only container metadata using an explicitly selected
@@ -178,28 +201,27 @@ impl DraPlugin {
     /// Creates a DRA plugin that also serves the opt-in resource-health
     /// protocol. The backend health monitor is intentionally independent of
     /// the `ResourcePool` inventory snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same identity validation errors as [`Self::new`].
     #[cfg(feature = "resource-health")]
     pub fn with_resource_health<D: DraDriver + ResourceHealthReporter + 'static>(
         client: kube::Client,
         driver_name: impl Into<String>,
         node_name: impl Into<String>,
         driver: D,
-    ) -> Self {
-        let driver_name = driver_name.into();
+    ) -> Result<Self, ValidationError> {
         let driver = Arc::new(driver);
-        let plugin_endpoint = service::plugin_socket_path(&driver_name);
-        let registration =
-            DraRegistrationServer::new(&driver_name, &plugin_endpoint.to_string_lossy());
-        let service =
-            DraPluginService::new(ClaimResolver::new(client.clone()), Arc::clone(&driver))
-                .with_resource_health(Arc::clone(&driver));
-        let publisher = ResourceSlicePublisher::new(client, driver_name.clone(), node_name, driver);
-        Self {
-            driver_name,
-            registration,
-            service,
-            publisher,
-        }
+        let mut plugin = Self::from_driver(
+            client,
+            driver_name.into(),
+            node_name.into(),
+            Arc::clone(&driver),
+        )?;
+        plugin.service = plugin.service.with_resource_health(driver);
+        plugin.registration = plugin.registration.with_resource_health();
+        Ok(plugin)
     }
 
     #[cfg(test)]
@@ -208,25 +230,16 @@ impl DraPlugin {
         driver_name: impl Into<String>,
         node_name: impl Into<String>,
         driver: D,
-        registration_socket_path: PathBuf,
+        registration_socket_path: Utf8PathBuf,
     ) -> Self {
-        let driver_name = driver_name.into();
-        let driver = Arc::new(driver);
-        let plugin_endpoint = service::plugin_socket_path(&driver_name);
-        let registration = DraRegistrationServer::for_test(
-            &driver_name,
-            &plugin_endpoint.to_string_lossy(),
+        let mut plugin =
+            Self::new(client, driver_name, node_name, driver).expect("valid test driver");
+        plugin.registration = DraRegistrationServer::for_test(
+            &plugin.driver_name,
+            service::plugin_socket_path(&plugin.driver_name),
             registration_socket_path,
         );
-        let service =
-            DraPluginService::new(ClaimResolver::new(client.clone()), Arc::clone(&driver));
-        let publisher = ResourceSlicePublisher::new(client, driver_name.clone(), node_name, driver);
-        Self {
-            driver_name,
-            registration,
-            service,
-            publisher,
-        }
+        plugin
     }
 
     /// Spawns the registration server, the `DRAPlugin` gRPC service, and
@@ -250,8 +263,10 @@ impl DraPlugin {
     /// path rather than deleted here: a killed (not terminated) process
     /// would leave it either way, so explicit delete-on-graceful-shutdown
     /// only covers a subset of exits for no real benefit.
+    /// This is a process-lifetime future: dropping it does not abort the
+    /// component tasks. Terminate the process to shut down the plugin.
     pub async fn run(self) -> io::Result<()> {
-        let plugin_dir = Path::new(dra::KUBELET_PLUGINS_PATH).join(&self.driver_name);
+        let plugin_dir = Utf8Path::new(dra::KUBELET_PLUGINS_PATH).join(&self.driver_name);
         tokio::fs::create_dir_all(dra::KUBELET_PLUGINS_REGISTRY_PATH).await?;
         tokio::fs::create_dir_all(&plugin_dir).await?;
         self.run_at(&plugin_dir.join("plugin.sock")).await
@@ -261,13 +276,13 @@ impl DraPlugin {
     /// can point it at a temp directory instead of the real
     /// `/var/lib/kubelet/plugins/<driver_name>/` -- same split
     /// `DraPluginService::spawn`/`spawn_at` already uses.
-    async fn run_at(self, plugin_socket_path: &Path) -> io::Result<()> {
-        let registration_handle = self.registration.spawn().await?;
-        let service_handle = match self.service.spawn_at(plugin_socket_path).await {
+    async fn run_at(self, plugin_socket_path: &Utf8Path) -> io::Result<()> {
+        let service_handle = self.service.spawn_at(plugin_socket_path).await?;
+        let registration_handle = match self.registration.spawn().await {
             Ok(handle) => handle,
             Err(err) => {
-                registration_handle.abort();
-                let _ = registration_handle.await;
+                service_handle.abort();
+                let _ = service_handle.await;
                 return Err(err);
             }
         };

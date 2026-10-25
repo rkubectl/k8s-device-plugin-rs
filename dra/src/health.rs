@@ -15,35 +15,45 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// run repeatedly from a Kubernetes `exec` liveness or readiness probe.
 #[derive(Clone, Debug)]
 pub struct DraPluginLivenessProbe {
-    registration_socket_path: PathBuf,
-    plugin_socket_path: PathBuf,
+    driver_name: String,
+    registration_socket_path: Utf8PathBuf,
+    plugin_socket_path: Utf8PathBuf,
 }
 
 impl DraPluginLivenessProbe {
     /// Creates a probe for the standard kubelet paths of `driver_name`.
-    #[must_use]
-    pub fn new(driver_name: &str) -> Self {
-        let plugin_socket_path = Path::new(dra::KUBELET_PLUGINS_PATH)
+    ///
+    /// # Errors
+    ///
+    /// Returns a validation error for an invalid driver name.
+    pub fn new(driver_name: &str) -> Result<Self, ValidationError> {
+        let plugin_socket_path = Utf8Path::new(dra::KUBELET_PLUGINS_PATH)
             .join(driver_name)
             .join("plugin.sock");
-        let registration_socket_path = Path::new(dra::KUBELET_PLUGINS_REGISTRY_PATH)
+        let registration_socket_path = Utf8Path::new(dra::KUBELET_PLUGINS_REGISTRY_PATH)
             .join(DraRegistrationServer::socket_name(driver_name));
-        Self::with_socket_paths(registration_socket_path, plugin_socket_path)
+        Self::with_socket_paths(driver_name, registration_socket_path, plugin_socket_path)
     }
 
     /// Creates a probe for explicit registration and plugin socket paths.
     ///
     /// This is useful when a deployment intentionally mounts kubelet
     /// directories at non-standard locations.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns a validation error for an invalid expected driver name.
     pub fn with_socket_paths(
-        registration_socket_path: impl Into<PathBuf>,
-        plugin_socket_path: impl Into<PathBuf>,
-    ) -> Self {
-        Self {
+        driver_name: &str,
+        registration_socket_path: impl Into<Utf8PathBuf>,
+        plugin_socket_path: impl Into<Utf8PathBuf>,
+    ) -> Result<Self, ValidationError> {
+        validate_driver_name(driver_name)?;
+        Ok(Self {
+            driver_name: driver_name.to_string(),
             registration_socket_path: registration_socket_path.into(),
             plugin_socket_path: plugin_socket_path.into(),
-        }
+        })
     }
 
     /// Verifies that both DRA gRPC services respond without mutating state.
@@ -69,20 +79,33 @@ impl DraPluginLivenessProbe {
                 io::ErrorKind::InvalidData,
                 format!(
                     "registration socket {} reported plugin type {}, not DRAPlugin",
-                    self.registration_socket_path.display(),
-                    info.r#type
+                    self.registration_socket_path, info.r#type
                 ),
             ));
         }
 
-        if Path::new(&info.endpoint) != self.plugin_socket_path {
+        if info.name != self.driver_name
+            || !info
+                .supported_versions
+                .iter()
+                .any(|service| service == dra::DRA_PLUGIN_SERVICE)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "registration must advertise driver {} and service {}",
+                    self.driver_name,
+                    dra::DRA_PLUGIN_SERVICE
+                ),
+            ));
+        }
+
+        if Utf8Path::new(&info.endpoint) != self.plugin_socket_path {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!(
                     "registration socket {} advertised {}, expected {}",
-                    self.registration_socket_path.display(),
-                    info.endpoint,
-                    self.plugin_socket_path.display()
+                    self.registration_socket_path, info.endpoint, self.plugin_socket_path
                 ),
             ));
         }
@@ -99,7 +122,7 @@ impl DraPluginLivenessProbe {
     }
 }
 
-async fn connect(socket_path: &Path, service: &str) -> io::Result<transport::Channel> {
+async fn connect(socket_path: &Utf8Path, service: &str) -> io::Result<transport::Channel> {
     let socket_path = socket_path.to_path_buf();
     let connector_path = socket_path.clone();
     let endpoint = transport::Endpoint::try_from("http://[::]:50051")
@@ -120,7 +143,7 @@ async fn connect(socket_path: &Path, service: &str) -> io::Result<transport::Cha
         .map_err(|error| {
             io::Error::other(format!(
                 "connect to {service} socket {}: {error}",
-                socket_path.display()
+                socket_path
             ))
         })
 }

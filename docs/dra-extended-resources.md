@@ -91,7 +91,7 @@ impl ClaimPreparer for MyDriver {
 }
 ```
 
-`DraPlugin::new(client, driver_name, node_name, driver).run().await` then
+`DraPlugin::new(client, driver_name, node_name, driver)?.run().await` then
 handles ResourceSlice publication, pluginwatcher registration, and kubelet RPC
 serving. Follow the [first DRA driver checklist](getting-started.md#first-dra-driver)
 and the [deployment contract](../dra/k8s/README.md#production-deployment-contract)

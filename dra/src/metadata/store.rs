@@ -20,7 +20,7 @@ const DIRECTORY: OFlags = OFlags::RDONLY
     .union(OFlags::NOFOLLOW)
     .union(OFlags::CLOEXEC);
 
-fn trusted_root(path: &Path, create: bool) -> io::Result<Option<OwnedFd>> {
+fn trusted_root(path: &Utf8Path, create: bool) -> io::Result<Option<OwnedFd>> {
     if create {
         fs::create_dir_all(path)?;
     }

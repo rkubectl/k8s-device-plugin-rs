@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 
 pub use device::Device;
 pub use device::DevicePath;
@@ -43,6 +43,9 @@ pub use unix_socket::bind_unix_listener;
 pub use validation::ValidationError;
 pub use validation::validate_absolute_path;
 pub use validation::validate_device_id;
+pub use validation::validate_driver_name;
+pub use validation::validate_node_name;
+pub use validation::validate_pool_name;
 pub use validation::validate_resource_name;
 
 mod device;

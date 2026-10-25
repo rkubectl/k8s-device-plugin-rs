@@ -311,12 +311,35 @@ async fn main() -> io::Result<()> {
     let client = kube::Client::try_default()
         .await
         .map_err(io::Error::other)?;
-    let status_publisher = ClaimDeviceStatusPublisher::new(client.clone(), driver_name.clone());
+    let status_publisher = ClaimDeviceStatusPublisher::new(client.clone(), driver_name.clone())
+        .map_err(io::Error::other)?;
     let driver = StaticDraDriver::new(driver_name.clone(), pool_name, devices)
         .with_status_publisher(status_publisher)
         .with_taint(taint)
         .with_binding(binding);
-    let plugin = DraPlugin::new(client, driver_name.clone(), node_name, driver);
+    let plugin = match env_or_default("DRA_EXAMPLE_RESOURCE_HEALTH", "0").as_str() {
+        "0" => DraPlugin::new(client, driver_name.clone(), node_name, driver),
+        "1" => {
+            #[cfg(feature = "resource-health")]
+            {
+                DraPlugin::with_resource_health(client, driver_name.clone(), node_name, driver)
+            }
+            #[cfg(not(feature = "resource-health"))]
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "resource health requires the resource-health Cargo feature",
+                ));
+            }
+        }
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "DRA_EXAMPLE_RESOURCE_HEALTH must be 0 or 1",
+            ));
+        }
+    }
+    .map_err(io::Error::other)?;
     let plugin = if metadata_enabled {
         plugin.with_device_metadata(DeviceMetadataOptions::v1beta1())?
     } else {
@@ -391,5 +414,63 @@ mod tests {
     #[test]
     fn cdi_device_id_uses_the_validation_spec_kind() {
         assert_eq!(cdi_device_id("widget-0"), "dra.example.com/widget=widget-0");
+    }
+}
+
+#[cfg(feature = "resource-health")]
+mod resource_health {
+    use std::time::Duration;
+    use std::time::SystemTime;
+    use std::time::UNIX_EPOCH;
+
+    use tokio::sync::mpsc;
+
+    use k8s_device_plugin_core::DraDeviceHealth;
+    use k8s_device_plugin_core::ResourceHealthError;
+    use k8s_device_plugin_core::ResourceHealthReport;
+    use k8s_device_plugin_core::ResourceHealthReporter;
+    use k8s_device_plugin_core::ResourceHealthStatus;
+
+    use super::*;
+
+    #[async_trait]
+    impl ResourceHealthReporter for StaticDraDriver {
+        async fn watch_resource_health(
+            &self,
+            reports: mpsc::Sender<ResourceHealthReport>,
+        ) -> Result<(), ResourceHealthError> {
+            tracing::info!("kubelet opened resource health watch");
+            // This validation backend has static fake devices. A real backend
+            // must use its hardware monitor, independently of inventory health.
+            loop {
+                let seconds = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|error| ResourceHealthError::MonitorFailed(error.to_string()))?
+                    .as_secs();
+                let last_updated_time = i64::try_from(seconds)
+                    .map_err(|error| ResourceHealthError::MonitorFailed(error.to_string()))?;
+                let report = ResourceHealthReport {
+                    devices: self
+                        .devices
+                        .iter()
+                        .map(|device| DraDeviceHealth {
+                            pool_name: self.pool.clone(),
+                            device_name: device.name.clone(),
+                            health: ResourceHealthStatus::Healthy,
+                            last_updated_time,
+                            health_check_timeout_seconds: 30,
+                            message: "static validation device is healthy".into(),
+                        })
+                        .collect(),
+                };
+                if reports.send(report).await.is_err() {
+                    return Ok(());
+                }
+                tokio::select! {
+                    _ = reports.closed() => return Ok(()),
+                    _ = tokio::time::sleep(Duration::from_secs(5)) => {},
+                }
+            }
+        }
     }
 }

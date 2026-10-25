@@ -9,6 +9,7 @@ description = "Kubernetes device-plugin server runtime for Rust"
 
 
 [dependencies]
+camino.workspace = true
 hyper-util.workspace = true
 tokio = { workspace = true, features = ["fs", "time"] }
 tokio-stream.workspace = true
@@ -24,7 +25,7 @@ k8s-device-plugin-proto.workspace = true
 k8s-device-plugin-test.workspace = true
 parking_lot.workspace = true
 prometheus_exporter.workspace = true
-tempfile.workspace = true
+camino-tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing-subscriber.workspace = true
 

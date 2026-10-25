@@ -53,7 +53,7 @@ impl DeviceAllocator for StaticDevicePlugin {
                 {
                     return Err(AllocationError::DeviceUnavailable(format!(
                         "{id}: host path {} does not exist",
-                        path.host_path.display()
+                        path.host_path
                     )));
                 }
             }
@@ -70,17 +70,16 @@ impl K8sDevicePlugin for StaticDevicePlugin {}
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
 
     use super::*;
 
-    fn device_with_path(id: &str, host_path: PathBuf) -> Device {
+    fn device_with_path(id: &str, host_path: Utf8PathBuf) -> Device {
         Device::rdwr(id, host_path)
     }
 
     #[tokio::test]
     async fn discover_returns_the_static_list_unchanged() {
-        let devices = vec![device_with_path("dev-0", PathBuf::from("/dev/null"))];
+        let devices = vec![device_with_path("dev-0", Utf8PathBuf::from("/dev/null"))];
         let plugin = StaticDevicePlugin::new(devices.clone());
 
         let discovered = plugin.discover().await;
@@ -90,7 +89,7 @@ mod tests {
 
     #[tokio::test]
     async fn allocate_succeeds_when_host_path_exists() {
-        let temp_file = tempfile::NamedTempFile::new().expect("create temp file");
+        let temp_file = camino_tempfile::NamedUtf8TempFile::new().expect("create temp file");
         let plugin = StaticDevicePlugin::new(vec![device_with_path(
             "dev-0",
             temp_file.path().to_path_buf(),
@@ -104,7 +103,7 @@ mod tests {
     async fn allocate_fails_when_host_path_is_missing() {
         let plugin = StaticDevicePlugin::new(vec![device_with_path(
             "dev-0",
-            PathBuf::from("/nonexistent/path/for/testing"),
+            Utf8PathBuf::from("/nonexistent/path/for/testing"),
         )]);
 
         let err = plugin.allocate(&["dev-0".to_string()]).await.unwrap_err();

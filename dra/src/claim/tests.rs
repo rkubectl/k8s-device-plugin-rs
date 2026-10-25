@@ -11,7 +11,10 @@ fn mock_resolver() -> (
     k8s_device_plugin_test::kube_mock::MockKubeHandle,
 ) {
     let (client, handle) = mock_kube_client();
-    (ClaimResolver::new(client), handle)
+    (
+        ClaimResolver::new(client, "example.com").expect("valid driver"),
+        handle,
+    )
 }
 
 /// Waits for the next request on `handle` and responds with `body`, run as
@@ -362,5 +365,51 @@ fn retry_classification_excludes_decoding_and_permanent_io_errors() {
             is_transient_read_error(&kube::Error::Service(Box::new(io::Error::from(kind)))),
             retry
         );
+    }
+}
+
+#[tokio::test]
+async fn resolve_filters_foreign_allocations_and_rejects_only_local_shares() {
+    for local_share in [false, true] {
+        let (resolver, handle) = mock_resolver();
+        let reference = ClaimRef {
+            namespace: "default".into(),
+            name: "claim".into(),
+            uid: "uid".into(),
+        };
+        let mut status = allocated_claim_status("example.com", "pool", "device", "a/fast");
+        let results = status
+            .allocation
+            .as_mut()
+            .unwrap()
+            .devices
+            .as_mut()
+            .unwrap()
+            .results
+            .as_mut()
+            .unwrap();
+        results[0].share_id = local_share.then(|| "local-share".into());
+        let mut foreign = results[0].clone();
+        foreign.driver = "foreign.example.com".into();
+        foreign.share_id = Some("foreign-share".into());
+        results.insert(0, foreign);
+        let server = respond_once(
+            handle,
+            resource_claim("claim", "default", "uid", Some(status)),
+        );
+        let result = resolver.resolve(&reference).await;
+        server.await.unwrap();
+        if local_share {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("does not yet support device share IDs")
+            );
+        } else {
+            let resolved = result.unwrap();
+            assert_eq!(resolved.devices.len(), 1);
+            assert_eq!(resolved.devices[0].request_name.as_deref(), Some("a/fast"));
+        }
     }
 }

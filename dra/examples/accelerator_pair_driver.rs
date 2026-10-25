@@ -216,6 +216,7 @@ async fn main() -> io::Result<()> {
         .map_err(io::Error::other)?;
     let driver = AcceleratorPairDriver::new(driver_name.clone(), pool_name, pairs);
     DraPlugin::new(client, driver_name, node_name, driver)
+        .map_err(io::Error::other)?
         .run()
         .await
 }

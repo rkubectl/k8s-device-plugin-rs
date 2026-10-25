@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
+use camino_tempfile::Utf8TempDir;
 use parking_lot::Mutex;
-use tempfile::TempDir;
 use tokio_stream::StreamExt;
 
 use super::*;
@@ -20,7 +19,7 @@ fn register_uses_socket_filename_as_endpoint() {
 
     let expected_prefix = "/var/lib/kubelet/device-plugins/example_com_device-";
     assert!(
-        plugin.endpoint.starts_with(expected_prefix),
+        plugin.endpoint.as_str().starts_with(expected_prefix),
         "endpoint {} should start with {expected_prefix}",
         plugin.endpoint
     );
@@ -42,23 +41,19 @@ fn new_rejects_malformed_resource_name() {
 
 #[tokio::test]
 async fn setup_listener_refuses_an_active_endpoint() {
-    let socket_dir = TempDir::new().expect("create temp dir for plugin socket");
-    let endpoint = socket_dir
-        .path()
-        .join("plugin.sock")
-        .to_string_lossy()
-        .into_owned();
+    let socket_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
+    let endpoint = socket_dir.path().join("plugin.sock");
     let active = DevicePlugin::for_test(
         "example.com/device",
         make_service(),
         endpoint.clone(),
-        "unused".to_string(),
+        "unused".into(),
     );
     let contender = DevicePlugin::for_test(
         "example.com/device",
         make_service(),
         endpoint,
-        "unused".to_string(),
+        "unused".into(),
     );
     let _listener = active.setup_listener().expect("bind active listener");
 
@@ -170,7 +165,7 @@ fn converts_device_to_proto() {
 #[test]
 fn converts_device_path_to_spec() {
     let path = DevicePath::rdwr("/dev/mydev0");
-    let spec = device_path_to_spec(&path);
+    let spec = device_path_to_spec(path);
     assert_eq!(spec.host_path, "/dev/mydev0");
     assert_eq!(spec.container_path, "/dev/mydev0");
     assert_eq!(spec.permissions, "rw");
@@ -344,35 +339,35 @@ async fn allocate_maps_mounts_envs_annotations_and_cdi_devices() {
     );
 }
 
-struct RelativePathPlugin;
+struct AllocationPlugin(ContainerAllocation);
 
 #[tonic::async_trait]
-impl DeviceDiscovery for RelativePathPlugin {
+impl DeviceDiscovery for AllocationPlugin {
     async fn discover(&self) -> Vec<Device> {
         vec![]
     }
 }
 
 #[tonic::async_trait]
-impl DeviceAllocator for RelativePathPlugin {
+impl DeviceAllocator for AllocationPlugin {
     async fn allocate(
         &self,
         _device_ids: &[String],
     ) -> Result<ContainerAllocation, AllocationError> {
-        Ok(ContainerAllocation {
-            device_paths: vec![DevicePath::rdwr("relative/widget0")],
-            ..default()
-        })
+        Ok(self.0.clone())
     }
 }
 
-impl K8sDevicePlugin for RelativePathPlugin {}
+impl K8sDevicePlugin for AllocationPlugin {}
 
 #[tokio::test]
 async fn allocate_rejects_relative_device_path() {
     use v1beta1::DevicePlugin as _;
 
-    let service = DevicePluginService::new(RelativePathPlugin);
+    let service = DevicePluginService::new(AllocationPlugin(ContainerAllocation {
+        device_paths: vec![DevicePath::rdwr("relative/widget0")],
+        ..default()
+    }));
     let request = tonic::Request::new(v1beta1::AllocateRequest {
         container_requests: vec![v1beta1::ContainerAllocateRequest {
             devices_ids: vec!["widget-0".to_string()],
@@ -537,8 +532,8 @@ impl DeviceAllocator for FullFeaturedPlugin {
     ) -> Result<ContainerAllocation, AllocationError> {
         Ok(ContainerAllocation {
             mounts: vec![HostMount {
-                host_path: PathBuf::from("/opt/widget/lib"),
-                container_path: PathBuf::from("/opt/widget/lib"),
+                host_path: Utf8PathBuf::from("/opt/widget/lib"),
+                container_path: Utf8PathBuf::from("/opt/widget/lib"),
                 read_only: true,
             }],
             envs: BTreeMap::from([("WIDGET_VISIBLE_DEVICES".to_string(), "0".to_string())]),
@@ -727,24 +722,20 @@ async fn try_register_retries_until_success() {
 
 #[tokio::test]
 async fn run_reregisters_after_kubelet_disconnects() {
-    use tempfile::TempDir;
+    use camino_tempfile::Utf8TempDir;
 
     use k8s_device_plugin_test::device_plugin::MockDevicePluginClient;
     use k8s_device_plugin_test::registration::start_mock_registration_server;
 
     let registration_server = start_mock_registration_server(None);
-    let plugin_dir = TempDir::new().expect("create temp dir for plugin socket");
-    let endpoint = plugin_dir
-        .path()
-        .join("plugin.sock")
-        .to_string_lossy()
-        .into_owned();
+    let plugin_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
+    let endpoint = plugin_dir.path().join("plugin.sock");
 
     let plugin = DevicePlugin::for_test(
         "example.com/device",
         make_service(),
         endpoint.clone(),
-        registration_server.socket_path(),
+        registration_server.socket_path().to_owned(),
     );
 
     let run_handle = tokio::spawn(async move { plugin.run().await });
@@ -784,4 +775,104 @@ async fn wait_for_request_count(
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     panic!("timed out waiting for {count} registration request(s)");
+}
+
+#[test]
+fn clean_server_exit_is_an_error_and_zero_polling_is_bounded() {
+    assert!(
+        server_exit_error(Ok(Ok(())))
+            .to_string()
+            .contains("exited unexpectedly")
+    );
+    assert!(
+        make_service()
+            .with_poll_interval(Duration::ZERO)
+            .poll_interval
+            > Duration::ZERO
+    );
+}
+
+struct CancellationPlugin {
+    started: Arc<tokio::sync::Notify>,
+    dropped: Arc<tokio::sync::Notify>,
+}
+
+#[tonic::async_trait]
+impl DeviceDiscovery for CancellationPlugin {
+    async fn discover(&self) -> Vec<Device> {
+        vec![]
+    }
+}
+
+#[tonic::async_trait]
+impl DeviceAllocator for CancellationPlugin {
+    async fn allocate(&self, _: &[String]) -> Result<ContainerAllocation, AllocationError> {
+        struct OnDrop(Arc<tokio::sync::Notify>);
+        impl Drop for OnDrop {
+            fn drop(&mut self) {
+                self.0.notify_one();
+            }
+        }
+        let _guard = OnDrop(Arc::clone(&self.dropped));
+        self.started.notify_one();
+        std::future::pending().await
+    }
+}
+impl K8sDevicePlugin for CancellationPlugin {}
+
+#[tokio::test]
+async fn dropping_allocate_rpc_aborts_backend_work() {
+    use v1beta1::DevicePlugin as _;
+    let started = Arc::new(tokio::sync::Notify::new());
+    let dropped = Arc::new(tokio::sync::Notify::new());
+    let service = DevicePluginService::new(CancellationPlugin {
+        started: Arc::clone(&started),
+        dropped: Arc::clone(&dropped),
+    });
+    let request = tonic::Request::new(v1beta1::AllocateRequest {
+        container_requests: vec![v1beta1::ContainerAllocateRequest {
+            devices_ids: vec!["device".into()],
+        }],
+    });
+    let mut rpc = Box::pin(service.allocate(request));
+    tokio::select! {
+        _ = started.notified() => {},
+        result = &mut rpc => panic!("allocation unexpectedly completed: {result:?}"),
+    }
+    drop(rpc);
+    tokio::time::timeout(Duration::from_secs(1), dropped.notified())
+        .await
+        .expect("backend future must be dropped");
+}
+
+#[tokio::test]
+async fn allocate_preserves_unicode_device_and_mount_paths_on_the_wire() {
+    use v1beta1::DevicePlugin as _;
+    let service = DevicePluginService::new(AllocationPlugin(ContainerAllocation {
+        device_paths: vec![DevicePath {
+            host_path: "/dev/גרפיקה".into(),
+            container_path: "/dev/装置".into(),
+            permissions: DevicePermissions::rdwr(),
+        }],
+        mounts: vec![HostMount {
+            host_path: "/srv/данные".into(),
+            container_path: "/work/Δ".into(),
+            read_only: true,
+        }],
+        ..default()
+    }));
+    let result = service
+        .allocate(tonic::Request::new(v1beta1::AllocateRequest {
+            container_requests: vec![v1beta1::ContainerAllocateRequest {
+                devices_ids: vec!["device".into()],
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let container = &result.container_responses[0];
+    assert_eq!(container.devices[0].host_path, "/dev/גרפיקה");
+    assert_eq!(container.devices[0].container_path, "/dev/装置");
+    assert_eq!(container.mounts[0].host_path, "/srv/данные");
+    assert_eq!(container.mounts[0].container_path, "/work/Δ");
 }

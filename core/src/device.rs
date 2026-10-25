@@ -1,9 +1,24 @@
 use super::*;
 
+/// Device-node paths represented losslessly in the kubelet protocol.
+///
+/// Paths are UTF-8 by construction. Convert arbitrary OS paths explicitly:
+///
+/// ```
+/// use camino::Utf8PathBuf;
+/// use k8s_device_plugin_core::DevicePath;
+///
+/// # fn main() -> Result<(), camino::FromPathBufError> {
+/// let os_path = std::path::PathBuf::from("/dev/widget-0");
+/// let device = DevicePath::rdwr(Utf8PathBuf::try_from(os_path)?);
+/// assert_eq!(device.host_path.as_str(), "/dev/widget-0");
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DevicePath {
-    pub host_path: PathBuf,
-    pub container_path: PathBuf,
+    pub host_path: Utf8PathBuf,
+    pub container_path: Utf8PathBuf,
     pub permissions: DevicePermissions,
 }
 
@@ -11,8 +26,8 @@ pub struct DevicePath {
 /// device special file (see [`DevicePath`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostMount {
-    pub host_path: PathBuf,
-    pub container_path: PathBuf,
+    pub host_path: Utf8PathBuf,
+    pub container_path: Utf8PathBuf,
     pub read_only: bool,
 }
 
@@ -31,7 +46,7 @@ impl Device {
         Self { id, health, paths }
     }
 
-    pub fn rdwr(id: impl Into<String>, path: impl Into<PathBuf>) -> Self {
+    pub fn rdwr(id: impl Into<String>, path: impl Into<Utf8PathBuf>) -> Self {
         let id = id.into();
         let health = Health::Healthy;
         let paths = vec![DevicePath::rdwr(path)];
@@ -44,7 +59,7 @@ impl Device {
 }
 
 impl DevicePath {
-    pub fn rdwr(path: impl Into<PathBuf>) -> Self {
+    pub fn rdwr(path: impl Into<Utf8PathBuf>) -> Self {
         let host_path = path.into();
         let container_path = host_path.clone();
         let permissions = DevicePermissions::rdwr();

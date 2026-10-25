@@ -19,12 +19,13 @@ const MAX_TAINTS_PER_DEVICE: usize = 16;
 const MAX_BINDING_CONDITIONS_PER_DEVICE: usize = 4;
 
 fn slice_name(driver_name: &str, node_name: &str, pool_name: &str, index: usize) -> String {
-    let base = format!("{driver_name}-{node_name}-{pool_name}");
-    if index == 0 {
-        base
-    } else {
-        format!("{base}-{index}")
-    }
+    // '|' cannot occur in any validated component. Include the complete
+    // identity in the stable socket-name hash before truncating the prefix.
+    let identity = format!("{driver_name}|{node_name}|{pool_name}");
+    let prefix = format!("slice-{index}-");
+    let suffix = k8s_device_plugin_core::sanitize_socket_name(&identity, 63 - prefix.len())
+        .replace('_', "-");
+    prefix + &suffix
 }
 
 pub(crate) fn attribute_value_to_wire(value: AttributeValue) -> resourcev1::DeviceAttribute {
@@ -245,35 +246,44 @@ impl fmt::Debug for ResourceSlicePublisher {
 }
 
 impl ResourceSlicePublisher {
+    /// Creates a publisher for one driver's inventory on a named node.
+    ///
+    /// # Errors
+    ///
+    /// Returns a validation error for invalid driver or node names.
     pub fn new<P: ResourcePool + 'static>(
         client: kube::Client,
         driver_name: impl Into<String>,
         node_name: impl Into<String>,
         resource_pool: P,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ValidationError> {
+        let driver_name = driver_name.into();
+        let node_name = node_name.into();
+        validate_driver_name(&driver_name)?;
+        validate_node_name(&node_name)?;
+        Ok(Self {
             client,
-            driver_name: driver_name.into(),
-            node_name: node_name.into(),
+            driver_name,
+            node_name,
             resource_pool: Arc::new(resource_pool),
             poll_interval: DEFAULT_POLL_INTERVAL,
             retry_base_delay: DEFAULT_RETRY_BASE_DELAY,
             retry_max_delay: DEFAULT_RETRY_MAX_DELAY,
-        }
+        })
     }
 
     /// Overrides the normal interval between successful reconciliations.
     #[must_use]
     pub fn with_poll_interval(mut self, poll_interval: Duration) -> Self {
-        self.poll_interval = poll_interval;
+        self.poll_interval = poll_interval.max(Duration::from_millis(1));
         self
     }
 
     /// Configures the bounded exponential delay used after failed attempts.
     #[must_use]
     pub fn with_retry_backoff(mut self, base_delay: Duration, max_delay: Duration) -> Self {
-        self.retry_base_delay = base_delay;
-        self.retry_max_delay = max_delay.max(base_delay);
+        self.retry_base_delay = base_delay.max(Duration::from_millis(1));
+        self.retry_max_delay = max_delay.max(self.retry_base_delay);
         self
     }
 
@@ -308,8 +318,28 @@ impl ResourceSlicePublisher {
 
         // Desired slices were created or updated first. Deleting the
         // leftovers last avoids a deliberate incomplete pool state.
-        let dp = api::DeleteParams::default();
-        for (name, _) in existing {
+        for (name, slice) in existing {
+            let uid = slice
+                .metadata
+                .uid
+                .filter(|uid| !uid.is_empty())
+                .ok_or_else(|| {
+                    invalid_pool_error(&slice.spec.pool.name, "stale slice is missing a UID")
+                })?;
+            let resource_version = slice
+                .metadata
+                .resource_version
+                .filter(|version| !version.is_empty())
+                .ok_or_else(|| {
+                    invalid_pool_error(
+                        &slice.spec.pool.name,
+                        "stale slice is missing a resourceVersion",
+                    )
+                })?;
+            let dp = api::DeleteParams::default().preconditions(api::Preconditions {
+                uid: Some(uid),
+                resource_version: Some(resource_version),
+            });
             resource_slices.delete(&name, &dp).await?;
         }
         Ok(())
@@ -341,6 +371,8 @@ impl ResourceSlicePublisher {
         pool_name: &str,
         devices: Vec<InventoryDevice>,
     ) -> kube::Result<()> {
+        validate_pool_name(pool_name)
+            .map_err(|error| invalid_pool_error(pool_name, &error.to_string()))?;
         let wire_devices = devices
             .into_iter()
             .map(|device| inventory_device_to_wire(device, pool_name))
@@ -406,6 +438,15 @@ impl ResourceSlicePublisher {
             };
 
             let pp = api::PostParams::default();
+            if existing
+                .get(&name)
+                .is_some_and(|slice| slice.spec.pool.name != pool_name)
+            {
+                return Err(invalid_pool_error(
+                    pool_name,
+                    "slice name is owned by another pool",
+                ));
+            }
             match existing.remove(&name) {
                 Some(current) if resource_slice_matches(&current, &desired) => {}
                 Some(mut current) => {

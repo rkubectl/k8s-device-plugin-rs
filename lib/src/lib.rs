@@ -1,9 +1,10 @@
 use std::fmt;
 use std::io;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use hyper_util::rt::TokioIo;
 use tokio::net;
 use tokio::task;
@@ -30,6 +31,14 @@ pub use static_plugin::StaticDevicePlugin;
 
 mod registration;
 mod static_plugin;
+
+fn server_exit_error(result: Result<Result<(), transport::Error>, task::JoinError>) -> io::Error {
+    match result {
+        Ok(Ok(())) => io::Error::other("device-plugin server exited unexpectedly"),
+        Ok(Err(error)) => io::Error::other(error),
+        Err(error) => io::Error::other(error),
+    }
+}
 
 fn device_to_proto(device: &Device) -> v1beta1::Device {
     v1beta1::Device {
@@ -96,18 +105,18 @@ fn devices_equal_ignoring_order(a: &[Device], b: &[Device]) -> bool {
     a_sorted == b_sorted
 }
 
-fn device_path_to_spec(path: &DevicePath) -> v1beta1::DeviceSpec {
+fn device_path_to_spec(path: DevicePath) -> v1beta1::DeviceSpec {
     v1beta1::DeviceSpec {
-        host_path: path.host_path.to_string_lossy().into_owned(),
-        container_path: path.container_path.to_string_lossy().into_owned(),
+        host_path: path.host_path.into_string(),
+        container_path: path.container_path.into_string(),
         permissions: path.permissions.to_string(),
     }
 }
 
-fn host_mount_to_proto(mount: &HostMount) -> v1beta1::Mount {
+fn host_mount_to_proto(mount: HostMount) -> v1beta1::Mount {
     v1beta1::Mount {
-        container_path: mount.container_path.to_string_lossy().into_owned(),
-        host_path: mount.host_path.to_string_lossy().into_owned(),
+        container_path: mount.container_path.into_string(),
+        host_path: mount.host_path.into_string(),
         read_only: mount.read_only,
     }
 }
@@ -130,10 +139,14 @@ fn container_allocation_to_response(
     v1beta1::ContainerAllocateResponse {
         devices: allocation
             .device_paths
-            .iter()
+            .into_iter()
             .map(device_path_to_spec)
             .collect(),
-        mounts: allocation.mounts.iter().map(host_mount_to_proto).collect(),
+        mounts: allocation
+            .mounts
+            .into_iter()
+            .map(host_mount_to_proto)
+            .collect(),
         envs: allocation.envs.into_iter().collect(),
         annotations: allocation.annotations.into_iter().collect(),
         cdi_devices: allocation
@@ -146,10 +159,10 @@ fn container_allocation_to_response(
 
 #[derive(Clone, Debug)]
 pub struct DevicePlugin {
-    endpoint: String,
+    endpoint: Utf8PathBuf,
     resource_name: String,
     service: Arc<DevicePluginService>,
-    kubelet_socket: String,
+    kubelet_socket: Utf8PathBuf,
 }
 
 impl DevicePlugin {
@@ -157,7 +170,7 @@ impl DevicePlugin {
         k8s_device_plugin_core::validate_resource_name(resource_name)?;
         let socket_name = sanitize_socket_name(resource_name);
         let resource_name = resource_name.to_string();
-        let endpoint = String::from(v1beta1::DEVICE_PLUGIN_PATH) + &socket_name;
+        let endpoint = Utf8Path::new(v1beta1::DEVICE_PLUGIN_PATH).join(socket_name);
         let service = Arc::new(service);
         let kubelet_socket = Self::kubelet_socket_path();
         Ok(Self {
@@ -172,8 +185,8 @@ impl DevicePlugin {
     fn for_test(
         resource_name: &str,
         service: DevicePluginService,
-        endpoint: String,
-        kubelet_socket: String,
+        endpoint: Utf8PathBuf,
+        kubelet_socket: Utf8PathBuf,
     ) -> Self {
         Self {
             endpoint,
@@ -184,6 +197,8 @@ impl DevicePlugin {
     }
 
     #[tracing::instrument(skip(self), fields(resource_name = self.resource_name))]
+    /// Runs for the process lifetime. Dropping this future does not stop the
+    /// serving task; terminate the process to shut down the plugin.
     pub async fn run(&self) -> io::Result<()> {
         let mut server_handle = self.spawn_server()?;
         loop {
@@ -199,9 +214,7 @@ impl DevicePlugin {
             tracing::info!("registered with kubelet");
             tokio::select! {
                 result = &mut server_handle => {
-                    return result
-                        .map_err(io::Error::other)?
-                        .map_err(io::Error::other);
+                    return Err(server_exit_error(result));
                 }
                 _ = kubelet_gone => {
                     tracing::warn!("kubelet disconnected; re-registering");
@@ -211,14 +224,14 @@ impl DevicePlugin {
     }
 
     async fn register_with_retry(&self) -> io::Result<()> {
-        self.try_register(self.kubelet_socket.clone(), 10, Duration::from_secs(1))
+        self.try_register(&self.kubelet_socket, 10, Duration::from_secs(1))
             .await
     }
 
     #[tracing::instrument(skip(self, kubelet_socket), fields(resource_name = self.resource_name))]
     async fn try_register(
         &self,
-        kubelet_socket: String,
+        kubelet_socket: &Utf8Path,
         max_attempts: u32,
         initial_delay: Duration,
     ) -> io::Result<()> {
@@ -227,7 +240,7 @@ impl DevicePlugin {
         }
         let mut delay = initial_delay;
         for attempt in 1..max_attempts {
-            match self.register_at(kubelet_socket.clone()).await {
+            match self.register_at(kubelet_socket).await {
                 Ok(()) => return Ok(()),
                 Err(err) => {
                     tracing::warn!(attempt, max_attempts, %err, "registration attempt failed; retrying");
@@ -250,10 +263,10 @@ impl DevicePlugin {
     }
 
     pub async fn register(&self) -> tonic::Result<()> {
-        self.register_at(self.kubelet_socket.clone()).await
+        self.register_at(&self.kubelet_socket).await
     }
 
-    async fn register_at(&self, kubelet_socket: String) -> tonic::Result<()> {
+    async fn register_at(&self, kubelet_socket: &Utf8Path) -> tonic::Result<()> {
         RegistrationClient::new(kubelet_socket)
             .await?
             .register(self.registration_endpoint(), &self.resource_name)
@@ -261,18 +274,15 @@ impl DevicePlugin {
     }
 
     fn registration_endpoint(&self) -> &str {
-        Path::new(&self.endpoint)
-            .file_name()
-            .and_then(|file_name| file_name.to_str())
-            .unwrap_or(&self.endpoint)
+        self.endpoint.file_name().unwrap_or(self.endpoint.as_str())
     }
 
-    fn kubelet_socket_path() -> String {
-        String::from(v1beta1::DEVICE_PLUGIN_PATH) + v1beta1::KUBELET_SOCKET
+    fn kubelet_socket_path() -> Utf8PathBuf {
+        Utf8Path::new(v1beta1::DEVICE_PLUGIN_PATH).join(v1beta1::KUBELET_SOCKET)
     }
 
     fn setup_listener(&self) -> io::Result<UnixListenerStream> {
-        let listener = k8s_device_plugin_core::bind_unix_listener(Path::new(&self.endpoint))?;
+        let listener = k8s_device_plugin_core::bind_unix_listener(&self.endpoint)?;
         net::UnixListener::from_std(listener).map(UnixListenerStream::new)
     }
 
@@ -302,10 +312,10 @@ impl DevicePluginService {
     }
 
     /// Overrides the default interval at which device state is re-polled for
-    /// `ListAndWatch` updates.
+    /// `ListAndWatch` updates. Values below one millisecond are clamped.
     #[must_use]
     pub fn with_poll_interval(mut self, poll_interval: Duration) -> Self {
-        self.poll_interval = poll_interval;
+        self.poll_interval = poll_interval.max(Duration::from_millis(1));
         self
     }
 }
@@ -407,47 +417,34 @@ impl v1beta1::DevicePlugin for DevicePluginService {
         &self,
         request: tonic::Request<v1beta1::AllocateRequest>,
     ) -> tonic::Result<tonic::Response<v1beta1::AllocateResponse>> {
-        // Each container's allocation is independent, so run them concurrently
-        // instead of one-at-a-time -- spawn all tasks up front, then await in
-        // order so container_responses lines up with the request. If any task
-        // fails, abort the rest instead of letting them keep running after
-        // we've already reported failure to kubelet.
-        let tasks = request
+        // JoinSet owns all tasks: errors and RPC cancellation abort siblings.
+        // Record request positions because tasks may finish in any order.
+        let mut tasks = task::JoinSet::new();
+        for (index, container_request) in request
             .into_inner()
             .container_requests
             .into_iter()
-            .map(|container_request| {
-                let plugin = Arc::clone(&self.plugin);
-                tokio::spawn(async move { plugin.allocate(&container_request.devices_ids).await })
-            })
-            .collect::<Vec<_>>();
-
-        let mut container_responses = Vec::with_capacity(tasks.len());
-        let mut tasks = tasks.into_iter();
-        while let Some(task) = tasks.next() {
-            let allocation = match task.await {
-                Ok(Ok(allocation)) => match validate_allocation(&allocation) {
-                    Ok(()) => allocation,
-                    Err(err) => {
-                        tracing::warn!(%err, "backend returned invalid allocation");
-                        tasks.for_each(|task| task.abort());
-                        return Err(tonic::Status::internal(err.to_string()));
-                    }
-                },
-                Ok(Err(err)) => {
-                    tracing::warn!(%err, "allocate failed");
-                    tasks.for_each(|task| task.abort());
-                    return Err(allocation_error_to_status(err));
-                }
-                Err(join_err) => {
-                    tasks.for_each(|task| task.abort());
-                    return Err(tonic::Status::internal(format!(
-                        "allocate task panicked: {join_err}"
-                    )));
-                }
-            };
-            container_responses.push(container_allocation_to_response(allocation));
+            .enumerate()
+        {
+            let plugin = Arc::clone(&self.plugin);
+            tasks.spawn(
+                async move { (index, plugin.allocate(&container_request.devices_ids).await) },
+            );
         }
+        let mut container_responses = std::collections::BTreeMap::new();
+        while let Some(result) = tasks.join_next().await {
+            let (index, allocation) = result.map_err(|error| {
+                tonic::Status::internal(format!("allocate task failed: {error}"))
+            })?;
+            let allocation = allocation
+                .inspect_err(|error| tracing::warn!(%error, "allocate failed"))
+                .map_err(allocation_error_to_status)?;
+            validate_allocation(&allocation)
+                .inspect_err(|error| tracing::warn!(%error, "backend returned invalid allocation"))
+                .map_err(|error| tonic::Status::internal(error.to_string()))?;
+            container_responses.insert(index, container_allocation_to_response(allocation));
+        }
+        let container_responses = container_responses.into_values().collect();
 
         Ok(tonic::Response::new(v1beta1::AllocateResponse {
             container_responses,

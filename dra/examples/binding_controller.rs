@@ -186,6 +186,7 @@ async fn main() -> io::Result<()> {
     );
     let statuses = statuses_for_claim(&claim, &driver, state, &now)?;
     let result = ClaimDeviceStatusPublisher::new(client, driver)
+        .map_err(io::Error::other)?
         .publish_fields(&claim_ref, statuses)
         .await
         .map_err(io::Error::other)?;
