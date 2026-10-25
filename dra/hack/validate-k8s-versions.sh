@@ -16,6 +16,8 @@ NAMESPACE=k8s-device-plugin-dra-example
 V136_CLUSTER=${DRA_E2E_V136_CLUSTER:-dra-validation}
 V137_CLUSTER=${DRA_E2E_V137_CLUSTER:-dra-validation-137}
 SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-smoke.sh
+FIRST_AVAILABLE_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-first-available.sh
+RESOURCE_HEALTH_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-resource-health.sh
 EXTENDED_RESOURCE_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-extended-resource.sh
 TAINT_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-taints.sh
 BINDING_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-binding.sh
@@ -137,9 +139,14 @@ run_profile() {
 
     "$CONTAINER" k8s-versioned load-image --name "$cluster" "$IMAGE"
     "$KUBECTL" --context "$cluster" apply -k dra/k8s
+    "$KUBECTL" --context "$cluster" -n "$NAMESPACE" set image daemonset/k8s-device-plugin-dra-example "dra-driver=$IMAGE"
     "$KUBECTL" --context "$cluster" -n "$NAMESPACE" rollout restart daemonset/k8s-device-plugin-dra-example
     "$KUBECTL" --context "$cluster" -n "$NAMESPACE" rollout status daemonset/k8s-device-plugin-dra-example --timeout=180s
     KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" "$SMOKE_SCRIPT"
+    KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" "$FIRST_AVAILABLE_SMOKE_SCRIPT"
+    if [[ ${DRA_E2E_RESOURCE_HEALTH:-0} == 1 ]]; then
+        KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" JQ="$JQ" "$RESOURCE_HEALTH_SMOKE_SCRIPT"
+    fi
     if [[ "$expected_version" == v1.37.0 ]]; then
         KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" "$EXTENDED_RESOURCE_SMOKE_SCRIPT"
     fi
@@ -173,6 +180,10 @@ require_command "$CONTAINER"
 require_command "$KUBECTL"
 require_command "$JQ"
 test -x "$SMOKE_SCRIPT"
+test -x "$FIRST_AVAILABLE_SMOKE_SCRIPT"
+if [[ ${DRA_E2E_RESOURCE_HEALTH:-0} == 1 ]]; then
+    test -x "$RESOURCE_HEALTH_SMOKE_SCRIPT"
+fi
 test -x "$EXTENDED_RESOURCE_SMOKE_SCRIPT"
 if [[ ${DRA_E2E_TAINTS:-0} == 1 ]]; then
     test -x "$TAINT_SMOKE_SCRIPT"
@@ -204,7 +215,11 @@ assert_native_cluster "$V137_CLUSTER"
 trap restore_baseline EXIT
 
 if [[ ${DRA_E2E_SKIP_BUILD:-0} != 1 ]]; then
-    "$CONTAINER" build --platform linux/arm64 -f dra/Dockerfile -t "$IMAGE" .
+    if [[ ${DRA_E2E_RESOURCE_HEALTH:-0} == 1 ]]; then
+        "$CONTAINER" build --platform linux/arm64 --build-arg CARGO_FEATURES=resource-health -f dra/Dockerfile -t "$IMAGE" .
+    else
+        "$CONTAINER" build --platform linux/arm64 -f dra/Dockerfile -t "$IMAGE" .
+    fi
 fi
 
 run_profile v1.36.1 "$V136_CLUSTER" "$V137_CLUSTER"

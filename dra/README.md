@@ -96,6 +96,33 @@ changes:
 6. Validate changes with the commands below before treating an integration as
    ready.
 
+DRA constructors return `Result` and reject invalid driver and node names.
+Driver names are DNS subdomains limited to 63 bytes; node names are DNS
+subdomains limited to 253 bytes. `DraPlugin` checks that its name agrees with
+`DraDriver::driver_name()`. Standalone resolvers and publishers require the same
+validated driver identity. Custom-path liveness probes also require the
+expected driver name and verify both that name and the advertised DRA service.
+
+`ClaimResolver::new(client, driver_name)` exposes only that driver's allocations
+to the preparer. Allocation request references retain `/subrequest` suffixes;
+prepared responses normalize them to deduplicated top-level request names for
+kubelet. An empty request-name list continues to mean all requests. Local
+allocations with share IDs are rejected before preparation: shared/consumable
+device preparation is not yet supported, including the metadata path.
+
+Pool names may contain slash-separated DNS subdomains, up to 253 bytes total.
+ResourceSlice names use a bounded stable hash of the complete driver/node/pool
+identity and an explicit chunk index. Upgrading from legacy names publishes
+the new generation before deleting old slices with UID/resourceVersion
+preconditions; it may briefly leave two generations visible to the scheduler.
+The publisher refuses to replace a slice belonging to a different pool.
+Zero polling and publisher retry intervals are clamped to one millisecond.
+
+`PoolDevice::health` is informational backend state and does not exclude devices
+from DRA publication or scheduling. Omit unavailable devices from inventory or
+use explicit device taints; allocated-device health uses the independent
+reporter below.
+
 ### ResourceClaim device status
 
 `ClaimDeviceStatusPublisher` is an explicit backend API for durable,
@@ -148,9 +175,9 @@ workloads. A reporter receives a bounded channel and must stop when that
 channel closes. Each report may cover one source's subset of devices, and the
 source must resend it before its per-device timeout expires. Returning from a
 watch ends that RPC with `Unavailable`, allowing kubelet to reconnect and
-start a fresh monitor session. A feature-enabled driver that does not call
-`with_resource_health` explicitly returns `Unimplemented`, so kubelet stops
-opening health watches for it.
+start a fresh monitor session. Only a backend that calls `with_resource_health`
+advertises `v1alpha1.DRAResourceHealth` in registration. Kubelet does not open
+health watches for a backend that does not opt in.
 
 Disconnecting kubelet cancels and reaps the reporter even if it is idle.
 Reporters must be cancellation-safe: keep cleanup in owned guards and avoid
@@ -175,7 +202,7 @@ driver name, and the local node name, and call `.run()`:
 ```rust
 let client = kube::Client::try_default().await?;
 let node_name = std::env::var("NODE_NAME")?;
-let plugin = DraPlugin::new(client, "dra.example.com", node_name, driver);
+let plugin = DraPlugin::new(client, "dra.example.com", node_name, driver)?;
 plugin.run().await
 ```
 
@@ -406,3 +433,20 @@ Use `DRA_E2E_METADATA=1` for the native
 Set `DRA_E2E_SKIP_BUILD=1` only when the
 current local `docker.io/library/k8s-device-plugin-dra-example:latest` image
 has already been built.
+
+### Third-review regression acceptance
+
+The serial matrix also runs `hack/e2e-first-available.sh` on both native
+profiles. It selects a top-level request in the consumer, requires metadata to
+be disabled, and checks the physical CDI marker. To include negotiated health
+watches, set `DRA_E2E_RESOURCE_HEALTH=1` when running
+`hack/validate-k8s-versions.sh`; the image then compiles `resource-health` while
+backend reporting remains disabled by default. The health fixture temporarily
+enables the backend, checks a real kubelet watch and `Healthy` Pod resource
+status, then removes its override and waits for the default backend again.
+Existing metadata/health overrides are refused rather than overwritten.
+
+For a manual image build, use `--build-arg CARGO_FEATURES=resource-health` with
+`dra/Dockerfile`. `DRA_EXAMPLE_RESOURCE_HEALTH=1` is a validation-backend option;
+a real driver must implement its own hardware monitor. The matrix's
+`DRA_E2E_IMAGE` selects the exact image loaded and deployed on each profile.

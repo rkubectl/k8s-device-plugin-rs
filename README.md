@@ -4,6 +4,11 @@ A Rust framework for writing Kubernetes [device plugins](https://kubernetes.io/d
 
 You implement one trait describing *your* device backend; the framework handles kubelet registration, the retry/re-registration lifecycle, and the `DevicePlugin` gRPC service itself.
 
+The runtimes support Unix platforms and target Linux kubelet deployments;
+macOS supports local development and testing. Windows runtime support is not
+implemented. The protocol crate's Windows path constants describe kubelet
+paths and do not imply Windows support for the server runtimes.
+
 ## Architecture
 
 | Crate | Role |

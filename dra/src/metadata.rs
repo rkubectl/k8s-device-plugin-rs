@@ -60,9 +60,7 @@ pub(crate) struct MetadataRuntime {
 
 impl MetadataRuntime {
     pub fn new(driver: String, options: DeviceMetadataOptions) -> io::Result<Self> {
-        if !dns_subdomain(&driver, 63) {
-            return Err(invalid("invalid metadata driver name"));
-        }
+        validate_driver_name(&driver).map_err(|error| invalid(error.to_string()))?;
         let default = Path::new(dra::KUBELET_PLUGINS_PATH).join(&driver);
         let (local, host) = options
             .plugin_directories

@@ -186,9 +186,11 @@ async fn liveness_probe_rejects_other_plugin_types_with_plain_string_diagnostics
     let registration_path = registration.socket_path();
     let plugin_dir = TempDir::new().expect("create temp dir for plugin socket");
     let error = DraPluginLivenessProbe::with_socket_paths(
+        "example.com",
         &registration_path,
         plugin_dir.path().join("missing.sock"),
     )
+    .expect("valid probe")
     .check()
     .await
     .expect_err("a classic device plugin must not pass the DRA probe");
@@ -225,16 +227,24 @@ async fn liveness_probe_checks_both_dra_sockets_with_real_rpcs() {
         .spawn()
         .await
         .expect("spawn registration server");
-    let service = DraPluginService::new(ClaimResolver::new(client), driver);
+    let service = DraPluginService::new(
+        ClaimResolver::new(client, "example.com").expect("valid driver"),
+        driver,
+    );
     let service_handle = service
         .spawn_at(&plugin_socket_path)
         .await
         .expect("spawn DRAPlugin service");
 
-    DraPluginLivenessProbe::with_socket_paths(registration_socket_path, plugin_socket_path)
-        .check()
-        .await
-        .expect("both DRA sockets answer the liveness probe");
+    DraPluginLivenessProbe::with_socket_paths(
+        "example.com",
+        registration_socket_path,
+        plugin_socket_path,
+    )
+    .expect("valid probe")
+    .check()
+    .await
+    .expect("both DRA sockets answer the liveness probe");
 
     registration_handle.abort();
     service_handle.abort();
@@ -344,4 +354,143 @@ async fn publisher_error_reports_panic() {
     let join_err = tokio::spawn(async { panic!("boom") }).await.unwrap_err();
     let err = publisher_error(Err(join_err));
     assert!(err.to_string().contains("ResourceSlice publisher panicked"));
+}
+
+#[tokio::test]
+async fn dra_constructors_reject_invalid_or_mismatched_driver_identity() {
+    let (client, _) = mock_kube_client();
+    for name in ["", "..", "example.com/widget", "UPPER.example"] {
+        assert!(DraRegistrationServer::new(name, "/plugin.sock").is_err());
+        assert!(ClaimResolver::new(client.clone(), name).is_err());
+        assert!(ClaimDeviceStatusPublisher::new(client.clone(), name).is_err());
+        assert!(
+            ResourceSlicePublisher::new(
+                client.clone(),
+                name,
+                "node",
+                StaticDraDriver {
+                    name: name.into(),
+                    pool: "pool".into(),
+                    devices: vec![]
+                }
+            )
+            .is_err()
+        );
+    }
+    let driver = || StaticDraDriver {
+        name: "example.com".into(),
+        pool: "pool".into(),
+        devices: vec![],
+    };
+    assert!(matches!(
+        DraPlugin::new(client.clone(), "other.example", "node", driver()),
+        Err(ValidationError::DriverNameMismatch { .. })
+    ));
+    assert!(matches!(
+        DraPlugin::new(client, "example.com", "../node", driver()),
+        Err(ValidationError::InvalidNodeName(_))
+    ));
+}
+
+#[tokio::test]
+async fn registration_failure_aborts_the_already_bound_plugin_service() {
+    let (client, _) = mock_kube_client();
+    let directory = TempDir::new().unwrap();
+    let registration_path = directory.path().join("missing/registration.sock");
+    let plugin_path = directory.path().join("plugin.sock");
+    let plugin = DraPlugin::for_test(
+        client,
+        "example.com",
+        "node",
+        StaticDraDriver {
+            name: "example.com".into(),
+            pool: "pool".into(),
+            devices: vec![],
+        },
+        registration_path,
+    );
+    let error = plugin.run_at(&plugin_path).await.unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    assert!(
+        plugin_path.exists(),
+        "service must be bound before registration is attempted"
+    );
+    assert!(
+        net::UnixStream::connect(&plugin_path).await.is_err(),
+        "failed startup must reap the service"
+    );
+}
+
+#[tokio::test]
+async fn liveness_rejects_wrong_driver_or_missing_dra_service() {
+    use k8s_device_plugin_test::dra_registration::start_mock_registration_server;
+    for (name, supported_versions) in [
+        ("foreign.example", vec![dra::DRA_PLUGIN_SERVICE.to_string()]),
+        ("example.com", vec![]),
+    ] {
+        let registration = start_mock_registration_server(dra::registration::PluginInfo {
+            r#type: "DRAPlugin".into(),
+            name: name.into(),
+            endpoint: "/missing/plugin.sock".into(),
+            supported_versions,
+        });
+        let error = DraPluginLivenessProbe::with_socket_paths(
+            "example.com",
+            registration.socket_path(),
+            "/missing/plugin.sock",
+        )
+        .unwrap()
+        .check()
+        .await
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(
+            error
+                .to_string()
+                .contains("must advertise driver example.com and service v1.DRAPlugin")
+        );
+        registration.shutdown();
+    }
+}
+
+#[cfg(feature = "resource-health")]
+#[tonic::async_trait]
+impl ResourceHealthReporter for StaticDraDriver {
+    async fn watch_resource_health(
+        &self,
+        _: tokio::sync::mpsc::Sender<k8s_device_plugin_core::ResourceHealthReport>,
+    ) -> Result<(), k8s_device_plugin_core::ResourceHealthError> {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "resource-health")]
+#[tokio::test]
+async fn opted_in_health_is_advertised_by_the_plugin_registration_rpc() {
+    let (client, _) = mock_kube_client();
+    let directory = TempDir::new().unwrap();
+    let mut plugin = DraPlugin::with_resource_health(
+        client,
+        "example.com",
+        "node",
+        StaticDraDriver {
+            name: "example.com".into(),
+            pool: "pool".into(),
+            devices: vec![],
+        },
+    )
+    .unwrap();
+    plugin
+        .registration
+        .set_socket_path(directory.path().join("registration.sock"));
+    let handle = plugin.registration.spawn().await.unwrap();
+    let mut client = MockRegistrationClient::connect(plugin.registration.socket_path())
+        .await
+        .unwrap();
+    let info = client.get_info().await.unwrap();
+    assert_eq!(
+        info.supported_versions,
+        ["v1.DRAPlugin", "v1alpha1.DRAResourceHealth"]
+    );
+    handle.abort();
 }

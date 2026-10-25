@@ -15,35 +15,45 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// run repeatedly from a Kubernetes `exec` liveness or readiness probe.
 #[derive(Clone, Debug)]
 pub struct DraPluginLivenessProbe {
+    driver_name: String,
     registration_socket_path: PathBuf,
     plugin_socket_path: PathBuf,
 }
 
 impl DraPluginLivenessProbe {
     /// Creates a probe for the standard kubelet paths of `driver_name`.
-    #[must_use]
-    pub fn new(driver_name: &str) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns a validation error for an invalid driver name.
+    pub fn new(driver_name: &str) -> Result<Self, ValidationError> {
         let plugin_socket_path = Path::new(dra::KUBELET_PLUGINS_PATH)
             .join(driver_name)
             .join("plugin.sock");
         let registration_socket_path = Path::new(dra::KUBELET_PLUGINS_REGISTRY_PATH)
             .join(DraRegistrationServer::socket_name(driver_name));
-        Self::with_socket_paths(registration_socket_path, plugin_socket_path)
+        Self::with_socket_paths(driver_name, registration_socket_path, plugin_socket_path)
     }
 
     /// Creates a probe for explicit registration and plugin socket paths.
     ///
     /// This is useful when a deployment intentionally mounts kubelet
     /// directories at non-standard locations.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns a validation error for an invalid expected driver name.
     pub fn with_socket_paths(
+        driver_name: &str,
         registration_socket_path: impl Into<PathBuf>,
         plugin_socket_path: impl Into<PathBuf>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ValidationError> {
+        validate_driver_name(driver_name)?;
+        Ok(Self {
+            driver_name: driver_name.to_string(),
             registration_socket_path: registration_socket_path.into(),
             plugin_socket_path: plugin_socket_path.into(),
-        }
+        })
     }
 
     /// Verifies that both DRA gRPC services respond without mutating state.
@@ -71,6 +81,22 @@ impl DraPluginLivenessProbe {
                     "registration socket {} reported plugin type {}, not DRAPlugin",
                     self.registration_socket_path.display(),
                     info.r#type
+                ),
+            ));
+        }
+
+        if info.name != self.driver_name
+            || !info
+                .supported_versions
+                .iter()
+                .any(|service| service == dra::DRA_PLUGIN_SERVICE)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "registration must advertise driver {} and service {}",
+                    self.driver_name,
+                    dra::DRA_PLUGIN_SERVICE
                 ),
             ));
         }

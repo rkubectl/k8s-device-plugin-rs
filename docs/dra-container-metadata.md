@@ -22,6 +22,7 @@ Attach metadata options to the runtime:
 use k8s_device_plugin_dra::{DeviceMetadataOptions, DraPlugin};
 # async fn start<D: k8s_device_plugin_core::DraDriver + 'static>(client: kube::Client, driver: D) -> std::io::Result<()> {
 let plugin = DraPlugin::new(client, "gpu.example.com", "worker-1", driver)
+    .map_err(std::io::Error::other)?
     .with_device_metadata(DeviceMetadataOptions::v1beta1())?;
 plugin.run().await
 # }

@@ -344,35 +344,35 @@ async fn allocate_maps_mounts_envs_annotations_and_cdi_devices() {
     );
 }
 
-struct RelativePathPlugin;
+struct AllocationPlugin(ContainerAllocation);
 
 #[tonic::async_trait]
-impl DeviceDiscovery for RelativePathPlugin {
+impl DeviceDiscovery for AllocationPlugin {
     async fn discover(&self) -> Vec<Device> {
         vec![]
     }
 }
 
 #[tonic::async_trait]
-impl DeviceAllocator for RelativePathPlugin {
+impl DeviceAllocator for AllocationPlugin {
     async fn allocate(
         &self,
         _device_ids: &[String],
     ) -> Result<ContainerAllocation, AllocationError> {
-        Ok(ContainerAllocation {
-            device_paths: vec![DevicePath::rdwr("relative/widget0")],
-            ..default()
-        })
+        Ok(self.0.clone())
     }
 }
 
-impl K8sDevicePlugin for RelativePathPlugin {}
+impl K8sDevicePlugin for AllocationPlugin {}
 
 #[tokio::test]
 async fn allocate_rejects_relative_device_path() {
     use v1beta1::DevicePlugin as _;
 
-    let service = DevicePluginService::new(RelativePathPlugin);
+    let service = DevicePluginService::new(AllocationPlugin(ContainerAllocation {
+        device_paths: vec![DevicePath::rdwr("relative/widget0")],
+        ..default()
+    }));
     let request = tonic::Request::new(v1beta1::AllocateRequest {
         container_requests: vec![v1beta1::ContainerAllocateRequest {
             devices_ids: vec!["widget-0".to_string()],
@@ -784,4 +784,102 @@ async fn wait_for_request_count(
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     panic!("timed out waiting for {count} registration request(s)");
+}
+
+#[test]
+fn clean_server_exit_is_an_error_and_zero_polling_is_bounded() {
+    assert!(
+        server_exit_error(Ok(Ok(())))
+            .to_string()
+            .contains("exited unexpectedly")
+    );
+    assert!(
+        make_service()
+            .with_poll_interval(Duration::ZERO)
+            .poll_interval
+            > Duration::ZERO
+    );
+}
+
+struct CancellationPlugin {
+    started: Arc<tokio::sync::Notify>,
+    dropped: Arc<tokio::sync::Notify>,
+}
+
+#[tonic::async_trait]
+impl DeviceDiscovery for CancellationPlugin {
+    async fn discover(&self) -> Vec<Device> {
+        vec![]
+    }
+}
+
+#[tonic::async_trait]
+impl DeviceAllocator for CancellationPlugin {
+    async fn allocate(&self, _: &[String]) -> Result<ContainerAllocation, AllocationError> {
+        struct OnDrop(Arc<tokio::sync::Notify>);
+        impl Drop for OnDrop {
+            fn drop(&mut self) {
+                self.0.notify_one();
+            }
+        }
+        let _guard = OnDrop(Arc::clone(&self.dropped));
+        self.started.notify_one();
+        std::future::pending().await
+    }
+}
+impl K8sDevicePlugin for CancellationPlugin {}
+
+#[tokio::test]
+async fn dropping_allocate_rpc_aborts_backend_work() {
+    use v1beta1::DevicePlugin as _;
+    let started = Arc::new(tokio::sync::Notify::new());
+    let dropped = Arc::new(tokio::sync::Notify::new());
+    let service = DevicePluginService::new(CancellationPlugin {
+        started: Arc::clone(&started),
+        dropped: Arc::clone(&dropped),
+    });
+    let request = tonic::Request::new(v1beta1::AllocateRequest {
+        container_requests: vec![v1beta1::ContainerAllocateRequest {
+            devices_ids: vec!["device".into()],
+        }],
+    });
+    let mut rpc = Box::pin(service.allocate(request));
+    tokio::select! {
+        _ = started.notified() => {},
+        result = &mut rpc => panic!("allocation unexpectedly completed: {result:?}"),
+    }
+    drop(rpc);
+    tokio::time::timeout(Duration::from_secs(1), dropped.notified())
+        .await
+        .expect("backend future must be dropped");
+}
+
+#[tokio::test]
+async fn allocate_rejects_non_utf8_mount_path() {
+    use std::os::unix::ffi::OsStrExt;
+    use v1beta1::DevicePlugin as _;
+    let mount = HostMount {
+        host_path: Path::new(std::ffi::OsStr::from_bytes(b"/host/\xff")).into(),
+        container_path: "/container".into(),
+        read_only: true,
+    };
+    let allocation = ContainerAllocation {
+        mounts: vec![mount],
+        ..default()
+    };
+    assert!(matches!(
+        validate_allocation(&allocation),
+        Err(ValidationError::NonUtf8Path(_))
+    ));
+    let service = DevicePluginService::new(AllocationPlugin(allocation));
+    let result = service
+        .allocate(tonic::Request::new(v1beta1::AllocateRequest {
+            container_requests: vec![v1beta1::ContainerAllocateRequest {
+                devices_ids: vec!["device".into()],
+            }],
+        }))
+        .await;
+    let status = result.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::Internal);
+    assert!(status.message().contains("UTF-8"));
 }

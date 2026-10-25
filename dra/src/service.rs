@@ -14,8 +14,20 @@ fn claim_from_wire(claim: dra::v1::Claim) -> ClaimRef {
 }
 
 fn prepared_device_to_wire(device: PreparedDevice) -> dra::v1::Device {
+    let request_names = device
+        .request_names
+        .into_iter()
+        .map(|mut name| {
+            if let Some(index) = name.find('/') {
+                name.truncate(index);
+            }
+            name
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     dra::v1::Device {
-        request_names: device.request_names,
+        request_names,
         pool_name: device.pool_name,
         device_name: device.device_name,
         cdi_device_ids: device.cdi_device_ids,
@@ -92,8 +104,12 @@ impl DraPluginService {
         driver_name: impl Into<String>,
         options: DeviceMetadataOptions,
     ) -> io::Result<Self> {
+        let driver_name = driver_name.into();
+        self.resolver
+            .validate_identity(&driver_name)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         self.metadata = Some(Arc::new(metadata::MetadataRuntime::new(
-            driver_name.into(),
+            driver_name,
             options,
         )?));
         Ok(self)
@@ -165,6 +181,9 @@ impl DraPluginService {
         self,
         driver_name: &str,
     ) -> io::Result<task::JoinHandle<Result<(), transport::Error>>> {
+        self.resolver
+            .validate_identity(driver_name)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         self.spawn_at(&plugin_socket_path(driver_name)).await
     }
 

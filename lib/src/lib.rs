@@ -31,6 +31,14 @@ pub use static_plugin::StaticDevicePlugin;
 mod registration;
 mod static_plugin;
 
+fn server_exit_error(result: Result<Result<(), transport::Error>, task::JoinError>) -> io::Error {
+    match result {
+        Ok(Ok(())) => io::Error::other("device-plugin server exited unexpectedly"),
+        Ok(Err(error)) => io::Error::other(error),
+        Err(error) => io::Error::other(error),
+    }
+}
+
 fn device_to_proto(device: &Device) -> v1beta1::Device {
     v1beta1::Device {
         id: device.id.clone(),
@@ -184,6 +192,8 @@ impl DevicePlugin {
     }
 
     #[tracing::instrument(skip(self), fields(resource_name = self.resource_name))]
+    /// Runs for the process lifetime. Dropping this future does not stop the
+    /// serving task; terminate the process to shut down the plugin.
     pub async fn run(&self) -> io::Result<()> {
         let mut server_handle = self.spawn_server()?;
         loop {
@@ -199,9 +209,7 @@ impl DevicePlugin {
             tracing::info!("registered with kubelet");
             tokio::select! {
                 result = &mut server_handle => {
-                    return result
-                        .map_err(io::Error::other)?
-                        .map_err(io::Error::other);
+                    return Err(server_exit_error(result));
                 }
                 _ = kubelet_gone => {
                     tracing::warn!("kubelet disconnected; re-registering");
@@ -302,10 +310,10 @@ impl DevicePluginService {
     }
 
     /// Overrides the default interval at which device state is re-polled for
-    /// `ListAndWatch` updates.
+    /// `ListAndWatch` updates. Values below one millisecond are clamped.
     #[must_use]
     pub fn with_poll_interval(mut self, poll_interval: Duration) -> Self {
-        self.poll_interval = poll_interval;
+        self.poll_interval = poll_interval.max(Duration::from_millis(1));
         self
     }
 }
@@ -407,47 +415,34 @@ impl v1beta1::DevicePlugin for DevicePluginService {
         &self,
         request: tonic::Request<v1beta1::AllocateRequest>,
     ) -> tonic::Result<tonic::Response<v1beta1::AllocateResponse>> {
-        // Each container's allocation is independent, so run them concurrently
-        // instead of one-at-a-time -- spawn all tasks up front, then await in
-        // order so container_responses lines up with the request. If any task
-        // fails, abort the rest instead of letting them keep running after
-        // we've already reported failure to kubelet.
-        let tasks = request
+        // JoinSet owns all tasks: errors and RPC cancellation abort siblings.
+        // Record request positions because tasks may finish in any order.
+        let mut tasks = task::JoinSet::new();
+        for (index, container_request) in request
             .into_inner()
             .container_requests
             .into_iter()
-            .map(|container_request| {
-                let plugin = Arc::clone(&self.plugin);
-                tokio::spawn(async move { plugin.allocate(&container_request.devices_ids).await })
-            })
-            .collect::<Vec<_>>();
-
-        let mut container_responses = Vec::with_capacity(tasks.len());
-        let mut tasks = tasks.into_iter();
-        while let Some(task) = tasks.next() {
-            let allocation = match task.await {
-                Ok(Ok(allocation)) => match validate_allocation(&allocation) {
-                    Ok(()) => allocation,
-                    Err(err) => {
-                        tracing::warn!(%err, "backend returned invalid allocation");
-                        tasks.for_each(|task| task.abort());
-                        return Err(tonic::Status::internal(err.to_string()));
-                    }
-                },
-                Ok(Err(err)) => {
-                    tracing::warn!(%err, "allocate failed");
-                    tasks.for_each(|task| task.abort());
-                    return Err(allocation_error_to_status(err));
-                }
-                Err(join_err) => {
-                    tasks.for_each(|task| task.abort());
-                    return Err(tonic::Status::internal(format!(
-                        "allocate task panicked: {join_err}"
-                    )));
-                }
-            };
-            container_responses.push(container_allocation_to_response(allocation));
+            .enumerate()
+        {
+            let plugin = Arc::clone(&self.plugin);
+            tasks.spawn(
+                async move { (index, plugin.allocate(&container_request.devices_ids).await) },
+            );
         }
+        let mut container_responses = std::collections::BTreeMap::new();
+        while let Some(result) = tasks.join_next().await {
+            let (index, allocation) = result.map_err(|error| {
+                tonic::Status::internal(format!("allocate task failed: {error}"))
+            })?;
+            let allocation = allocation
+                .inspect_err(|error| tracing::warn!(%error, "allocate failed"))
+                .map_err(allocation_error_to_status)?;
+            validate_allocation(&allocation)
+                .inspect_err(|error| tracing::warn!(%error, "backend returned invalid allocation"))
+                .map_err(|error| tonic::Status::internal(error.to_string()))?;
+            container_responses.insert(index, container_allocation_to_response(allocation));
+        }
+        let container_responses = container_responses.into_values().collect();
 
         Ok(tonic::Response::new(v1beta1::AllocateResponse {
             container_responses,

@@ -196,7 +196,9 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
 - **`DraRegistrationServer`** — serves `pluginregistration::v1::Registration`
   on `/var/lib/kubelet/plugins_registry/<driver-name>-reg.sock`. `GetInfo`
   reports `type: "DRAPlugin"`, the real plugin socket as `endpoint`, and
-  `supported_versions: ["v1.DRAPlugin"]`. The AF_UNIX path-length problem this socket
+  `supported_versions: ["v1.DRAPlugin"]`, adding
+  `"v1alpha1.DRAResourceHealth"` only for a backend that opts into health reporting.
+  The AF_UNIX path-length problem this socket
   name has to fit in is the same one `lib`'s `sanitize_socket_name` already
   solves for the classic plugin (truncate + disambiguating hash within the
   108-byte `sun_path` budget) — reuse that approach rather than
@@ -216,10 +218,14 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
   reconciles it authoritatively. Pools are split at 128 devices per slice;
   all slices for a changed pool receive one new generation and the same total
   count. Desired slices are created or updated before stale ones are deleted.
+  Stable bounded names include an identity hash and explicit chunk index; legacy
+  names migrate create-before-delete. Pool ownership is checked before updates,
+  and stale deletes carry the listed UID and resourceVersion as preconditions.
   The serialized poll loop coalesces each snapshot and retries API failures
   with bounded exponential backoff.
 - **`DraPlugin::run()`** — lifecycle harness analogous to today's
-  `DevicePlugin::run()`: spawn both gRPC servers, recreate the registration
+  `DevicePlugin::run()`: bind the DRA service before exposing registration,
+  spawn both gRPC servers, recreate the registration
   socket if kubelet's pluginwatcher rescans, drive the slice publisher off
   the same discovery source used by `ResourcePool`. Shared socket startup
   serializes contending plugin instances, refuses to replace an active socket,
@@ -314,7 +320,8 @@ owner reference for slice mutations.
 
 The runtime exposes [`DraPluginLivenessProbe`](../dra/src/health.rs), which
 checks both node-local sockets with real gRPC calls: `Registration.GetInfo`
-must advertise the expected plugin endpoint, and `DRAPlugin.NodePrepareResources`
+must advertise the expected driver name, `v1.DRAPlugin` service and plugin
+endpoint, and `DRAPlugin.NodePrepareResources`
 must accept an empty, non-mutating batch. The example image executes that probe
 for startup, liveness, and readiness. A task exit in the registration server,
 DRA service, or publisher already makes `DraPlugin::run()` abort and reap the
@@ -497,3 +504,24 @@ validation for the v0.1.0 dependency/protox changes and retained h2 snapshot.
   `ResourceSlice` access to the local node via a Validating Admission Policy
   — see [`dra-example-driver`'s Helm templates](https://github.com/kubernetes-sigs/dra-example-driver/tree/main/deployments/helm/dra-example-driver/templates)
   for a concrete VAP example to adapt.
+
+### Third-review acceptance (2026-10-25)
+
+Beads epic `k8s-device-plugin-rs-ly1` records the third-review fixes and each
+finding's proof. The completed source passed 213 all-feature tests, 208 default
+feature tests, strict Clippy in both configurations, formatting, strict rustdoc,
+and the doctest suite. The packaged protocol crate verified with `dra-health`
+from its 14-file allowlist. The matrix tooling passed 28 orchestration tests and
+five profile-configuration tests.
+
+The native linux/arm64 validation image used config digest
+`sha256:6d43c8c1ff80bb3463413b6aced5a61f0689c4ed68cccfde731b4d10ebad10a4`.
+Both v1.36.1 and v1.37.0 passed the ordinary CDI lifecycle, an explicit
+FirstAvailable request selection with metadata disabled, and negotiated
+resource-health reporting through to `Healthy` allocated-resource status in
+the consumer Pod. The v1.37.0 run also passed extended-resource consumption.
+Health reporting was enabled only for its fixture and then removed. The
+validation retained the h2 pin, `maxSurge: 0`, native arm64 and `rosetta=false`.
+The matrix exited successfully and restored v1.36.1 as the sole running
+cluster, Ready with a passing driver RPC probe and no health override. The
+build helper was stopped; every profile remained arm64 with `rosetta=false`.

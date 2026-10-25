@@ -461,14 +461,17 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
     fs::write(&foreign, "foreign").unwrap();
     let (client, mut handle) = mock_kube_client();
     let backend = Arc::new(Backend::default());
-    let service = DraPluginService::new(ClaimResolver::new(client), Arc::clone(&backend))
-        .with_device_metadata(
-            "dra.example.com",
-            DeviceMetadataOptions::v1beta1()
-                .with_plugin_directories(tmp.path().join("plugin"), tmp.path().join("plugin"))
-                .with_cdi_directory(tmp.path().join("cdi")),
-        )
-        .unwrap();
+    let service = DraPluginService::new(
+        ClaimResolver::new(client, "dra.example.com").expect("valid driver"),
+        Arc::clone(&backend),
+    )
+    .with_device_metadata(
+        "dra.example.com",
+        DeviceMetadataOptions::v1beta1()
+            .with_plugin_directories(tmp.path().join("plugin"), tmp.path().join("plugin"))
+            .with_cdi_directory(tmp.path().join("cdi")),
+    )
+    .unwrap();
     let responder = tokio::spawn(async move {
         for _ in 0..2 {
             let (request, send) = handle.next_request().await.unwrap();
@@ -608,15 +611,18 @@ async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations(
     let tmp = tempfile::tempdir().unwrap();
     let backend = Arc::new(Backend::default());
     let (client, mut handle) = mock_kube_client();
-    let service = DraPluginService::new(ClaimResolver::new(client), Arc::clone(&backend))
-        .with_resource_health(Arc::clone(&backend))
-        .with_device_metadata(
-            "dra.example.com",
-            DeviceMetadataOptions::v1beta1()
-                .with_plugin_directories(tmp.path().join("plugin"), tmp.path().join("plugin"))
-                .with_cdi_directory(tmp.path().join("cdi")),
-        )
-        .unwrap();
+    let service = DraPluginService::new(
+        ClaimResolver::new(client, "dra.example.com").expect("valid driver"),
+        Arc::clone(&backend),
+    )
+    .with_resource_health(Arc::clone(&backend))
+    .with_device_metadata(
+        "dra.example.com",
+        DeviceMetadataOptions::v1beta1()
+            .with_plugin_directories(tmp.path().join("plugin"), tmp.path().join("plugin"))
+            .with_cdi_directory(tmp.path().join("cdi")),
+    )
+    .unwrap();
     let socket = tmp.path().join("plugin.sock");
     let server = service.spawn_at(&socket).await.unwrap();
     let path = socket.clone();

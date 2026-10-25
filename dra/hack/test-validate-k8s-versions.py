@@ -80,7 +80,7 @@ class MatrixTests(unittest.TestCase):
             (root / 'state.json').write_text(json.dumps(state))
             script = root / 'validate-k8s-versions.sh'
             shutil.copyfile(Path(__file__).with_name(script.name), script)
-            for name in ['container', 'kubectl', 'e2e-smoke.sh', 'e2e-extended-resource.sh', 'e2e-taints.sh', 'e2e-binding.sh', 'e2e-workload.sh', 'e2e-pool-status.sh', 'e2e-metadata.sh']:
+            for name in ['container', 'kubectl', 'e2e-smoke.sh', 'e2e-first-available.sh', 'e2e-resource-health.sh', 'e2e-extended-resource.sh', 'e2e-taints.sh', 'e2e-binding.sh', 'e2e-workload.sh', 'e2e-pool-status.sh', 'e2e-metadata.sh']:
                 path = root / name
                 path.write_text(FAKE_COMMAND)
                 path.chmod(0o755)
@@ -123,6 +123,29 @@ class MatrixTests(unittest.TestCase):
             logs = next(i for i, c in enumerate(calls) if c[:3] == ['kubectl', '--context', name] and 'logs' in c)
             stop = calls.index(['container', 'stop', name])
             self.assertLess(logs, stop)
+
+    def test_first_available_and_selected_image_run_on_both_profiles(self):
+        image = 'docker.io/library/k8s-device-plugin-dra-example:review3'
+        result, calls, state = self.run_matrix(env_overrides={'DRA_E2E_IMAGE': image})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([c for c in calls if c[0] == 'e2e-first-available.sh'], [
+            ['e2e-first-available.sh', 'dra-validation'], ['e2e-first-available.sh', 'dra-validation-137']])
+        self.assertEqual(sum('dra-driver=' + image in c for c in calls), 2)
+        self.assert_baseline(state)
+
+    def test_health_watch_failure_restores_baseline(self):
+        result, calls, state = self.run_matrix({'fail_smoke': 'e2e-resource-health.sh'},
+                                              {'DRA_E2E_RESOURCE_HEALTH': '1'})
+        self.assertEqual(result.returncode, 27, result.stderr)
+        self.assert_baseline(state)
+
+    def test_health_build_and_both_profile_watches(self):
+        result, calls, state = self.run_matrix(env_overrides={'DRA_E2E_RESOURCE_HEALTH': '1', 'DRA_E2E_SKIP_BUILD': '0'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any(c[:2] == ['container', 'build'] and 'CARGO_FEATURES=resource-health' in c for c in calls))
+        self.assertEqual([c for c in calls if c[0] == 'e2e-resource-health.sh'], [
+            ['e2e-resource-health.sh', 'dra-validation'], ['e2e-resource-health.sh', 'dra-validation-137']])
+        self.assert_baseline(state)
 
     def test_running_profile_still_gets_guarded_repair(self):
         result, calls, state = self.run_matrix({'clusters': {
