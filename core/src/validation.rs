@@ -1,6 +1,7 @@
 use super::*;
 
 const MAX_DEVICE_ID_LEN: usize = 63;
+const MAX_DRIVER_NAME_LEN: usize = 63;
 const MAX_DNS_LABEL_LEN: usize = 63;
 const MAX_DNS_SUBDOMAIN_LEN: usize = 253;
 const RESERVED_RESOURCE_DOMAIN: &str = "kubernetes.io";
@@ -9,7 +10,9 @@ const RESERVED_RESOURCE_DOMAIN: &str = "kubernetes.io";
 // whitespace/control characters remain visible in validation diagnostics.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ValidationError {
-    #[error("DRA driver name {0:?} must be a DNS subdomain of at most 63 characters")]
+    #[error(
+        "DRA driver name {0:?} must be a DNS subdomain of at most {MAX_DRIVER_NAME_LEN} characters"
+    )]
     InvalidDriverName(String),
     #[error("node name {0:?} must be a DNS subdomain of at most 253 characters")]
     InvalidNodeName(String),
@@ -43,7 +46,7 @@ pub enum ValidationError {
 
 /// Validates the Kubernetes DRA driver identity, also used in plugin paths.
 pub fn validate_driver_name(name: &str) -> Result<(), ValidationError> {
-    if name.len() > MAX_DNS_LABEL_LEN || !is_valid_dns_subdomain(name) {
+    if name.len() > MAX_DRIVER_NAME_LEN || !is_valid_dns_subdomain(name) {
         return Err(ValidationError::InvalidDriverName(name.to_string()));
     }
     Ok(())
