@@ -1,4 +1,4 @@
-use k8s_device_plugin_proto::dra::v1 as drav1;
+use k8s_device_plugin_proto::dra;
 
 use super::*;
 
@@ -7,7 +7,7 @@ use super::*;
 /// [`crate::device_plugin::MockDevicePluginClient`] for the classic plugin.
 #[derive(Debug)]
 pub struct MockDraPluginClient {
-    inner: drav1::DraPluginClient<transport::Channel>,
+    inner: dra::v1::DraPluginClient<transport::Channel>,
 }
 
 impl MockDraPluginClient {
@@ -34,15 +34,15 @@ impl MockDraPluginClient {
             })?;
 
         Ok(Self {
-            inner: drav1::DraPluginClient::new(channel),
+            inner: dra::v1::DraPluginClient::new(channel),
         })
     }
 
     pub async fn prepare_resources(
         &mut self,
-        claims: Vec<drav1::Claim>,
-    ) -> tonic::Result<drav1::NodePrepareResourcesResponse> {
-        let request = drav1::NodePrepareResourcesRequest { claims };
+        claims: Vec<dra::v1::Claim>,
+    ) -> tonic::Result<dra::v1::NodePrepareResourcesResponse> {
+        let request = dra::v1::NodePrepareResourcesRequest { claims };
         self.inner
             .node_prepare_resources(tonic::Request::new(request))
             .await
@@ -51,9 +51,9 @@ impl MockDraPluginClient {
 
     pub async fn unprepare_resources(
         &mut self,
-        claims: Vec<drav1::Claim>,
-    ) -> tonic::Result<drav1::NodeUnprepareResourcesResponse> {
-        let request = drav1::NodeUnprepareResourcesRequest { claims };
+        claims: Vec<dra::v1::Claim>,
+    ) -> tonic::Result<dra::v1::NodeUnprepareResourcesResponse> {
+        let request = dra::v1::NodeUnprepareResourcesRequest { claims };
         self.inner
             .node_unprepare_resources(tonic::Request::new(request))
             .await
@@ -71,11 +71,11 @@ mod tests {
     struct FakeDraPlugin;
 
     #[tonic::async_trait]
-    impl drav1::DraPlugin for FakeDraPlugin {
+    impl dra::v1::DraPlugin for FakeDraPlugin {
         async fn node_prepare_resources(
             &self,
-            request: tonic::Request<drav1::NodePrepareResourcesRequest>,
-        ) -> tonic::Result<tonic::Response<drav1::NodePrepareResourcesResponse>> {
+            request: tonic::Request<dra::v1::NodePrepareResourcesRequest>,
+        ) -> tonic::Result<tonic::Response<dra::v1::NodePrepareResourcesResponse>> {
             let claims = request
                 .into_inner()
                 .claims
@@ -83,8 +83,8 @@ mod tests {
                 .map(|claim| {
                     (
                         claim.uid,
-                        drav1::NodePrepareResourceResponse {
-                            devices: vec![drav1::Device {
+                        dra::v1::NodePrepareResourceResponse {
+                            devices: vec![dra::v1::Device {
                                 request_names: vec![],
                                 pool_name: "node-0".to_string(),
                                 device_name: "widget-0".to_string(),
@@ -96,15 +96,15 @@ mod tests {
                     )
                 })
                 .collect::<HashMap<_, _>>();
-            Ok(tonic::Response::new(drav1::NodePrepareResourcesResponse {
-                claims,
-            }))
+            Ok(tonic::Response::new(
+                dra::v1::NodePrepareResourcesResponse { claims },
+            ))
         }
 
         async fn node_unprepare_resources(
             &self,
-            request: tonic::Request<drav1::NodeUnprepareResourcesRequest>,
-        ) -> tonic::Result<tonic::Response<drav1::NodeUnprepareResourcesResponse>> {
+            request: tonic::Request<dra::v1::NodeUnprepareResourcesRequest>,
+        ) -> tonic::Result<tonic::Response<dra::v1::NodeUnprepareResourcesResponse>> {
             let claims = request
                 .into_inner()
                 .claims
@@ -112,20 +112,20 @@ mod tests {
                 .map(|claim| {
                     (
                         claim.uid,
-                        drav1::NodeUnprepareResourceResponse {
+                        dra::v1::NodeUnprepareResourceResponse {
                             error: String::new(),
                         },
                     )
                 })
                 .collect::<HashMap<_, _>>();
             Ok(tonic::Response::new(
-                drav1::NodeUnprepareResourcesResponse { claims },
+                dra::v1::NodeUnprepareResourcesResponse { claims },
             ))
         }
     }
 
-    fn make_claim(uid: &str) -> drav1::Claim {
-        drav1::Claim {
+    fn make_claim(uid: &str) -> dra::v1::Claim {
+        dra::v1::Claim {
             namespace: "default".to_string(),
             uid: uid.to_string(),
             name: uid.to_string(),
@@ -138,7 +138,7 @@ mod tests {
         let listener = net::UnixListener::bind(&socket_path).expect("bind unix socket");
         let incoming = UnixListenerStream::new(listener);
         let server =
-            transport::Server::builder().add_service(drav1::DraPluginServer::new(FakeDraPlugin));
+            transport::Server::builder().add_service(dra::v1::DraPluginServer::new(FakeDraPlugin));
         let handle = tokio::spawn(async move {
             let _ = server.serve_with_incoming(incoming).await;
         });
