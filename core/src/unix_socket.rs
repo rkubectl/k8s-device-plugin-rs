@@ -4,8 +4,8 @@ use std::fs;
 use std::io;
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
-
-use super::*;
+use std::path::Path;
+use std::path::PathBuf;
 
 fn lock_path(socket_path: &Path) -> PathBuf {
     socket_path.with_added_extension("lock")
@@ -25,7 +25,8 @@ fn lock_path(socket_path: &Path) -> PathBuf {
 /// Returns an error when the parent directory cannot be accessed, another
 /// server is active at `socket_path`, an occupied path cannot be proven stale,
 /// or the replacement bind fails.
-pub fn bind_unix_listener(socket_path: &Path) -> io::Result<UnixListener> {
+pub fn bind_unix_listener(socket_path: impl AsRef<Path>) -> io::Result<UnixListener> {
+    let socket_path = socket_path.as_ref();
     let lock_path = lock_path(socket_path);
     // Keep this pathname after releasing the lock. Unlinking it would let a
     // newcomer lock a new inode while an existing waiter holds the old one,
@@ -79,11 +80,12 @@ fn recover_or_refuse_active_socket(socket_path: &Path) -> io::Result<UnixListene
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::sync::Barrier;
     use std::sync::mpsc;
     use std::thread;
 
-    use tempfile::TempDir;
+    use camino_tempfile::Utf8TempDir;
 
     use super::*;
 
@@ -99,7 +101,7 @@ mod tests {
 
     #[test]
     fn refuses_to_replace_an_active_socket() {
-        let dir = TempDir::new().expect("create temp dir");
+        let dir = Utf8TempDir::new().expect("create temp dir");
         let socket_path = dir.path().join("plugin.sock");
         let _active = bind_unix_listener(&socket_path).expect("bind active listener");
 
@@ -110,7 +112,7 @@ mod tests {
 
     #[test]
     fn recovers_a_stale_socket() {
-        let dir = TempDir::new().expect("create temp dir");
+        let dir = Utf8TempDir::new().expect("create temp dir");
         let socket_path = dir.path().join("plugin.sock");
         let stale = UnixListener::bind(&socket_path).expect("create stale listener");
         drop(stale);
@@ -122,7 +124,7 @@ mod tests {
 
     #[test]
     fn concurrent_startups_leave_exactly_one_owner() {
-        let dir = TempDir::new().expect("create temp dir");
+        let dir = Utf8TempDir::new().expect("create temp dir");
         let socket_path = dir.path().join("plugin.sock");
         let barrier = Arc::new(Barrier::new(3));
         let (result_sender, result_receiver) = mpsc::channel();
@@ -176,5 +178,26 @@ mod tests {
         for handle in handles {
             handle.join().expect("startup candidate did not panic");
         }
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod os_path_tests {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    use camino_tempfile::Utf8TempDir;
+
+    use super::*;
+
+    #[test]
+    fn os_socket_helper_preserves_support_for_non_utf8_paths() {
+        let directory = Utf8TempDir::new().unwrap();
+        let path = directory
+            .path()
+            .as_std_path()
+            .join(OsStr::from_bytes(b"socket-\xff"));
+        let _listener = bind_unix_listener(&path).unwrap();
+        UnixStream::connect(&path).unwrap();
     }
 }

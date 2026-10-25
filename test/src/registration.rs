@@ -34,15 +34,15 @@ impl v1beta1::Registration for FakeRegistration {
 #[derive(Debug)]
 pub struct MockRegistrationServer {
     // Kept alive so the temp dir (and its socket) are removed on drop.
-    _socket_dir: TempDir,
-    socket_path: PathBuf,
+    _socket_dir: Utf8TempDir,
+    socket_path: Utf8PathBuf,
     requests: Arc<Mutex<Vec<v1beta1::RegisterRequest>>>,
     server_handle: task::JoinHandle<Result<(), transport::Error>>,
 }
 
 impl MockRegistrationServer {
-    pub fn socket_path(&self) -> String {
-        self.socket_path.to_string_lossy().into_owned()
+    pub fn socket_path(&self) -> &Utf8Path {
+        &self.socket_path
     }
 
     pub async fn collected_requests(&self) -> Vec<v1beta1::RegisterRequest> {
@@ -76,7 +76,7 @@ pub fn start_mock_registration_server_with_failures(fail_count: u32) -> MockRegi
 }
 
 fn start_server(fake: FakeRegistration) -> MockRegistrationServer {
-    let socket_dir = TempDir::new().expect("create temp dir for registration socket");
+    let socket_dir = Utf8TempDir::new().expect("create temp dir for registration socket");
     let socket_path = socket_dir.path().join(v1beta1::KUBELET_SOCKET);
     let requests = Arc::clone(&fake.requests);
 

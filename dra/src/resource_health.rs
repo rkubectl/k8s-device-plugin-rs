@@ -168,8 +168,8 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
+    use camino_tempfile::Utf8TempDir;
     use hyper_util::rt::TokioIo;
-    use tempfile::TempDir;
     use tokio_stream::wrappers::UnixListenerStream;
     use tower::service_fn;
 
@@ -268,7 +268,7 @@ mod tests {
     }
 
     async fn connect(
-        socket_path: &Path,
+        socket_path: &Utf8Path,
     ) -> tonic::Result<healthv1alpha1::DraResourceHealthClient<transport::Channel>> {
         let socket_path = socket_path.to_path_buf();
         let connector_path = socket_path.clone();
@@ -284,14 +284,16 @@ mod tests {
             .map_err(|err| {
                 tonic::Status::unavailable(format!(
                     "failed to connect to resource-health socket {}: {err}",
-                    socket_path.display()
+                    socket_path
                 ))
             })?;
         Ok(healthv1alpha1::DraResourceHealthClient::new(channel))
     }
 
-    fn start_server(service: DraResourceHealthService) -> (PathBuf, TempDir, task::JoinHandle<()>) {
-        let socket_dir = TempDir::new().expect("create resource-health socket directory");
+    fn start_server(
+        service: DraResourceHealthService,
+    ) -> (Utf8PathBuf, Utf8TempDir, task::JoinHandle<()>) {
+        let socket_dir = Utf8TempDir::new().expect("create resource-health socket directory");
         let socket_path = socket_dir.path().join("plugin.sock");
         let listener = net::UnixListener::bind(&socket_path).expect("bind resource-health socket");
         let incoming = UnixListenerStream::new(listener);

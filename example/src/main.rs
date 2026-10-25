@@ -6,7 +6,8 @@
 use std::collections::BTreeSet;
 use std::env;
 use std::io;
-use std::path::Path;
+
+use camino::Utf8Path;
 
 use k8s_device_plugin_lib::Device;
 use k8s_device_plugin_lib::DevicePlugin;
@@ -48,10 +49,9 @@ fn parse_devices(paths: &str) -> io::Result<Vec<Device>> {
         .map(str::trim)
         .filter(|path| !path.is_empty())
         .map(|path| {
-            let id = Path::new(path).file_name().map_or_else(
-                || path.to_string(),
-                |name| name.to_string_lossy().into_owned(),
-            );
+            let id = Utf8Path::new(path)
+                .file_name()
+                .map_or_else(|| path.to_string(), |name| name.to_string());
             if !ids.insert(id.clone()) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,

@@ -9,8 +9,8 @@ pub struct MockDevicePluginClient {
 
 impl MockDevicePluginClient {
     /// Connect to a device plugin Unix socket at `path`, mirroring the kubelet side.
-    pub async fn connect(path: impl AsRef<Path>) -> tonic::Result<Self> {
-        let socket_path = PathBuf::from(path.as_ref());
+    pub async fn connect(path: impl AsRef<Utf8Path>) -> tonic::Result<Self> {
+        let socket_path = Utf8PathBuf::from(path.as_ref());
         let connector_path = socket_path.clone();
 
         let endpoint = transport::Endpoint::try_from("http://[::]:50051").map_err(|err| {
@@ -26,7 +26,7 @@ impl MockDevicePluginClient {
             .map_err(|err| {
                 tonic::Status::unavailable(format!(
                     "failed to connect to device plugin socket {}: {err}",
-                    socket_path.display()
+                    socket_path
                 ))
             })?;
 

@@ -525,3 +525,25 @@ validation retained the h2 pin, `maxSurge: 0`, native arm64 and `rosetta=false`.
 The matrix exited successfully and restored v1.36.1 as the sole running
 cluster, Ready with a passing driver RPC probe and no health override. The
 build helper was stopped; every profile remained arm64 with `rosetta=false`.
+
+### UTF-8 path migration acceptance (2026-10-25)
+
+Beads task `k8s-device-plugin-rs-lc9` migrates protocol-facing owned paths to
+Camino and temporary fixtures to camino-tempfile. Standard OS paths remain at
+filesystem boundaries; descriptor-relative no-follow operations and persisted
+journal/spec bytes are preserved. The migration passed 214 all-feature tests,
+209 default tests, strict Clippy in both configurations, strict rustdoc and
+three doctests. A native linux/arm64 Rust 1.98 builder additionally passed the
+raw-byte Unix socket and canonicalized metadata-alias regressions, which require
+a Linux filesystem accepting non-UTF-8 filenames.
+
+The image config digest
+`sha256:1ec3af57d7a385e43d8d44a23dae6a03c1a0cd8532cef95b95d3ae845f7f5355`
+passed real kubelet registration/liveness, baseline CDI and non-metadata
+FirstAvailable on native Kubernetes v1.36.1. The full metadata fixture passed
+direct/reused/template/FirstAvailable claim isolation and cleanup, restart
+behavior, writer-failure isolation, retry and metadata inode preservation.
+Acceptance exited successfully and restored the default one-device backend
+without a metadata override; its real RPC liveness probe passed. Only the
+v1.36.1 baseline remained running, the builder was stopped, and every profile
+retained arm64 with `rosetta=false`.

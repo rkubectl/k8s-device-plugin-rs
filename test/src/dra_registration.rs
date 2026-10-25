@@ -15,8 +15,8 @@ pub struct MockRegistrationClient {
 }
 
 impl MockRegistrationClient {
-    pub async fn connect(path: impl AsRef<Path>) -> tonic::Result<Self> {
-        let socket_path = PathBuf::from(path.as_ref());
+    pub async fn connect(path: impl AsRef<Utf8Path>) -> tonic::Result<Self> {
+        let socket_path = Utf8PathBuf::from(path.as_ref());
         let connector_path = socket_path.clone();
 
         let endpoint = transport::Endpoint::try_from("http://[::]:50051").map_err(|err| {
@@ -32,7 +32,7 @@ impl MockRegistrationClient {
             .map_err(|err| {
                 tonic::Status::unavailable(format!(
                     "failed to connect to registration socket {}: {err}",
-                    socket_path.display()
+                    socket_path
                 ))
             })?;
 
@@ -96,15 +96,15 @@ impl registration::Registration for FakeRegistration {
 #[derive(Debug)]
 pub struct MockRegistrationServer {
     // Kept alive so the temp dir (and its socket) are removed on drop.
-    _socket_dir: TempDir,
-    socket_path: PathBuf,
+    _socket_dir: Utf8TempDir,
+    socket_path: Utf8PathBuf,
     notifications: Arc<Mutex<Vec<registration::RegistrationStatus>>>,
     server_handle: task::JoinHandle<Result<(), transport::Error>>,
 }
 
 impl MockRegistrationServer {
-    pub fn socket_path(&self) -> String {
-        self.socket_path.to_string_lossy().into_owned()
+    pub fn socket_path(&self) -> &Utf8Path {
+        &self.socket_path
     }
 
     pub async fn collected_notifications(&self) -> Vec<registration::RegistrationStatus> {
@@ -124,7 +124,7 @@ pub fn start_mock_registration_server(
         ..default()
     };
 
-    let socket_dir = TempDir::new().expect("create temp dir for registration socket");
+    let socket_dir = Utf8TempDir::new().expect("create temp dir for registration socket");
     let socket_path = socket_dir.path().join("plugin-reg.sock");
     let notifications = Arc::clone(&fake.notifications);
 
@@ -185,7 +185,7 @@ mod tests {
 
     #[tokio::test]
     async fn connect_reports_socket_path_on_failure() {
-        let dir = TempDir::new().expect("create temp dir");
+        let dir = Utf8TempDir::new().expect("create temp dir");
         let path = dir.path().join("missing.sock");
 
         let status = MockRegistrationClient::connect(&path)
@@ -193,10 +193,6 @@ mod tests {
             .expect_err("connect should fail for missing socket");
 
         assert_eq!(status.code(), tonic::Code::Unavailable);
-        assert!(
-            status
-                .message()
-                .contains(&path.to_string_lossy().into_owned())
-        );
+        assert!(status.message().contains(&path.to_string()));
     }
 }

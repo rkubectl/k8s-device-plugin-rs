@@ -8,7 +8,7 @@ pub struct RegistrationClient {
 }
 
 impl RegistrationClient {
-    pub async fn new(path: impl AsRef<Path>) -> tonic::Result<Self> {
+    pub async fn new(path: impl AsRef<Utf8Path>) -> tonic::Result<Self> {
         let socket_path = path.as_ref().to_path_buf();
         let connector_path = socket_path.clone();
 
@@ -31,7 +31,7 @@ impl RegistrationClient {
             .map_err(|err| {
                 tonic::Status::unavailable(format!(
                     "failed to connect to kubelet registration socket {}: {err}",
-                    socket_path.display()
+                    socket_path
                 ))
             })?;
 
@@ -49,7 +49,7 @@ impl RegistrationClient {
 
 #[cfg(test)]
 mod tests {
-    use tempfile::TempDir;
+    use camino_tempfile::Utf8TempDir;
 
     use k8s_device_plugin_test::registration::start_mock_registration_server;
 
@@ -79,12 +79,8 @@ mod tests {
 
     #[tokio::test]
     async fn registration_client_reports_socket_path_on_connect_failure() {
-        let dir = TempDir::new().expect("create temp dir");
-        let path_str = dir
-            .path()
-            .join("missing.sock")
-            .to_string_lossy()
-            .into_owned();
+        let dir = Utf8TempDir::new().expect("create temp dir");
+        let path_str = dir.path().join("missing.sock");
 
         let status = RegistrationClient::new(path_str.clone())
             .await
@@ -96,7 +92,7 @@ mod tests {
                 .message()
                 .contains("failed to connect to kubelet registration socket")
         );
-        assert!(status.message().contains(&path_str));
+        assert!(status.message().contains(path_str.as_str()));
     }
 
     #[tokio::test]
@@ -124,7 +120,7 @@ mod tests {
 
 #[cfg(test)]
 mod timeout_tests {
-    use tempfile::TempDir;
+    use camino_tempfile::Utf8TempDir;
 
     use super::*;
 
@@ -141,7 +137,7 @@ mod timeout_tests {
 
     #[tokio::test]
     async fn registration_rpc_timeout_allows_retry_budget_to_exhaust() {
-        let directory = TempDir::new().unwrap();
+        let directory = Utf8TempDir::new().unwrap();
         let path = directory.path().join("registration.sock");
         let listener = net::UnixListener::bind(&path).unwrap();
         let server = tokio::spawn(
@@ -154,11 +150,11 @@ mod timeout_tests {
             "example.com/device",
             service,
             "unused.sock".into(),
-            path.to_string_lossy().into_owned(),
+            path.clone(),
         );
         let result = tokio::time::timeout(
             REGISTRATION_TIMEOUT * 2 + Duration::from_secs(2),
-            plugin.try_register(path.to_string_lossy().into_owned(), 2, Duration::ZERO),
+            plugin.try_register(&path, 2, Duration::ZERO),
         )
         .await;
         assert!(
@@ -171,7 +167,7 @@ mod timeout_tests {
 
     #[tokio::test]
     async fn registration_deadline_bounds_a_socket_that_never_speaks_http2() {
-        let directory = TempDir::new().unwrap();
+        let directory = Utf8TempDir::new().unwrap();
         let path = directory.path().join("registration.sock");
         let listener = net::UnixListener::bind(&path).unwrap();
         let accept = tokio::spawn(async move {

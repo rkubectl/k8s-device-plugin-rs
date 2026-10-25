@@ -1,5 +1,5 @@
+use camino_tempfile::Utf8TempDir;
 use parking_lot::Mutex;
-use tempfile::TempDir;
 use tracing::Level;
 use tracing::field::Field;
 use tracing::field::Visit;
@@ -12,8 +12,8 @@ use k8s_device_plugin_test::dra_registration::MockRegistrationClient;
 
 use super::*;
 
-fn make_server() -> (DraRegistrationServer, TempDir) {
-    let dir = TempDir::new().expect("create temp dir for registration socket");
+fn make_server() -> (DraRegistrationServer, Utf8TempDir) {
+    let dir = Utf8TempDir::new().expect("create temp dir for registration socket");
     let socket_path = dir.path().join("plugin-reg.sock");
     let server = DraRegistrationServer::for_test(
         "example.com",

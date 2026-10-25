@@ -450,3 +450,14 @@ For a manual image build, use `--build-arg CARGO_FEATURES=resource-health` with
 `dra/Dockerfile`. `DRA_EXAMPLE_RESOURCE_HEALTH=1` is a validation-backend option;
 a real driver must implement its own hardware monitor. The matrix's
 `DRA_E2E_IMAGE` selects the exact image loaded and deployed on each profile.
+
+### UTF-8 path API migration
+
+Configured metadata directories, plugin socket paths and custom-path liveness
+probes now use `camino::Utf8Path`/`Utf8PathBuf`. String arguments remain accepted
+by the existing builders; OS paths require an explicit fallible Camino conversion.
+`DraRegistrationServer::socket_path()` returns `&Utf8Path`. Metadata still checks
+absolute paths, parent traversal and NUL bytes, and its descriptor-relative
+filesystem operations, journal/spec bytes and create-only publication are
+unchanged. Canonicalized OS paths remain standard paths inside the store so an
+administrator's UTF-8 alias can resolve to an ordinary filesystem target.

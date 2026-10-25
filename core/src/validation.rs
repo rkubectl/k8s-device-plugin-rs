@@ -39,9 +39,7 @@ pub enum ValidationError {
     #[error("path must not be empty")]
     EmptyPath,
     #[error("path {0:?} must be absolute")]
-    RelativePath(PathBuf),
-    #[error("path {0:?} must be valid UTF-8 for the kubelet protocol")]
-    NonUtf8Path(PathBuf),
+    RelativePath(Utf8PathBuf),
 }
 
 /// Validates the Kubernetes DRA driver identity, also used in plugin paths.
@@ -113,16 +111,13 @@ pub fn validate_device_id(id: &str) -> Result<(), ValidationError> {
     Ok(())
 }
 
-/// Validates that a host or container path is non-empty, absolute and UTF-8.
-pub fn validate_absolute_path(path: &Path) -> Result<(), ValidationError> {
-    if path.is_empty() {
+/// Validates that a UTF-8 host or container path is non-empty and absolute.
+pub fn validate_absolute_path(path: &Utf8Path) -> Result<(), ValidationError> {
+    if path.as_str().is_empty() {
         return Err(ValidationError::EmptyPath);
     }
     if !path.is_absolute() {
         return Err(ValidationError::RelativePath(path.to_path_buf()));
-    }
-    if path.to_str().is_none() {
-        return Err(ValidationError::NonUtf8Path(path.to_path_buf()));
     }
     Ok(())
 }
@@ -244,7 +239,7 @@ mod tests {
     #[test]
     fn path_rejects_empty() {
         assert_eq!(
-            validate_absolute_path(Path::new("")),
+            validate_absolute_path(Utf8Path::new("")),
             Err(ValidationError::EmptyPath)
         );
     }
@@ -252,14 +247,16 @@ mod tests {
     #[test]
     fn path_rejects_relative() {
         assert_eq!(
-            validate_absolute_path(Path::new("dev/widget0")),
-            Err(ValidationError::RelativePath(PathBuf::from("dev/widget0")))
+            validate_absolute_path(Utf8Path::new("dev/widget0")),
+            Err(ValidationError::RelativePath(Utf8PathBuf::from(
+                "dev/widget0"
+            )))
         );
     }
 
     #[test]
     fn path_accepts_absolute() {
-        assert!(validate_absolute_path(Path::new("/dev/widget0")).is_ok());
+        assert!(validate_absolute_path(Utf8Path::new("/dev/widget0")).is_ok());
     }
 }
 
@@ -299,12 +296,12 @@ mod dra_validation_tests {
     }
 
     #[test]
-    fn rejects_non_utf8_absolute_paths() {
+    fn rejects_non_utf8_os_paths_at_the_conversion_boundary() {
         use std::os::unix::ffi::OsStrExt;
-        let path = Path::new(std::ffi::OsStr::from_bytes(b"/dev/widget-\xff"));
-        assert!(matches!(
-            validate_absolute_path(path),
-            Err(ValidationError::NonUtf8Path(_))
-        ));
+        let original = std::path::PathBuf::from(std::ffi::OsStr::from_bytes(b"/dev/widget-\xff"));
+        assert_eq!(
+            Utf8PathBuf::from_path_buf(original.clone()).unwrap_err(),
+            original
+        );
     }
 }

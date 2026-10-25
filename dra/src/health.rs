@@ -16,8 +16,8 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 #[derive(Clone, Debug)]
 pub struct DraPluginLivenessProbe {
     driver_name: String,
-    registration_socket_path: PathBuf,
-    plugin_socket_path: PathBuf,
+    registration_socket_path: Utf8PathBuf,
+    plugin_socket_path: Utf8PathBuf,
 }
 
 impl DraPluginLivenessProbe {
@@ -27,10 +27,10 @@ impl DraPluginLivenessProbe {
     ///
     /// Returns a validation error for an invalid driver name.
     pub fn new(driver_name: &str) -> Result<Self, ValidationError> {
-        let plugin_socket_path = Path::new(dra::KUBELET_PLUGINS_PATH)
+        let plugin_socket_path = Utf8Path::new(dra::KUBELET_PLUGINS_PATH)
             .join(driver_name)
             .join("plugin.sock");
-        let registration_socket_path = Path::new(dra::KUBELET_PLUGINS_REGISTRY_PATH)
+        let registration_socket_path = Utf8Path::new(dra::KUBELET_PLUGINS_REGISTRY_PATH)
             .join(DraRegistrationServer::socket_name(driver_name));
         Self::with_socket_paths(driver_name, registration_socket_path, plugin_socket_path)
     }
@@ -45,8 +45,8 @@ impl DraPluginLivenessProbe {
     /// Returns a validation error for an invalid expected driver name.
     pub fn with_socket_paths(
         driver_name: &str,
-        registration_socket_path: impl Into<PathBuf>,
-        plugin_socket_path: impl Into<PathBuf>,
+        registration_socket_path: impl Into<Utf8PathBuf>,
+        plugin_socket_path: impl Into<Utf8PathBuf>,
     ) -> Result<Self, ValidationError> {
         validate_driver_name(driver_name)?;
         Ok(Self {
@@ -79,8 +79,7 @@ impl DraPluginLivenessProbe {
                 io::ErrorKind::InvalidData,
                 format!(
                     "registration socket {} reported plugin type {}, not DRAPlugin",
-                    self.registration_socket_path.display(),
-                    info.r#type
+                    self.registration_socket_path, info.r#type
                 ),
             ));
         }
@@ -101,14 +100,12 @@ impl DraPluginLivenessProbe {
             ));
         }
 
-        if Path::new(&info.endpoint) != self.plugin_socket_path {
+        if Utf8Path::new(&info.endpoint) != self.plugin_socket_path {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!(
                     "registration socket {} advertised {}, expected {}",
-                    self.registration_socket_path.display(),
-                    info.endpoint,
-                    self.plugin_socket_path.display()
+                    self.registration_socket_path, info.endpoint, self.plugin_socket_path
                 ),
             ));
         }
@@ -125,7 +122,7 @@ impl DraPluginLivenessProbe {
     }
 }
 
-async fn connect(socket_path: &Path, service: &str) -> io::Result<transport::Channel> {
+async fn connect(socket_path: &Utf8Path, service: &str) -> io::Result<transport::Channel> {
     let socket_path = socket_path.to_path_buf();
     let connector_path = socket_path.clone();
     let endpoint = transport::Endpoint::try_from("http://[::]:50051")
@@ -146,7 +143,7 @@ async fn connect(socket_path: &Path, service: &str) -> io::Result<transport::Cha
         .map_err(|error| {
             io::Error::other(format!(
                 "connect to {service} socket {}: {error}",
-                socket_path.display()
+                socket_path
             ))
         })
 }

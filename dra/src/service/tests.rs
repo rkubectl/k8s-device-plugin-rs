@@ -1,8 +1,8 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use camino_tempfile::Utf8TempDir;
 use kube::client;
-use tempfile::TempDir;
 
 use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
 use k8s_device_plugin_test::kube_mock::MockKubeHandle;
@@ -141,10 +141,10 @@ async fn start_service(
     service: DraPluginService,
 ) -> (
     MockDraPluginClient,
-    TempDir,
+    Utf8TempDir,
     task::JoinHandle<Result<(), transport::Error>>,
 ) {
-    let socket_dir = TempDir::new().expect("create temp dir for plugin socket");
+    let socket_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
     let socket_path = socket_dir.path().join("plugin.sock");
     let handle = service
         .spawn_at(&socket_path)
@@ -158,7 +158,7 @@ async fn start_service(
 
 #[tokio::test]
 async fn spawn_at_refuses_an_active_plugin_socket() {
-    let socket_dir = TempDir::new().expect("create temp dir for plugin socket");
+    let socket_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
     let socket_path = socket_dir.path().join("plugin.sock");
     let (active_resolver, _active_kube_handle) = mock_resolver();
     let active_service = DraPluginService::new(active_resolver, FakeClaimPreparer::default());

@@ -18,13 +18,13 @@ const REGISTRATION_SOCKET_SUFFIX: &str = "-reg.sock";
 
 #[derive(Debug)]
 pub struct DraRegistrationServer {
-    socket_path: PathBuf,
+    socket_path: Utf8PathBuf,
     plugin_info: dra::registration::PluginInfo,
 }
 
 impl DraRegistrationServer {
     #[cfg(test)]
-    pub(crate) fn set_socket_path(&mut self, path: PathBuf) {
+    pub(crate) fn set_socket_path(&mut self, path: Utf8PathBuf) {
         self.socket_path = path;
     }
 
@@ -46,14 +46,17 @@ impl DraRegistrationServer {
     /// # Errors
     ///
     /// Returns a validation error for an invalid driver name.
-    pub fn new(driver_name: &str, plugin_endpoint: &str) -> Result<Self, ValidationError> {
+    pub fn new(
+        driver_name: &str,
+        plugin_endpoint: impl AsRef<Utf8Path>,
+    ) -> Result<Self, ValidationError> {
         validate_driver_name(driver_name)?;
         let socket_name = Self::socket_name(driver_name);
-        let socket_path = Path::new(dra::KUBELET_PLUGINS_REGISTRY_PATH).join(socket_name);
+        let socket_path = Utf8Path::new(dra::KUBELET_PLUGINS_REGISTRY_PATH).join(socket_name);
         let plugin_info = dra::registration::PluginInfo {
             r#type: "DRAPlugin".to_string(),
             name: driver_name.to_string(),
-            endpoint: plugin_endpoint.to_string(),
+            endpoint: plugin_endpoint.as_ref().as_str().to_owned(),
             supported_versions: vec![dra::DRA_PLUGIN_SERVICE.to_string()],
         };
         Ok(Self {
@@ -63,7 +66,11 @@ impl DraRegistrationServer {
     }
 
     #[cfg(test)]
-    pub(crate) fn for_test(driver_name: &str, plugin_endpoint: &str, socket_path: PathBuf) -> Self {
+    pub(crate) fn for_test(
+        driver_name: &str,
+        plugin_endpoint: impl AsRef<Utf8Path>,
+        socket_path: Utf8PathBuf,
+    ) -> Self {
         let mut server = Self::new(driver_name, plugin_endpoint).expect("valid test driver name");
         server.set_socket_path(socket_path);
         server
@@ -84,7 +91,7 @@ impl DraRegistrationServer {
     /// treats a dead socket as the plugin having gone away, so cleanup is an
     /// orchestration concern for whoever manages this server's lifetime, not
     /// something to build speculatively here.
-    pub fn socket_path(&self) -> &Path {
+    pub fn socket_path(&self) -> &Utf8Path {
         &self.socket_path
     }
 

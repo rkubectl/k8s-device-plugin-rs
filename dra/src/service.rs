@@ -53,13 +53,13 @@ fn node_prepare_response(
 /// The `DRAPlugin` gRPC service's own socket path -- shared with the
 /// lifecycle harness (`DraPlugin::new`, crate root), which needs the same
 /// path to advertise as the registration server's `GetInfo.endpoint`.
-pub(crate) fn plugin_socket_path(driver_name: &str) -> PathBuf {
-    Path::new(dra::KUBELET_PLUGINS_PATH)
+pub(crate) fn plugin_socket_path(driver_name: &str) -> Utf8PathBuf {
+    Utf8Path::new(dra::KUBELET_PLUGINS_PATH)
         .join(driver_name)
         .join("plugin.sock")
 }
 
-async fn setup_listener(socket_path: &Path) -> io::Result<UnixListenerStream> {
+async fn setup_listener(socket_path: &Utf8Path) -> io::Result<UnixListenerStream> {
     let socket_path = socket_path.to_path_buf();
     let listener =
         task::spawn_blocking(move || k8s_device_plugin_core::bind_unix_listener(&socket_path))
@@ -189,7 +189,7 @@ impl DraPluginService {
 
     pub(crate) async fn spawn_at(
         self,
-        socket_path: &Path,
+        socket_path: &Utf8Path,
     ) -> io::Result<task::JoinHandle<Result<(), transport::Error>>> {
         let incoming = setup_listener(socket_path).await?;
         let mut router = transport::Server::builder();

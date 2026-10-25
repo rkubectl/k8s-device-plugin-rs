@@ -1,7 +1,7 @@
 //! Driver-side KEP-5304 identity/attribute snapshots; no API-server extension.
-use std::path::Component;
 use std::sync::Weak;
 
+use camino::Utf8Component;
 use parking_lot::Mutex;
 
 use k8s_device_plugin_core::PreparedDeviceWithMetadata;
@@ -17,8 +17,8 @@ const POD_CLAIM_NAME: &str = "resource.kubernetes.io/pod-claim-name";
 /// the runtime. Paths name directories already exposed to the container runtime.
 #[derive(Clone, Debug)]
 pub struct DeviceMetadataOptions {
-    plugin_directories: Option<(PathBuf, PathBuf)>,
-    cdi_directory: PathBuf,
+    plugin_directories: Option<(Utf8PathBuf, Utf8PathBuf)>,
+    cdi_directory: Utf8PathBuf,
 }
 
 impl DeviceMetadataOptions {
@@ -34,15 +34,15 @@ impl DeviceMetadataOptions {
     #[must_use]
     pub fn with_plugin_directories(
         mut self,
-        local: impl Into<PathBuf>,
-        host: impl Into<PathBuf>,
+        local: impl Into<Utf8PathBuf>,
+        host: impl Into<Utf8PathBuf>,
     ) -> Self {
         self.plugin_directories = Some((local.into(), host.into()));
         self
     }
 
     #[must_use]
-    pub fn with_cdi_directory(mut self, directory: impl Into<PathBuf>) -> Self {
+    pub fn with_cdi_directory(mut self, directory: impl Into<Utf8PathBuf>) -> Self {
         self.cdi_directory = directory.into();
         self
     }
@@ -51,9 +51,9 @@ impl DeviceMetadataOptions {
 #[derive(Debug)]
 pub(crate) struct MetadataRuntime {
     driver: String,
-    local: PathBuf,
-    host: PathBuf,
-    cdi: PathBuf,
+    local: Utf8PathBuf,
+    host: Utf8PathBuf,
+    cdi: Utf8PathBuf,
     // Held only during registry lookup/update, never across an await.
     locks: Mutex<BTreeMap<String, Weak<tokio::sync::Mutex<()>>>>,
 }
@@ -61,14 +61,16 @@ pub(crate) struct MetadataRuntime {
 impl MetadataRuntime {
     pub fn new(driver: String, options: DeviceMetadataOptions) -> io::Result<Self> {
         validate_driver_name(&driver).map_err(|error| invalid(error.to_string()))?;
-        let default = Path::new(dra::KUBELET_PLUGINS_PATH).join(&driver);
+        let default = Utf8Path::new(dra::KUBELET_PLUGINS_PATH).join(&driver);
         let (local, host) = options
             .plugin_directories
             .unwrap_or_else(|| (default.clone(), default));
         for path in [&local, &host, &options.cdi_directory] {
             if !path.is_absolute()
-                || path.components().any(|p| matches!(p, Component::ParentDir))
-                || path.to_str().is_none_or(|s| s.contains('\0'))
+                || path
+                    .components()
+                    .any(|p| matches!(p, Utf8Component::ParentDir))
+                || path.as_str().contains('\0')
             {
                 return Err(invalid(
                     "metadata directories must be absolute UTF-8 paths without parent traversal",
@@ -415,7 +417,7 @@ impl Plan {
                     "name": id,
                     "containerEdits": {
                         "mounts": [{
-                            "hostPath": host,
+                            "hostPath": host.as_str(),
                             "containerPath": container,
                             "options": ["ro", "bind"]
                         }]

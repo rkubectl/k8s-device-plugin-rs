@@ -1,7 +1,7 @@
 use std::future;
 
+use camino_tempfile::Utf8TempDir;
 use kube::client;
-use tempfile::TempDir;
 use tokio::sync::oneshot;
 
 use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
@@ -87,9 +87,9 @@ fn wire_claim(name: &str, uid: &str) -> dra::v1::Claim {
 async fn run_spawns_all_three_components_and_they_work() {
     let (client, mut kube_handle) = mock_kube_client();
 
-    let registration_dir = TempDir::new().expect("create temp dir for registration socket");
+    let registration_dir = Utf8TempDir::new().expect("create temp dir for registration socket");
     let registration_socket_path = registration_dir.path().join("plugin-reg.sock");
-    let plugin_dir = TempDir::new().expect("create temp dir for plugin socket");
+    let plugin_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
     let plugin_socket_path = plugin_dir.path().join("plugin.sock");
 
     let driver = StaticDraDriver {
@@ -184,10 +184,10 @@ async fn liveness_probe_rejects_other_plugin_types_with_plain_string_diagnostics
         ..default()
     });
     let registration_path = registration.socket_path();
-    let plugin_dir = TempDir::new().expect("create temp dir for plugin socket");
+    let plugin_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
     let error = DraPluginLivenessProbe::with_socket_paths(
         "example.com",
-        &registration_path,
+        registration_path,
         plugin_dir.path().join("missing.sock"),
     )
     .expect("valid probe")
@@ -208,9 +208,9 @@ async fn liveness_probe_rejects_other_plugin_types_with_plain_string_diagnostics
 #[tokio::test]
 async fn liveness_probe_checks_both_dra_sockets_with_real_rpcs() {
     let (client, _kube_handle) = mock_kube_client();
-    let registration_dir = TempDir::new().expect("create temp dir for registration socket");
+    let registration_dir = Utf8TempDir::new().expect("create temp dir for registration socket");
     let registration_socket_path = registration_dir.path().join("plugin-reg.sock");
-    let plugin_dir = TempDir::new().expect("create temp dir for plugin socket");
+    let plugin_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
     let plugin_socket_path = plugin_dir.path().join("plugin.sock");
     let driver = StaticDraDriver {
         name: "example.com".to_string(),
@@ -220,7 +220,7 @@ async fn liveness_probe_checks_both_dra_sockets_with_real_rpcs() {
 
     let registration = DraRegistrationServer::for_test(
         "example.com",
-        &plugin_socket_path.to_string_lossy(),
+        &plugin_socket_path,
         registration_socket_path.clone(),
     );
     let registration_handle = registration
@@ -253,9 +253,9 @@ async fn liveness_probe_checks_both_dra_sockets_with_real_rpcs() {
 #[tokio::test]
 async fn run_at_stops_registration_when_service_startup_fails() {
     let (client, _kube_handle) = mock_kube_client();
-    let registration_dir = TempDir::new().expect("create temp dir for registration socket");
+    let registration_dir = Utf8TempDir::new().expect("create temp dir for registration socket");
     let registration_socket_path = registration_dir.path().join("plugin-reg.sock");
-    let plugin_dir = TempDir::new().expect("create temp dir for plugin socket");
+    let plugin_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
     let plugin_socket_path = plugin_dir.path().join("missing").join("plugin.sock");
 
     let plugin = DraPlugin::for_test(
@@ -395,7 +395,7 @@ async fn dra_constructors_reject_invalid_or_mismatched_driver_identity() {
 #[tokio::test]
 async fn registration_failure_aborts_the_already_bound_plugin_service() {
     let (client, _) = mock_kube_client();
-    let directory = TempDir::new().unwrap();
+    let directory = Utf8TempDir::new().unwrap();
     let registration_path = directory.path().join("missing/registration.sock");
     let plugin_path = directory.path().join("plugin.sock");
     let plugin = DraPlugin::for_test(
@@ -468,7 +468,7 @@ impl ResourceHealthReporter for StaticDraDriver {
 #[tokio::test]
 async fn opted_in_health_is_advertised_by_the_plugin_registration_rpc() {
     let (client, _) = mock_kube_client();
-    let directory = TempDir::new().unwrap();
+    let directory = Utf8TempDir::new().unwrap();
     let mut plugin = DraPlugin::with_resource_health(
         client,
         "example.com",

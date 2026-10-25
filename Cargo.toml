@@ -13,6 +13,8 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 async-trait = "0.1"
+camino = "1.2.6"
+camino-tempfile = "1.4.1"
 futures = "0.3"
 http = "1.4"
 http-body-util = "0.1"
@@ -27,7 +29,6 @@ serde = "1.0"
 serde_json = "1.0"
 rustix = { version = "1.1.5", features = ["fs"] }
 semver = "1.0.28"
-tempfile = "3.27"
 thiserror = "2.0"
 tokio = { version = "1.52", features = ["macros"] }
 tokio-stream = { version = "0.1", features = ["net"] }

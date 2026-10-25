@@ -12,8 +12,8 @@ pub struct MockDraPluginClient {
 
 impl MockDraPluginClient {
     /// Connect to a `DRAPlugin` Unix socket at `path`, mirroring the kubelet side.
-    pub async fn connect(path: impl AsRef<Path>) -> tonic::Result<Self> {
-        let socket_path = PathBuf::from(path.as_ref());
+    pub async fn connect(path: impl AsRef<Utf8Path>) -> tonic::Result<Self> {
+        let socket_path = Utf8PathBuf::from(path.as_ref());
         let connector_path = socket_path.clone();
 
         let endpoint = transport::Endpoint::try_from("http://[::]:50051").map_err(|err| {
@@ -29,7 +29,7 @@ impl MockDraPluginClient {
             .map_err(|err| {
                 tonic::Status::unavailable(format!(
                     "failed to connect to DRA plugin socket {}: {err}",
-                    socket_path.display()
+                    socket_path
                 ))
             })?;
 
@@ -132,8 +132,8 @@ mod tests {
         }
     }
 
-    fn start_fake_plugin() -> (PathBuf, TempDir, task::JoinHandle<()>) {
-        let socket_dir = TempDir::new().expect("create temp dir for plugin socket");
+    fn start_fake_plugin() -> (Utf8PathBuf, Utf8TempDir, task::JoinHandle<()>) {
+        let socket_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
         let socket_path = socket_dir.path().join("plugin.sock");
         let listener = net::UnixListener::bind(&socket_path).expect("bind unix socket");
         let incoming = UnixListenerStream::new(listener);

@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 
 pub use device::Device;
 pub use device::DevicePath;

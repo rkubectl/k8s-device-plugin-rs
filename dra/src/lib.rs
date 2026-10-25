@@ -12,11 +12,11 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::fs;
 use std::io;
-use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use serde_json as json;
 use tokio::net;
 use tokio::task;
@@ -176,8 +176,7 @@ impl DraPlugin {
             });
         }
         let plugin_endpoint = service::plugin_socket_path(&driver_name);
-        let registration =
-            DraRegistrationServer::new(&driver_name, &plugin_endpoint.to_string_lossy())?;
+        let registration = DraRegistrationServer::new(&driver_name, &plugin_endpoint)?;
         let resolver = ClaimResolver::new(client.clone(), driver_name.clone())?;
         let service = DraPluginService::new(resolver, Arc::clone(&driver));
         let publisher =
@@ -231,13 +230,13 @@ impl DraPlugin {
         driver_name: impl Into<String>,
         node_name: impl Into<String>,
         driver: D,
-        registration_socket_path: PathBuf,
+        registration_socket_path: Utf8PathBuf,
     ) -> Self {
         let mut plugin =
             Self::new(client, driver_name, node_name, driver).expect("valid test driver");
         plugin.registration = DraRegistrationServer::for_test(
             &plugin.driver_name,
-            &service::plugin_socket_path(&plugin.driver_name).to_string_lossy(),
+            service::plugin_socket_path(&plugin.driver_name),
             registration_socket_path,
         );
         plugin
@@ -267,7 +266,7 @@ impl DraPlugin {
     /// This is a process-lifetime future: dropping it does not abort the
     /// component tasks. Terminate the process to shut down the plugin.
     pub async fn run(self) -> io::Result<()> {
-        let plugin_dir = Path::new(dra::KUBELET_PLUGINS_PATH).join(&self.driver_name);
+        let plugin_dir = Utf8Path::new(dra::KUBELET_PLUGINS_PATH).join(&self.driver_name);
         tokio::fs::create_dir_all(dra::KUBELET_PLUGINS_REGISTRY_PATH).await?;
         tokio::fs::create_dir_all(&plugin_dir).await?;
         self.run_at(&plugin_dir.join("plugin.sock")).await
@@ -277,7 +276,7 @@ impl DraPlugin {
     /// can point it at a temp directory instead of the real
     /// `/var/lib/kubelet/plugins/<driver_name>/` -- same split
     /// `DraPluginService::spawn`/`spawn_at` already uses.
-    async fn run_at(self, plugin_socket_path: &Path) -> io::Result<()> {
+    async fn run_at(self, plugin_socket_path: &Utf8Path) -> io::Result<()> {
         let service_handle = self.service.spawn_at(plugin_socket_path).await?;
         let registration_handle = match self.registration.spawn().await {
             Ok(handle) => handle,

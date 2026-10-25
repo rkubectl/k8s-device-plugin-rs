@@ -1,9 +1,10 @@
 use std::fmt;
 use std::io;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use hyper_util::rt::TokioIo;
 use tokio::net;
 use tokio::task;
@@ -104,18 +105,18 @@ fn devices_equal_ignoring_order(a: &[Device], b: &[Device]) -> bool {
     a_sorted == b_sorted
 }
 
-fn device_path_to_spec(path: &DevicePath) -> v1beta1::DeviceSpec {
+fn device_path_to_spec(path: DevicePath) -> v1beta1::DeviceSpec {
     v1beta1::DeviceSpec {
-        host_path: path.host_path.to_string_lossy().into_owned(),
-        container_path: path.container_path.to_string_lossy().into_owned(),
+        host_path: path.host_path.into_string(),
+        container_path: path.container_path.into_string(),
         permissions: path.permissions.to_string(),
     }
 }
 
-fn host_mount_to_proto(mount: &HostMount) -> v1beta1::Mount {
+fn host_mount_to_proto(mount: HostMount) -> v1beta1::Mount {
     v1beta1::Mount {
-        container_path: mount.container_path.to_string_lossy().into_owned(),
-        host_path: mount.host_path.to_string_lossy().into_owned(),
+        container_path: mount.container_path.into_string(),
+        host_path: mount.host_path.into_string(),
         read_only: mount.read_only,
     }
 }
@@ -138,10 +139,14 @@ fn container_allocation_to_response(
     v1beta1::ContainerAllocateResponse {
         devices: allocation
             .device_paths
-            .iter()
+            .into_iter()
             .map(device_path_to_spec)
             .collect(),
-        mounts: allocation.mounts.iter().map(host_mount_to_proto).collect(),
+        mounts: allocation
+            .mounts
+            .into_iter()
+            .map(host_mount_to_proto)
+            .collect(),
         envs: allocation.envs.into_iter().collect(),
         annotations: allocation.annotations.into_iter().collect(),
         cdi_devices: allocation
@@ -154,10 +159,10 @@ fn container_allocation_to_response(
 
 #[derive(Clone, Debug)]
 pub struct DevicePlugin {
-    endpoint: String,
+    endpoint: Utf8PathBuf,
     resource_name: String,
     service: Arc<DevicePluginService>,
-    kubelet_socket: String,
+    kubelet_socket: Utf8PathBuf,
 }
 
 impl DevicePlugin {
@@ -165,7 +170,7 @@ impl DevicePlugin {
         k8s_device_plugin_core::validate_resource_name(resource_name)?;
         let socket_name = sanitize_socket_name(resource_name);
         let resource_name = resource_name.to_string();
-        let endpoint = String::from(v1beta1::DEVICE_PLUGIN_PATH) + &socket_name;
+        let endpoint = Utf8Path::new(v1beta1::DEVICE_PLUGIN_PATH).join(socket_name);
         let service = Arc::new(service);
         let kubelet_socket = Self::kubelet_socket_path();
         Ok(Self {
@@ -180,8 +185,8 @@ impl DevicePlugin {
     fn for_test(
         resource_name: &str,
         service: DevicePluginService,
-        endpoint: String,
-        kubelet_socket: String,
+        endpoint: Utf8PathBuf,
+        kubelet_socket: Utf8PathBuf,
     ) -> Self {
         Self {
             endpoint,
@@ -219,14 +224,14 @@ impl DevicePlugin {
     }
 
     async fn register_with_retry(&self) -> io::Result<()> {
-        self.try_register(self.kubelet_socket.clone(), 10, Duration::from_secs(1))
+        self.try_register(&self.kubelet_socket, 10, Duration::from_secs(1))
             .await
     }
 
     #[tracing::instrument(skip(self, kubelet_socket), fields(resource_name = self.resource_name))]
     async fn try_register(
         &self,
-        kubelet_socket: String,
+        kubelet_socket: &Utf8Path,
         max_attempts: u32,
         initial_delay: Duration,
     ) -> io::Result<()> {
@@ -235,7 +240,7 @@ impl DevicePlugin {
         }
         let mut delay = initial_delay;
         for attempt in 1..max_attempts {
-            match self.register_at(kubelet_socket.clone()).await {
+            match self.register_at(kubelet_socket).await {
                 Ok(()) => return Ok(()),
                 Err(err) => {
                     tracing::warn!(attempt, max_attempts, %err, "registration attempt failed; retrying");
@@ -258,10 +263,10 @@ impl DevicePlugin {
     }
 
     pub async fn register(&self) -> tonic::Result<()> {
-        self.register_at(self.kubelet_socket.clone()).await
+        self.register_at(&self.kubelet_socket).await
     }
 
-    async fn register_at(&self, kubelet_socket: String) -> tonic::Result<()> {
+    async fn register_at(&self, kubelet_socket: &Utf8Path) -> tonic::Result<()> {
         RegistrationClient::new(kubelet_socket)
             .await?
             .register(self.registration_endpoint(), &self.resource_name)
@@ -269,18 +274,15 @@ impl DevicePlugin {
     }
 
     fn registration_endpoint(&self) -> &str {
-        Path::new(&self.endpoint)
-            .file_name()
-            .and_then(|file_name| file_name.to_str())
-            .unwrap_or(&self.endpoint)
+        self.endpoint.file_name().unwrap_or(self.endpoint.as_str())
     }
 
-    fn kubelet_socket_path() -> String {
-        String::from(v1beta1::DEVICE_PLUGIN_PATH) + v1beta1::KUBELET_SOCKET
+    fn kubelet_socket_path() -> Utf8PathBuf {
+        Utf8Path::new(v1beta1::DEVICE_PLUGIN_PATH).join(v1beta1::KUBELET_SOCKET)
     }
 
     fn setup_listener(&self) -> io::Result<UnixListenerStream> {
-        let listener = k8s_device_plugin_core::bind_unix_listener(Path::new(&self.endpoint))?;
+        let listener = k8s_device_plugin_core::bind_unix_listener(&self.endpoint)?;
         net::UnixListener::from_std(listener).map(UnixListenerStream::new)
     }
 

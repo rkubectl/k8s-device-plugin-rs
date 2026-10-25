@@ -156,6 +156,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "camino"
+version = "1.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbad30e4b4c14a39e3cc8aed085a12a327257c316619c93581e017bc52be591"
+
+[[package]]
+name = "camino-tempfile"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64308c4c82a5c38679945ddf88738dc1483dcc563bbb5780755ae9f8497d2b20"
+dependencies = [
+ "camino",
+ "tempfile",
+]
+
+[[package]]
 name = "cc"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -906,7 +922,8 @@ name = "k8s-device-plugin-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "tempfile",
+ "camino",
+ "camino-tempfile",
  "thiserror 2.0.21",
  "tokio",
 ]
@@ -916,6 +933,8 @@ name = "k8s-device-plugin-dra"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "camino",
+ "camino-tempfile",
  "futures",
  "http",
  "http-body-util",
@@ -930,7 +949,6 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
@@ -944,6 +962,7 @@ dependencies = [
 name = "k8s-device-plugin-example"
 version = "0.1.0"
 dependencies = [
+ "camino",
  "k8s-device-plugin-lib",
  "tokio",
  "tracing",
@@ -954,13 +973,14 @@ dependencies = [
 name = "k8s-device-plugin-lib"
 version = "0.1.0"
 dependencies = [
+ "camino",
+ "camino-tempfile",
  "hyper-util",
  "k8s-device-plugin-core",
  "k8s-device-plugin-proto",
  "k8s-device-plugin-test",
  "parking_lot",
  "prometheus_exporter",
- "tempfile",
  "tokio",
  "tokio-stream",
  "tonic",
@@ -984,6 +1004,8 @@ dependencies = [
 name = "k8s-device-plugin-test"
 version = "0.1.0"
 dependencies = [
+ "camino",
+ "camino-tempfile",
  "http",
  "hyper-util",
  "k8s-device-plugin-proto",
@@ -991,7 +1013,6 @@ dependencies = [
  "kube",
  "serde",
  "serde_json",
- "tempfile",
  "tokio",
  "tokio-stream",
  "tonic",

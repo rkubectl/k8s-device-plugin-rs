@@ -15,12 +15,13 @@ resource-health = ["dep:tokio"]
 
 [dependencies]
 async-trait.workspace = true
+camino.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["sync"], optional = true }
 
 
 [dev-dependencies]
-tempfile.workspace = true
+camino-tempfile.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 
 
