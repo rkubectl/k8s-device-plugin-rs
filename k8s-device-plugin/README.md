@@ -39,7 +39,7 @@ k8s-openapi = { version = "0.29", features = ["v1_37"] }
 For DRA, the application selects exactly one `k8s-openapi` schema feature:
 `v1_36` or `v1_37`. The library leaves this choice to the application.
 Classic-only consumers do not need `k8s-openapi`. See the getting-started
-guide for the v0.3.0 migration boundary and dependency override.
+guide for the v0.4 migration requirements and dependency override.
 
 Start with the workspace [getting-started guide](../docs/getting-started.md)
 to choose between the classic and DRA runtimes and find runnable examples.

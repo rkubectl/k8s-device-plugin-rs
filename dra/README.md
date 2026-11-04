@@ -46,8 +46,8 @@ schema feature themselves. All dependencies in an application must agree on
 one schema: Cargo features are additive, so two different selections conflict.
 The selected Kubernetes schema does not change the `k8s-openapi` crate series
 required by `kube` 5, and selecting a schema does not enable server feature gates.
-The published v0.3.0 release predates this fix and forces `latest`; use a fixed
-release or the corrected Git/path source when selecting `v1_36`.
+v0.3.0 forces `latest`; upgrading to v0.4 requires the application's explicit
+schema selection shown above, including for applications that keep `v1_37`.
 
 Repository `mise` tasks explicitly select schema 1.37 for development. For
 direct Cargo commands, including the examples below, set
