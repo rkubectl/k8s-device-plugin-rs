@@ -9,6 +9,11 @@ description = "Kubernetes Dynamic Resource Allocation driver runtime for Rust"
 readme = "README.md"
 
 
+[package.metadata.docs.rs]
+all-features = true
+cargo-args = ["--config", 'env.K8S_OPENAPI_ENABLED_VERSION="1.37"']
+
+
 [features]
 resource-health = [
     "k8s-device-plugin-core/resource-health",

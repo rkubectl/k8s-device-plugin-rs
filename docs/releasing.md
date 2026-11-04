@@ -22,6 +22,10 @@ schema feature in the published library dependencies:
 export K8S_OPENAPI_ENABLED_VERSION=1.37
 ```
 
+The DRA, test-helper and facade manifests also select 1.37 through docs.rs
+`cargo-args` for hosted documentation builds. Keep that metadata separate from
+normal dependency features so consumers can still choose their own schema.
+
 Run the required CI gate and inspect the proposed next patch release:
 
 ```bash
