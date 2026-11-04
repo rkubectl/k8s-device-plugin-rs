@@ -198,6 +198,13 @@ mise run ci     # fmt --check, clippy -D warnings, test (via cargo-nextest)
 
 Or individually: `mise run fmt`, `mise run clippy`, `mise run test`.
 
+These development tasks explicitly select Kubernetes schema 1.37. Direct
+Cargo commands that build DRA need `K8S_OPENAPI_ENABLED_VERSION=1.37` (or
+`1.36`). Application dependencies select their schema through `k8s-openapi`
+features instead; see the [DRA schema contract](dra/README.md#kubernetes-schema-selection).
+`mise run dra-check-consumer-schemas` verifies both consumer selections,
+including the optional resource-health feature.
+
 Protocol bindings are compiled with the Rust `protox` compiler; no external
 `protoc` installation is required. Git checkouts still need the
 `proto/kubelet` submodule. Run `mise run proto-check-no-protoc` to verify all

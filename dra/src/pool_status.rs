@@ -115,8 +115,8 @@ impl PoolStatusQuery {
     }
 
     /// Waits for Complete=True or Failed=True, bounding both HTTP reads and
-    /// polling sleeps. Returned types cover the v1.37 schema, including optional
-    /// partition/shareable summaries when the controller supplies them.
+    /// polling sleeps. Returned types follow the application's selected schema;
+    /// v1.37 includes optional partition/shareable summaries from the controller.
     /// Missing device counts remain None, including pools with validationError.
     pub async fn wait(
         &self,
@@ -269,15 +269,17 @@ mod tests {
             .unwrap();
             assert_eq!(body, json::json!({"preconditions": {"uid": "request-uid"}}));
         });
-        let query = PoolStatusClient::new(client)
-            .create(resourcev1alpha3::ResourcePoolStatusRequestSpec {
-                driver: "dra.example.com".into(),
-                pool_name: Some("widget-pool".into()),
-                limit: Some(1),
-                ..default()
-            })
-            .await
-            .unwrap();
+        #[allow(
+            clippy::needless_update,
+            reason = "v1.37 adds optional fields that are absent in the v1.36 schema"
+        )]
+        let spec = resourcev1alpha3::ResourcePoolStatusRequestSpec {
+            driver: "dra.example.com".into(),
+            pool_name: Some("widget-pool".into()),
+            limit: Some(1),
+            ..default()
+        };
+        let query = PoolStatusClient::new(client).create(spec).await.unwrap();
         let status = query.wait(Duration::from_secs(5)).await.unwrap();
         let pool = &status.pools.unwrap()[0];
         assert_eq!(pool.total_devices, None);

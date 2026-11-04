@@ -222,9 +222,9 @@ impl Plan {
         if annotation.is_some_and(|a| !label(a, 63)) {
             return Err(invalid("invalid pod claim name annotation"));
         }
-        let requests = claim
-            .spec
-            .as_ref()
+        // The generated spec is required in v1.36 and optional in v1.37.
+        let spec: Option<&resourcev1::ResourceClaimSpec> = (&claim.spec).into();
+        let requests = spec
             .and_then(|spec| spec.devices.as_ref())
             .and_then(|devices| devices.requests.as_deref())
             .unwrap_or_default();

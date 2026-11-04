@@ -3,6 +3,7 @@
 set -euo pipefail
 KUBECTL=${KUBECTL:-kubectl}
 CARGO=${CARGO:-cargo}
+export K8S_OPENAPI_ENABLED_VERSION=${K8S_OPENAPI_ENABLED_VERSION:-1.37}
 JQ=${JQ:-jq}
 KUBE_CONTEXT=${KUBE_CONTEXT:-}
 NAMESPACE=k8s-device-plugin-dra-example

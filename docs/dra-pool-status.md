@@ -28,13 +28,15 @@ use k8s_openapi::api::resource::v1alpha3 as resourcev1alpha3;
 use k8s_device_plugin_dra::PoolStatusClient;
 
 # async fn inspect(client: kube::Client) -> Result<(), Box<dyn std::error::Error>> {
+#[allow(clippy::needless_update)] // v1.37 has fields absent in v1.36.
+let spec = resourcev1alpha3::ResourcePoolStatusRequestSpec {
+    driver: "dra.example.com".into(),
+    pool_name: Some("widget-pool".into()),
+    limit: Some(100),
+    ..Default::default()
+};
 let query = PoolStatusClient::new(client)
-    .create(resourcev1alpha3::ResourcePoolStatusRequestSpec {
-        driver: "dra.example.com".into(),
-        pool_name: Some("widget-pool".into()),
-        limit: Some(100),
-        ..Default::default()
-    })
+    .create(spec)
     .await?;
 let result = query.wait(Duration::from_secs(60)).await;
 let cleanup = query.delete().await; // Also attempted after failure or timeout.
@@ -79,11 +81,12 @@ list can be truncated by `limit`. Missing counts stay `None`, especially when
 `validationError` reports incomplete ResourceSlice publication. An empty or
 failed result must not be presented as zero available devices.
 
-The typed result uses the k8s-openapi 0.29 v1.37 schema. It includes
-pool generations, slice count, total/allocated/available/unavailable device
-counts, node name and validation errors, plus optional partition/shareable
-summaries. Requests can supply `default_partition_type_attribute` for grouping
-partitionable devices. These fields pass through the Kubernetes types; the
+The typed result uses the consumer-selected k8s-openapi 0.29 schema. Both
+supported schemas provide pool generations, slice count,
+total/allocated/available/unavailable device counts, node name and validation
+errors. The v1.37 schema additionally exposes optional partition/shareable
+summaries and the request's `default_partition_type_attribute` grouping field.
+These fields pass through the Kubernetes types; the
 driver's own partitioning/consumable-capacity support remains deferred.
 
 ## Native acceptance

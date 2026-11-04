@@ -28,6 +28,7 @@ application uses:
 [dependencies]
 async-trait = "0.1"
 k8s-device-plugin = { version = "0.3.0", default-features = false, features = ["dra"] }
+k8s-openapi = { version = "0.29", features = ["v1_37"] }
 kube = "5.0"
 tokio = { version = "1.52", features = ["macros", "rt-multi-thread"] }
 tracing = "0.1"
@@ -37,6 +38,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 The v0.3 release uses `kube` 5 and `k8s-openapi` 0.29 (Kubernetes v1.37
 schemas). Applications upgrading from v0.2 must also upgrade their `kube`
 dependency from 4 to 5 so their Kubernetes client types match the runtime.
+
+DRA applications select exactly one Kubernetes schema through their own
+`k8s-openapi` dependency: `v1_36` or `v1_37`. Choose the minimum API schema
+your application needs; the framework's libraries do not select one for you.
+This is separate from the Rust crate version: `kube` 5 uses `k8s-openapi` 0.29.
+Classic-only applications do not need this dependency. The published v0.3.0
+release still forces `latest`; selecting `v1_36` requires a release containing
+the schema-selection fix or a Git/path dependency on the corrected source.
 
 The DRA runtime needs a Kubernetes client in addition to kubelet sockets. Its
 real pluginwatcher registration currently also needs the workspace's temporary

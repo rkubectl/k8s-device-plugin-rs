@@ -15,6 +15,26 @@ fn new_runtime(root: &Utf8Path) -> Arc<MetadataRuntime> {
     )
 }
 fn claim() -> resourcev1::ResourceClaim {
+    let spec = resourcev1::ResourceClaimSpec {
+        devices: Some(resourcev1::DeviceClaim {
+            requests: Some(
+                ["a", "b"]
+                    .map(|name| resourcev1::DeviceRequest {
+                        name: name.into(),
+                        exactly: Some(resourcev1::ExactDeviceRequest {
+                            device_class_name: "widgets".into(),
+                            ..default()
+                        }),
+                        ..default()
+                    })
+                    .into(),
+            ),
+            ..default()
+        }),
+    };
+    k8s_openapi::k8s_if_ge_1_37! {
+        let spec = Some(spec);
+    }
     resourcev1::ResourceClaim {
         metadata: metav1::ObjectMeta {
             namespace: Some("default".into()),
@@ -22,23 +42,7 @@ fn claim() -> resourcev1::ResourceClaim {
             uid: Some("claim-uid".into()),
             ..default()
         },
-        spec: Some(resourcev1::ResourceClaimSpec {
-            devices: Some(resourcev1::DeviceClaim {
-                requests: Some(
-                    ["a", "b"]
-                        .map(|name| resourcev1::DeviceRequest {
-                            name: name.into(),
-                            exactly: Some(resourcev1::ExactDeviceRequest {
-                                device_class_name: "widgets".into(),
-                                ..default()
-                            }),
-                            ..default()
-                        })
-                        .into(),
-                ),
-                ..default()
-            }),
-        }),
+        spec,
         status: Some(resourcev1::ResourceClaimStatus {
             allocation: Some(resourcev1::AllocationResult {
                 devices: Some(resourcev1::DeviceAllocationResult {
@@ -147,10 +151,8 @@ fn template_subrequest_paths_and_full_json_reference() {
     let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let mut claim = claim();
-    claim
-        .spec
-        .as_mut()
-        .unwrap()
+    let spec: Option<&mut resourcev1::ResourceClaimSpec> = (&mut claim.spec).into();
+    spec.unwrap()
         .devices
         .as_mut()
         .unwrap()
@@ -751,8 +753,11 @@ fn corrupt_journal_refuses_cleanup_and_keeps_owned_data_until_repaired() {
 fn absent_claim_spec_preserves_empty_semantics_and_rejects_allocations() {
     let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
-    let mut object = claim();
-    object.spec = None;
+    // An absent wire field defaults to an empty required spec in v1.36 and
+    // remains None in v1.37. Exercise the same malformed input in both schemas.
+    let mut wire = json::to_value(claim()).unwrap();
+    wire.as_object_mut().unwrap().remove("spec");
+    let mut object = json::from_value::<resourcev1::ResourceClaim>(wire).unwrap();
     let error = Plan::build(&runtime, &object, vec![prepared("a", "widget-0")]).unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     assert_eq!(
@@ -779,7 +784,8 @@ fn zero_device_allocation_has_no_container_edits_and_cleans_its_journal() {
     let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let mut object = claim();
-    object.spec.as_mut().unwrap().devices = None;
+    let spec: Option<&mut resourcev1::ResourceClaimSpec> = (&mut object.spec).into();
+    spec.unwrap().devices = None;
     object
         .status
         .as_mut()

@@ -6,6 +6,7 @@ ARG RUST_VERSION=1.98
 
 FROM rust:${RUST_VERSION}-slim AS builder
 ARG TARGETARCH
+ARG K8S_OPENAPI_VERSION=1.37
 RUN apt-get update \
     && apt-get install -y --no-install-recommends musl-tools \
     && rm -rf /var/lib/apt/lists/*
@@ -18,7 +19,7 @@ RUN rustup target add "$(cat /rust_target)"
 WORKDIR /src
 COPY . .
 RUN mkdir /out \
-    && cargo build --release --locked --target "$(cat /rust_target)" \
+    && K8S_OPENAPI_ENABLED_VERSION="${K8S_OPENAPI_VERSION}" cargo build --release --locked --target "$(cat /rust_target)" \
         -p k8s-device-plugin-dra \
         --example accelerator_pair_driver \
         --example liveness_probe \

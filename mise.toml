@@ -1,11 +1,13 @@
 [tasks.build]
 description = "Build the CLI"
+env = { K8S_OPENAPI_ENABLED_VERSION = "1.37" }
 run = "cargo build"
 # `mise run b`
 alias = "b"
 
 [tasks.test]
 description = "Run automated tests"
+env = { K8S_OPENAPI_ENABLED_VERSION = "1.37" }
 run = "cargo nextest run --workspace"
 # run in user's cwd, default is the project's base directory
 dir = "{{cwd}}"
@@ -16,20 +18,22 @@ run = "cargo fmt --all --check"
 
 [tasks.clippy]
 description = "Lint with clippy --all-targets"
-env = { RUST_BACKTRACE = "1" }  # env vars for the script
+env = { RUST_BACKTRACE = "1", K8S_OPENAPI_ENABLED_VERSION = "1.37" }
 run = "cargo clippy --workspace --all-targets -- -D warnings"
 
 [tasks.ci]
 description = "Run the full CI checklist locally: fmt, clippy, test"
-depends = ["fmt", "clippy", "test", "dra-ci-resource-health", "dra-test-matrix", "dra-test-profile-config"]
+depends = ["fmt", "clippy", "test", "dra-ci-resource-health", "dra-test-matrix", "dra-test-profile-config", "dra-check-consumer-schemas"]
 
 [tasks.release-preflight]
 description = "Run CI and preview the next patch release without changing Git or crates.io"
+env = { K8S_OPENAPI_ENABLED_VERSION = "1.37" }
 depends = ["ci"]
 run = "cargo release patch --workspace --exclude k8s-device-plugin-example --no-confirm"
 
 [tasks.dra-ci-resource-health]
 description = "Lint and test the opt-in DRA resource-health feature and examples"
+env = { K8S_OPENAPI_ENABLED_VERSION = "1.37" }
 run = [
     "cargo clippy --locked -p k8s-device-plugin-dra --all-targets --features resource-health -- -D warnings",
     "cargo test --locked -p k8s-device-plugin-dra --all-targets --features resource-health",
@@ -38,6 +42,10 @@ run = [
 [tasks.dra-test-matrix]
 description = "Test local DRA matrix orchestration and failure recovery without VMs"
 run = "python3 dra/hack/test-validate-k8s-versions.py"
+
+[tasks.dra-check-consumer-schemas]
+description = "Check independent consumers selecting Kubernetes v1.36 and v1.37 schemas"
+run = "sh dra/hack/check-consumer-schemas.sh"
 
 [tasks.dra-test-profile-config]
 description = "Test isolated DRA profile configuration without VMs"
@@ -53,7 +61,7 @@ run = "proto/hack/check-without-protoc.sh"
 
 [tasks.lint]
 description = "Lint with clippy"
-env = { RUST_BACKTRACE = "1" }  # env vars for the script
+env = { RUST_BACKTRACE = "1", K8S_OPENAPI_ENABLED_VERSION = "1.37" }
 # you can specify a multiline script instead of individual commands
 run = '''
 #!/usr/bin/env bash

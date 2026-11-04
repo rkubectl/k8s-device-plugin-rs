@@ -31,6 +31,32 @@ deployment template. See the
 [the extended-resource guide](../docs/dra-extended-resources.md) for a complete
 driver-author and workload-consumer walkthrough.
 
+## Kubernetes schema selection
+
+Applications choose exactly one schema in their own manifest:
+
+```toml
+k8s-openapi = { version = "0.29", features = ["v1_36"] }
+kube = "5.0"
+```
+
+The supported choices are `v1_36` and `v1_37`; older schemas do not contain
+all of this runtime's typed APIs. The DRA runtime and test helpers enable no
+schema feature themselves. All dependencies in an application must agree on
+one schema: Cargo features are additive, so two different selections conflict.
+The selected Kubernetes schema does not change the `k8s-openapi` crate series
+required by `kube` 5, and selecting a schema does not enable server feature gates.
+The published v0.3.0 release predates this fix and forces `latest`; use a fixed
+release or the corrected Git/path source when selecting `v1_36`.
+
+Repository `mise` tasks explicitly select schema 1.37 for development. For
+direct Cargo commands, including the examples below, set
+`K8S_OPENAPI_ENABLED_VERSION=1.37` (or `1.36`) in the command's environment.
+`mise run dra-check-consumer-schemas` checks independent applications choosing
+both schemas without that environment variable, with and without resource
+health. CI tests and lints both schemas. DRA Dockerfiles explicitly default to
+1.37; pass `--build-arg K8S_OPENAPI_VERSION=1.36` to build against 1.36.
+
 ## Compatibility and dependency override
 
 Kubelet currently sends a percent-encoded Unix-socket path in the HTTP/2

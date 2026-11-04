@@ -206,6 +206,12 @@ mod tests {
     use super::*;
 
     fn allocated_claim() -> resourcev1::ResourceClaim {
+        let spec = resourcev1::ResourceClaimSpec {
+            devices: Some(resourcev1::DeviceClaim::default()),
+        };
+        k8s_openapi::k8s_if_ge_1_37! {
+            let spec = Some(spec);
+        }
         resourcev1::ResourceClaim {
             metadata: metav1::ObjectMeta {
                 name: Some("claim".into()),
@@ -214,9 +220,7 @@ mod tests {
                 generation: Some(1),
                 ..default()
             },
-            spec: Some(resourcev1::ResourceClaimSpec {
-                devices: Some(resourcev1::DeviceClaim::default()),
-            }),
+            spec,
             status: Some(resourcev1::ResourceClaimStatus {
                 allocation: Some(resourcev1::AllocationResult {
                     devices: Some(resourcev1::DeviceAllocationResult {

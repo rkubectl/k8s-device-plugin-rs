@@ -14,6 +14,14 @@ Start from `main` with an empty `git status`; `cargo-release` intentionally
 refuses both tracked and untracked changes. Keep private review notes outside
 the checkout, or use a clean worktree for the release.
 
+Select the maintainer's Kubernetes schema for direct Cargo commands, including
+package verification during publication. This environment setting is not a
+schema feature in the published library dependencies:
+
+```bash
+export K8S_OPENAPI_ENABLED_VERSION=1.37
+```
+
 Run the required CI gate and inspect the proposed next patch release:
 
 ```bash

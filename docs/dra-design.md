@@ -584,3 +584,26 @@ kubeconfig without changing the user's selected context. The matrix and
 outer cleanup exited 0; both `dra-upgrade-348-136` / `dra-upgrade-348-137`
 profiles and the builder were left stopped, matching the initial no-running-VM
 state.
+
+### Consumer-selected schemas (2026-11-04)
+
+Task `k8s-device-plugin-rs-xyl` removes the library's `k8s-openapi/latest`
+selection after v0.3.0. Consumers select exactly one of `v1_36` and `v1_37`
+on `k8s-openapi` 0.29, alongside `kube` 5. Development/CI and example builds
+select their schema explicitly; this setting is absent from normalized
+package manifests. The [DRA guide](../dra/README.md#kubernetes-schema-selection)
+documents the application and maintainer contracts.
+
+The independent consumer check first reproduced the simultaneous-v1.36/v1.37
+feature error, then passed both selections with and without resource health.
+All-target/all-feature workspace tests passed 215 tests per schema, including
+metadata wire values, absent-spec validation and journal recovery. Strict
+Clippy and three doctests passed under each schema; the local CI gate and
+strict rustdoc also passed. Classic-only consumers still need no schema.
+
+The DRA Docker override built the native linux/arm64 Rust 1.98 image with
+schema 1.36 and resource health, config digest
+`sha256:c67e90f4013b99dcc40ff983ab57dad8320b9176c3ffa2f1d7c95881697a3531`.
+The builder was returned to stopped with `rosetta=false`. This change selects
+generated API types and preserves existing wire/artifact assertions; no new
+live cluster run or protocol-source change was needed.

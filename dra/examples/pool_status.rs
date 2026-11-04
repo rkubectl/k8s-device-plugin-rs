@@ -28,13 +28,18 @@ async fn main() -> io::Result<()> {
     config.read_timeout = Some(Duration::from_secs(15));
     config.connect_timeout = Some(Duration::from_secs(10));
     let client = kube::Client::try_from(config).map_err(io::Error::other)?;
+    #[allow(
+        clippy::needless_update,
+        reason = "v1.37 adds optional fields that are absent in the v1.36 schema"
+    )]
+    let spec = resourcev1alpha3::ResourcePoolStatusRequestSpec {
+        driver,
+        pool_name,
+        limit: Some(100),
+        ..default()
+    };
     let query = PoolStatusClient::new(client)
-        .create(resourcev1alpha3::ResourcePoolStatusRequestSpec {
-            driver,
-            pool_name,
-            limit: Some(100),
-            ..default()
-        })
+        .create(spec)
         .await
         .map_err(|error| io::Error::other(error.to_string()))?;
     eprintln!("created pool-status request {}", query.name());
