@@ -32,9 +32,9 @@ discovery on the target profile as well as published Kubernetes documentation.
 Taints and administrator rules are stable in v1.37; binding conditions remain
 beta/default-on. Workload ResourceClaims are beta/default-off in v1.37, and
 resource-pool status is alpha/default-off.
-The installed k8s-openapi 0.28 schema targets v1.36; use explicit discovery or
-dynamic API access for v1.37-only API versions rather than assuming generated
-types cover them.
+The original adapter cycle used the k8s-openapi 0.28 v1.36 schema. The
+2026-11-04 upgrade to k8s-openapi 0.29 targets v1.37; keep explicit discovery
+for optional APIs because generated types do not imply server availability.
 
 ## NUMA dependency review
 

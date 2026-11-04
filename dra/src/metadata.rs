@@ -222,13 +222,14 @@ impl Plan {
         if annotation.is_some_and(|a| !label(a, 63)) {
             return Err(invalid("invalid pod claim name annotation"));
         }
-        let declared = claim
+        let requests = claim
             .spec
-            .devices
             .as_ref()
-            .and_then(|devices| devices.requests.as_ref())
-            .into_iter()
-            .flatten()
+            .and_then(|spec| spec.devices.as_ref())
+            .and_then(|devices| devices.requests.as_deref())
+            .unwrap_or_default();
+        let declared = requests
+            .iter()
             .map(|r| r.name.as_str())
             .collect::<BTreeSet<_>>();
         if declared.iter().any(|r| !label(r, 63)) {
@@ -247,12 +248,9 @@ impl Plan {
             .collect::<Vec<_>>();
         for allocation in &local {
             let base = request_ref(&allocation.request)?;
-            let declared_request = claim
-                .spec
-                .devices
-                .as_ref()
-                .and_then(|devices| devices.requests.as_ref())
-                .and_then(|requests| requests.iter().find(|request| request.name == base))
+            let declared_request = requests
+                .iter()
+                .find(|request| request.name == base)
                 .ok_or_else(|| invalid("allocation references an undeclared request"))?;
             if let Some((_, subrequest)) = allocation.request.split_once('/')
                 && !declared_request

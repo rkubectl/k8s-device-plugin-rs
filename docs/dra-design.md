@@ -547,3 +547,40 @@ Acceptance exited successfully and restored the default one-device backend
 without a metadata override; its real RPC liveness probe passed. Only the
 v1.36.1 baseline remained running, the builder was stopped, and every profile
 retained arm64 with `rosetta=false`.
+
+### Kubernetes client/schema upgrade (2026-11-04)
+
+Beads task `k8s-device-plugin-rs-348` upgrades to `kube` 5.0.0 and
+`k8s-openapi` 0.29.0. The existing `latest` schema feature now selects v1.37;
+the supported cluster baseline remains v1.36. The matching kubelet source pin
+is `kubernetes-1.37.2` (`98912ce841e56c346b0e9a086eee5ee6c2764832`), whose
+four compiled protocol files and LICENSE are byte-identical to the previous
+v1.36.5 pin. The h2 compatibility snapshot remains unchanged.
+
+Metadata projection handles the newly optional `ResourceClaim.spec` as an
+empty request set while continuing to reject undeclared allocations. The
+pool-status client exposes the updated Kubernetes types, including optional
+partition/shareable summaries; this does not add driver support for those
+capabilities. Published v0.2.0 consumers still use `kube` 4; Git/path consumers
+of this upgrade need a matching `kube` 5 client.
+
+Local validation on native arm64 Rust 1.99.1 passed 199 workspace tests,
+118 DRA resource-health/example tests, both strict Clippy configurations,
+formatting, strict all-feature rustdoc, three doctests, 28 matrix tests and
+five profile tests. All three protocol feature combinations regenerated in
+a fresh target directory without invoking external protoc. The native
+linux/arm64 release image also built on the declared Rust 1.98 minimum.
+
+The image config digest
+`sha256:bcd420c64befca4b841e3654dc141620e1024c2e27643099dd7caa2f9b053ce6`
+matched the running driver Pod on fresh v1.36.1 and v1.37.0 profiles.
+`validate-k8s-versions.sh` passed with `DRA_E2E_RESOURCE_HEALTH=1` and
+`DRA_E2E_METADATA=1`: registration/liveness, ordinary CDI, non-metadata
+FirstAvailable, negotiated Healthy Pod status, metadata request isolation,
+restart, writer-failure isolation, retry and cleanup all passed on both
+versions. The v1.37 extended-resource lifecycle also passed. The run retained
+`maxSurge: 0`, native arm64 and `rosetta=false`, and used a temporary
+kubeconfig without changing the user's selected context. The matrix and
+outer cleanup exited 0; both `dra-upgrade-348-136` / `dra-upgrade-348-137`
+profiles and the builder were left stopped, matching the initial no-running-VM
+state.

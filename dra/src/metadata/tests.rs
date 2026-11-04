@@ -22,7 +22,7 @@ fn claim() -> resourcev1::ResourceClaim {
             uid: Some("claim-uid".into()),
             ..default()
         },
-        spec: resourcev1::ResourceClaimSpec {
+        spec: Some(resourcev1::ResourceClaimSpec {
             devices: Some(resourcev1::DeviceClaim {
                 requests: Some(
                     ["a", "b"]
@@ -38,7 +38,7 @@ fn claim() -> resourcev1::ResourceClaim {
                 ),
                 ..default()
             }),
-        },
+        }),
         status: Some(resourcev1::ResourceClaimStatus {
             allocation: Some(resourcev1::AllocationResult {
                 devices: Some(resourcev1::DeviceAllocationResult {
@@ -149,6 +149,8 @@ fn template_subrequest_paths_and_full_json_reference() {
     let mut claim = claim();
     claim
         .spec
+        .as_mut()
+        .unwrap()
         .devices
         .as_mut()
         .unwrap()
@@ -746,11 +748,38 @@ fn corrupt_journal_refuses_cleanup_and_keeps_owned_data_until_repaired() {
 }
 
 #[test]
+fn absent_claim_spec_preserves_empty_semantics_and_rejects_allocations() {
+    let tmp = camino_tempfile::tempdir().unwrap();
+    let runtime = new_runtime(tmp.path());
+    let mut object = claim();
+    object.spec = None;
+    let error = Plan::build(&runtime, &object, vec![prepared("a", "widget-0")]).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(
+        error.to_string(),
+        "allocation references an undeclared request"
+    );
+
+    object
+        .status
+        .as_mut()
+        .unwrap()
+        .allocation
+        .as_mut()
+        .unwrap()
+        .devices = None;
+    let plan = Plan::build(&runtime, &object, Vec::new()).unwrap();
+    assert!(plan.devices.is_empty());
+    assert!(plan.documents.is_empty());
+    assert!(plan.specs.is_empty());
+}
+
+#[test]
 fn zero_device_allocation_has_no_container_edits_and_cleans_its_journal() {
     let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let mut object = claim();
-    object.spec.devices = None;
+    object.spec.as_mut().unwrap().devices = None;
     object
         .status
         .as_mut()

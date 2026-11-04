@@ -33,6 +33,7 @@ let query = PoolStatusClient::new(client)
         driver: "dra.example.com".into(),
         pool_name: Some("widget-pool".into()),
         limit: Some(100),
+        ..Default::default()
     })
     .await?;
 let result = query.wait(Duration::from_secs(60)).await;
@@ -78,11 +79,12 @@ list can be truncated by `limit`. Missing counts stay `None`, especially when
 `validationError` reports incomplete ResourceSlice publication. An empty or
 failed result must not be presented as zero available devices.
 
-The typed result uses the installed k8s-openapi 0.28 v1.36 schema. It includes
+The typed result uses the k8s-openapi 0.29 v1.37 schema. It includes
 pool generations, slice count, total/allocated/available/unavailable device
-counts, node name and validation errors. Newer partition/shareable summary
-extensions and request grouping attributes are outside this adapter's typed
-surface, alongside the deferred partitioning/consumable-capacity work.
+counts, node name and validation errors, plus optional partition/shareable
+summaries. Requests can supply `default_partition_type_attribute` for grouping
+partitionable devices. These fields pass through the Kubernetes types; the
+driver's own partitioning/consumable-capacity support remains deferred.
 
 ## Native acceptance
 

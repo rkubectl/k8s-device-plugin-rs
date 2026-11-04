@@ -214,9 +214,9 @@ mod tests {
                 generation: Some(1),
                 ..default()
             },
-            spec: resourcev1::ResourceClaimSpec {
+            spec: Some(resourcev1::ResourceClaimSpec {
                 devices: Some(resourcev1::DeviceClaim::default()),
-            },
+            }),
             status: Some(resourcev1::ResourceClaimStatus {
                 allocation: Some(resourcev1::AllocationResult {
                     devices: Some(resourcev1::DeviceAllocationResult {

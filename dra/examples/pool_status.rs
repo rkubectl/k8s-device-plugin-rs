@@ -33,6 +33,7 @@ async fn main() -> io::Result<()> {
             driver,
             pool_name,
             limit: Some(100),
+            ..default()
         })
         .await
         .map_err(|error| io::Error::other(error.to_string()))?;

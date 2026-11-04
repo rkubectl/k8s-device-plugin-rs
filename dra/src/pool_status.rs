@@ -115,8 +115,8 @@ impl PoolStatusQuery {
     }
 
     /// Waits for Complete=True or Failed=True, bounding both HTTP reads and
-    /// polling sleeps. Returned types cover the installed v1.36 schema: newer
-    /// partition/shareable summary extensions are not represented by this API.
+    /// polling sleeps. Returned types cover the v1.37 schema, including optional
+    /// partition/shareable summaries when the controller supplies them.
     /// Missing device counts remain None, including pools with validationError.
     pub async fn wait(
         &self,
@@ -274,6 +274,7 @@ mod tests {
                 driver: "dra.example.com".into(),
                 pool_name: Some("widget-pool".into()),
                 limit: Some(1),
+                ..default()
             })
             .await
             .unwrap();
