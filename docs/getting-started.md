@@ -28,15 +28,15 @@ application uses:
 [dependencies]
 async-trait = "0.1"
 k8s-device-plugin = { version = "0.2.0", default-features = false, features = ["dra"] }
-kube = "4.0"
+kube = "5.0"
 tokio = { version = "1.52", features = ["macros", "rt-multi-thread"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ```
 
-The published v0.2.0 release uses `kube` 4, as shown above. The current Git
-checkout uses `kube` 5 and `k8s-openapi` 0.29 (Kubernetes v1.37 schemas);
-Git/path consumers must use a matching `kube` 5 client.
+The v0.3 release uses `kube` 5 and `k8s-openapi` 0.29 (Kubernetes v1.37
+schemas). Applications upgrading from v0.2 must also upgrade their `kube`
+dependency from 4 to 5 so their Kubernetes client types match the runtime.
 
 The DRA runtime needs a Kubernetes client in addition to kubelet sockets. Its
 real pluginwatcher registration currently also needs the workspace's temporary
