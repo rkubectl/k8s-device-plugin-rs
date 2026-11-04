@@ -39,6 +39,14 @@ use k8s_device_plugin_dra::ClaimDeviceStatusPublisher;
 use k8s_device_plugin_dra::DeviceMetadataOptions;
 use k8s_device_plugin_dra::DraPlugin;
 
+// Share the runtime's private CDI projection without publishing a partial API.
+#[path = "../src/cdi.rs"]
+mod cdi;
+
+fn default<T: Default>() -> T {
+    T::default()
+}
+
 const DEFAULT_DRIVER_NAME: &str = "dra.example.com";
 const DEFAULT_POOL_NAME: &str = "widget-pool";
 const DEFAULT_DEVICE_NAMES: &str = "widget-0";
@@ -51,16 +59,30 @@ fn cdi_device_id(device_name: &str) -> String {
 }
 
 async fn write_cdi_spec(devices: &[PoolDevice], metadata: bool) -> io::Result<()> {
-    let spec = json::json!({
-        "cdiVersion": "0.8.0",
-        "kind": CDI_KIND,
-        "devices": devices.iter().map(|device| json::json!({
-            "name": device.name,
-            "containerEdits": {
-                "env": if metadata { vec![format!("DRA_E2E_DEVICE={}", device.name), format!("DRA_METADATA_PHYSICAL_{}=present",device.name.replace('-', "_"))] } else {vec![format!("DRA_E2E_DEVICE={}", device.name)]},
-            },
-        })).collect::<Vec<_>>(),
-    });
+    let spec = cdi::Spec {
+        cdi_version: "0.8.0",
+        kind: CDI_KIND.into(),
+        devices: devices
+            .iter()
+            .map(|device| cdi::Device {
+                name: device.name.clone(),
+                container_edits: cdi::ContainerEdits {
+                    env: if metadata {
+                        vec![
+                            format!("DRA_E2E_DEVICE={}", device.name),
+                            format!(
+                                "DRA_METADATA_PHYSICAL_{}=present",
+                                device.name.replace('-', "_")
+                            ),
+                        ]
+                    } else {
+                        vec![format!("DRA_E2E_DEVICE={}", device.name)]
+                    },
+                    ..default()
+                },
+            })
+            .collect(),
+    };
 
     tokio::fs::create_dir_all(CDI_SPEC_DIR).await?;
     let encoded = json::to_vec_pretty(&spec).map_err(io::Error::other)?;

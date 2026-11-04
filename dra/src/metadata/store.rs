@@ -205,28 +205,17 @@ pub(super) fn cleanup(runtime: &MetadataRuntime, identity: &ClaimRef) -> io::Res
         remove_stages(&claim, ".stage-journal.json-")?;
         return remove(&root, &identity.uid, true);
     };
-    let journal = json::from_slice::<json::Value>(&bytes).map_err(io::Error::other)?;
-    if journal["journalVersion"] != 1 {
+    let journal = json::from_slice::<wire::Journal>(&bytes).map_err(io::Error::other)?;
+    if journal.version != 1 {
         return Err(invalid(
             "unsupported metadata journal version; refusing cleanup",
         ));
     }
-    if journal["driver"] != runtime.driver
-        || journal["claim"]
-            != json::json!({
-                "name": identity.name,
-                "namespace": identity.namespace,
-                "uid": identity.uid
-            })
-    {
+    if journal.driver != runtime.driver || journal.claim != *identity {
         return Err(invalid("metadata journal claim identity mismatch"));
     }
-    let documents = journal["documents"]
-        .as_object()
-        .ok_or_else(|| invalid("invalid metadata journal documents"))?;
-    let specs = journal["specs"]
-        .as_object()
-        .ok_or_else(|| invalid("invalid metadata journal specs"))?;
+    let documents = journal.documents;
+    let specs = journal.specs;
     if documents.len() != specs.len()
         || documents
             .keys()
@@ -240,9 +229,7 @@ pub(super) fn cleanup(runtime: &MetadataRuntime, identity: &ClaimRef) -> io::Res
         for request in specs.keys() {
             let name = filename(&runtime.driver, &identity.uid, request);
             if let Some(existing) = read(cdi, &name)? {
-                let expected = specs[request]
-                    .as_str()
-                    .ok_or_else(|| invalid("invalid metadata journal spec"))?;
+                let expected = &specs[request];
                 if existing != expected.as_bytes() {
                     return Err(invalid("foreign or changed CDI spec; refusing cleanup"));
                 }

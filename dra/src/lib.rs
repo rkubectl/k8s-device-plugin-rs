@@ -66,6 +66,7 @@ pub use resource_health::DraResourceHealthService;
 pub use resourceslice::ResourceSlicePublisher;
 pub use service::DraPluginService;
 
+mod cdi;
 mod claim;
 mod device_status;
 mod ext;

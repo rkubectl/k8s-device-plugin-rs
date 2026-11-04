@@ -136,6 +136,9 @@ All descendants use descriptor-relative, no-follow filesystem operations.
 
 Each UID owns an immutable version-1 journal describing its snapshot and planned files.
 Unknown journal versions are refused without deleting their artifacts.
+The complete journal schema is checked before cleanup: missing, malformed or
+unknown fields cause refusal, including extra fields in the claim identity.
+Valid version-1 artifacts remain byte-compatible with earlier releases.
 The journal is published first, complete data sources next, and CDI references
 last. Initial publication uses a staged complete inode and an atomic
 create-only hard link. Repeated identical preparation reuses files/CDI IDs

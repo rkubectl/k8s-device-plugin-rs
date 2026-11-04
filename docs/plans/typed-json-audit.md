@@ -46,21 +46,31 @@ a model that could discard unknown fields.
   Raw representations are intentional at those boundaries, after typed base
   fixture construction where applicable.
 
-## Schema gaps
+## Protocol models (2026-11-04)
 
-`dra/src/metadata.rs`, `dra/src/metadata/store.rs`, and the minimal/accelerator
-examples still use JSON for DeviceMetadata documents, CDI specs/edits, and
-the version-1 journal. There is no matching complete model in the current
-Kubernetes bindings or workspace crates. Existing `DeviceAttribute` values
-are already typed before inclusion in the metadata document.
+Task `k8s-device-plugin-rs-420` replaces the remaining fixed-schema runtime
+JSON with private models. `dra/src/metadata/wire.rs` owns DeviceMetadata
+v1beta1 and journal v1. It reuses Kubernetes `ObjectMeta` and
+`DeviceAttribute`, and adapts the existing core `ClaimRef` and
+`PreparedDevice` vocabulary without adding public serialization contracts.
+`dra/src/cdi.rs` owns the CDI 0.8 environment/mount projection, shared as a
+private source module with the minimal and accelerator examples. It is not
+an incomplete public general-purpose CDI API.
 
-These sites are candidates for new protocol models, rather than replacements
-with existing Kubernetes types. Follow-up `k8s-device-plugin-rs-420` tracks
-that work. Its compatibility boundary includes JSON names, omission rules,
-canonical key ordering, and exact persisted document/spec/journal bytes:
-retry and restart recovery compare immutable artifacts byte-for-byte.
+Struct field order and ordered maps preserve canonical JSON key ordering;
+optional fields retain their omission rules. Pre-migration golden journals
+embed exact document/spec strings, including their newlines. Tests seed the
+store with those artifacts, retry without replacing metadata inodes, and
+clean them through a fresh runtime. Journal decoding rejects unknown fields
+and malformed fixed-schema values before deleting artifacts; exact claim
+identity, request/path validation and CDI byte checks remain enforced.
+Valid version-1 journals remain compatible. Corrupt or extended journals are
+retained for inspection rather than partially interpreted for deletion.
 
-## Validation
+The intentional JSON boundaries above remain unchanged.
+See [the implementation plan](420-typed-wire-models.md) for migration proof.
+
+## Original audit validation (2026-10-25)
 
 Stable-Rust `mise run ci` passed: 176 workspace tests, 102 optional
 resource-health/example tests, and 30 validation-tooling tests, plus format

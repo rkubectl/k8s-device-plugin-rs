@@ -3,6 +3,123 @@ use std::os::unix::fs::symlink;
 
 use super::*;
 
+#[test]
+fn persisted_wire_matches_version_one_golden_bytes() {
+    let tmp = camino_tempfile::tempdir().unwrap();
+    let runtime = MetadataRuntime::new(
+        "dra.example.com".into(),
+        DeviceMetadataOptions::v1beta1()
+            .with_plugin_directories(tmp.path().join("plugin"), "/node/plugin")
+            .with_cdi_directory(tmp.path().join("cdi")),
+    )
+    .unwrap();
+    for template in [false, true] {
+        let mut object = claim();
+        if template {
+            object.metadata.annotations = Some(BTreeMap::from([(
+                POD_CLAIM_NAME.into(),
+                "pod-local".into(),
+            )]));
+        }
+        let plan = Plan::build(
+            &runtime,
+            &object,
+            vec![
+                prepared("a", "widget-0")
+                    .with_attribute("enabled", true)
+                    .with_attribute("index", -42)
+                    .with_attribute("version", AttributeValue::version("1.2.3")),
+                PreparedDeviceWithMetadata::new(prepared("b", "widget-1").device),
+            ],
+        )
+        .unwrap();
+        let bytes = json::to_vec(&plan.journal("dra.example.com")).unwrap();
+        let golden = if template {
+            include_bytes!("fixtures/journal-v1-template.json").as_slice()
+        } else {
+            include_bytes!("fixtures/journal-v1-direct.json").as_slice()
+        };
+        assert_eq!(bytes, golden);
+        // Seed the store with pre-migration artifacts. A retry must preserve
+        // their inodes, then a fresh runtime must clean the v1 journal.
+        let legacy = json::from_slice::<json::Value>(golden).unwrap();
+        let claim_dir = tmp.path().join("plugin/dra-device-metadata/claim-uid");
+        fs::create_dir_all(&claim_dir).unwrap();
+        fs::create_dir_all(tmp.path().join("cdi")).unwrap();
+        fs::write(claim_dir.join("journal.json"), golden).unwrap();
+        for request in ["a", "b"] {
+            fs::create_dir_all(claim_dir.join(request)).unwrap();
+            fs::write(
+                data(tmp.path(), request),
+                legacy["documents"][request].as_str().unwrap(),
+            )
+            .unwrap();
+            fs::write(
+                tmp.path().join(format!(
+                    "cdi/dra.example.com_metadata_claim-uid_{request}.json"
+                )),
+                legacy["specs"][request].as_str().unwrap(),
+            )
+            .unwrap();
+        }
+        let before = fs::metadata(data(tmp.path(), "a")).unwrap().ino();
+        store::persist(&runtime, &plan).unwrap();
+        assert_eq!(fs::metadata(data(tmp.path(), "a")).unwrap().ino(), before);
+        let restarted = new_runtime(tmp.path());
+        store::cleanup(&restarted, &plan.claim).unwrap();
+        assert!(!claim_dir.exists());
+    }
+}
+
+#[test]
+fn malformed_journals_refuse_cleanup_before_removing_artifacts() {
+    let tmp = camino_tempfile::tempdir().unwrap();
+    let runtime = new_runtime(tmp.path());
+    let plan = plan(&runtime);
+    store::persist(&runtime, &plan).unwrap();
+    let journal = tmp
+        .path()
+        .join("plugin/dra-device-metadata/claim-uid/journal.json");
+    let original = fs::read(&journal).unwrap();
+    for (path, value) in [
+        (vec!["claim", "extra"], json::json!("foreign")),
+        (vec!["claim", "uid"], json::json!("replacement")),
+        (vec!["claim", "name"], json::Value::Null),
+        (vec!["driver"], json::json!("foreign.example.com")),
+        (vec!["documents", "a"], json::json!({})),
+        (vec!["specs", "b"], json::Value::Null),
+        (vec!["specs", "escape/path"], json::json!("foreign")),
+        (vec!["documents", "../escape"], json::json!("foreign")),
+        (vec!["devices"], json::json!([{}])),
+        (vec!["futureField"], json::json!(true)),
+    ] {
+        let mut changed = json::from_slice::<json::Value>(&original).unwrap();
+        let mut target = &mut changed;
+        for key in path {
+            target = &mut target[key];
+        }
+        *target = value;
+        fs::write(&journal, json::to_vec(&changed).unwrap()).unwrap();
+        assert!(store::cleanup(&runtime, &plan.claim).is_err());
+        for request in ["a", "b"] {
+            assert_eq!(
+                fs::read_to_string(data(tmp.path(), request)).unwrap(),
+                plan.documents[request]
+            );
+            assert_eq!(
+                fs::read_to_string(tmp.path().join(format!(
+                    "cdi/dra.example.com_metadata_claim-uid_{request}.json"
+                )))
+                .unwrap(),
+                plan.specs[request]
+            );
+        }
+        assert!(journal.exists());
+    }
+    fs::write(journal, original).unwrap();
+    store::cleanup(&runtime, &plan.claim).unwrap();
+}
+
 fn new_runtime(root: &Utf8Path) -> Arc<MetadataRuntime> {
     Arc::new(
         MetadataRuntime::new(

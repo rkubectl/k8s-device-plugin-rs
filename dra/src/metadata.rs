@@ -9,6 +9,7 @@ use k8s_device_plugin_core::PreparedDeviceWithMetadata;
 use super::*;
 
 mod store;
+mod wire;
 
 const CONTAINER_ROOT: &str = "/var/run/kubernetes.io/dra-device-attributes";
 const POD_CLAIM_NAME: &str = "resource.kubernetes.io/pod-claim-name";
@@ -268,8 +269,10 @@ impl Plan {
                 "container metadata does not yet support device share IDs",
             ));
         }
-        let mut by_request: BTreeMap<String, BTreeMap<(String, String), json::Value>> =
-            BTreeMap::new();
+        let mut by_request: BTreeMap<
+            String,
+            BTreeMap<(String, String), wire::DeviceMetadataEntry>,
+        > = BTreeMap::new();
         let mut full_names: BTreeMap<String, String> = BTreeMap::new();
         let mut wire = Vec::with_capacity(prepared.len());
         for entry in prepared {
@@ -337,12 +340,12 @@ impl Plan {
                         return Err(invalid("conflicting subrequests for one metadata file"));
                     }
                     full_names.insert(base.to_string(), allocation.request.clone());
-                    let content = json::json!({
-                        "driver": runtime.driver,
-                        "pool": device.pool_name,
-                        "name": device.device_name,
-                        "attributes": attributes
-                    });
+                    let content = wire::DeviceMetadataEntry {
+                        attributes: attributes.clone(),
+                        driver: runtime.driver.clone(),
+                        name: device.device_name.clone(),
+                        pool: device.pool_name.clone(),
+                    };
                     let key = (device.pool_name.clone(), device.device_name.clone());
                     let devices = by_request.entry(base.to_string()).or_default();
                     if devices.get(&key).is_some_and(|old| old != &content) {
@@ -369,25 +372,27 @@ impl Plan {
         let mut documents = BTreeMap::new();
         let mut specs = BTreeMap::new();
         for (base, devices) in by_request {
-            let mut object = json::json!({
-                "apiVersion": "metadata.resource.k8s.io/v1beta1",
-                "kind": "DeviceMetadata",
-                "metadata": {
-                    "name": identity.name,
-                    "namespace": identity.namespace,
-                    "uid": identity.uid,
-                    "generation": 1
+            let representative = devices
+                .keys()
+                .next()
+                .cloned()
+                .ok_or_else(|| invalid("empty metadata request group"))?;
+            let object = wire::DeviceMetadata {
+                api_version: "metadata.resource.k8s.io/v1beta1",
+                kind: "DeviceMetadata",
+                metadata: metav1::ObjectMeta {
+                    generation: Some(1),
+                    name: Some(identity.name.clone()),
+                    namespace: Some(identity.namespace.clone()),
+                    uid: Some(identity.uid.clone()),
+                    ..default()
                 },
-                "requests": [
-                    {
-                        "name": full_names[&base],
-                        "devices": devices.values().collect::<Vec<_>>()
-                    }
-                ]
-            });
-            if let Some(annotation) = annotation {
-                object["podClaimName"] = json::json!(annotation);
-            }
+                pod_claim_name: annotation.map(String::as_str),
+                requests: vec![wire::RequestMetadata {
+                    devices: devices.into_values().collect(),
+                    name: &full_names[&base],
+                }],
+            };
             let document = json::to_string(&object).map_err(io::Error::other)? + "\n";
             documents.insert(base.clone(), document);
             let id = format!("{}_{}", identity.uid, base);
@@ -408,28 +413,25 @@ impl Plan {
                     identity.name, runtime.driver
                 )
             };
-            let spec = json::json!({
-                "cdiVersion": "0.8.0",
-                "kind": format!("{}/metadata", runtime.driver),
-                "devices": [{
-                    "name": id,
-                    "containerEdits": {
-                        "mounts": [{
-                            "hostPath": host.as_str(),
-                            "containerPath": container,
-                            "options": ["ro", "bind"]
-                        }]
-                    }
-                }]
-            });
+            let spec = cdi::Spec {
+                cdi_version: "0.8.0",
+                kind: format!("{}/metadata", runtime.driver),
+                devices: vec![cdi::Device {
+                    name: id.clone(),
+                    container_edits: cdi::ContainerEdits {
+                        mounts: vec![cdi::Mount {
+                            host_path: host.into_string(),
+                            container_path: container,
+                            options: vec!["ro", "bind"],
+                        }],
+                        ..default()
+                    },
+                }],
+            };
             specs.insert(
                 base.clone(),
                 json::to_string(&spec).map_err(io::Error::other)? + "\n",
             );
-            let representative = devices
-                .into_keys()
-                .next()
-                .ok_or_else(|| invalid("empty metadata request group"))?;
             wire.push(PreparedDevice {
                 request_names: vec![base],
                 pool_name: representative.0,
@@ -445,24 +447,15 @@ impl Plan {
         })
     }
 
-    fn journal(&self, driver: &str) -> json::Value {
-        json::json!({
-            "journalVersion": 1,
-            "driver": driver,
-            "claim": {
-                "namespace": self.claim.namespace,
-                "name": self.claim.name,
-                "uid": self.claim.uid
-            },
-            "documents": self.documents,
-            "specs": self.specs,
-            "devices": self.devices.iter().map(|d| json::json!({
-                "requests": d.request_names,
-                "pool": d.pool_name,
-                "device": d.device_name,
-                "cdi": d.cdi_device_ids
-            })).collect::<Vec<_>>()
-        })
+    fn journal(&self, driver: &str) -> wire::Journal {
+        wire::Journal {
+            claim: self.claim.clone(),
+            devices: self.devices.iter().map(wire::JournalDevice::from).collect(),
+            documents: self.documents.clone(),
+            driver: driver.to_string(),
+            version: 1,
+            specs: self.specs.clone(),
+        }
     }
 }
 

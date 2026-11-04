@@ -26,6 +26,14 @@ use k8s_device_plugin_core::ResolvedClaim;
 use k8s_device_plugin_core::ResourcePool;
 use k8s_device_plugin_dra::DraPlugin;
 
+// Share the runtime's private CDI projection without publishing a partial API.
+#[path = "../src/cdi.rs"]
+mod cdi;
+
+fn default<T: Default>() -> T {
+    T::default()
+}
+
 const DEFAULT_DRIVER_NAME: &str = "accelerator.example.com";
 const DEFAULT_POOL_NAME: &str = "accelerator-pairs";
 const CDI_SPEC_DIR: &str = "/var/run/cdi";
@@ -74,20 +82,24 @@ fn cdi_device_id(pair_name: &str) -> String {
 }
 
 async fn write_cdi_spec(pairs: &[AcceleratorPair]) -> io::Result<()> {
-    let spec = json::json!({
-        "cdiVersion": "0.8.0",
-        "kind": CDI_KIND,
-        "devices": pairs.iter().map(|pair| json::json!({
-            "name": pair.name,
-            "containerEdits": {
-                "env": [
-                    format!("ACCELERATOR_PAIR={}", pair.name),
-                    format!("ACCELERATOR_PAIR_MEMBERS={}", pair.members.join(",")),
-                    format!("ACCELERATOR_INTERCONNECT={}", pair.interconnect),
-                ],
-            },
-        })).collect::<Vec<_>>(),
-    });
+    let spec = cdi::Spec {
+        cdi_version: "0.8.0",
+        kind: CDI_KIND.into(),
+        devices: pairs
+            .iter()
+            .map(|pair| cdi::Device {
+                name: pair.name.into(),
+                container_edits: cdi::ContainerEdits {
+                    env: vec![
+                        format!("ACCELERATOR_PAIR={}", pair.name),
+                        format!("ACCELERATOR_PAIR_MEMBERS={}", pair.members.join(",")),
+                        format!("ACCELERATOR_INTERCONNECT={}", pair.interconnect),
+                    ],
+                    ..default()
+                },
+            })
+            .collect(),
+    };
 
     tokio::fs::create_dir_all(CDI_SPEC_DIR).await?;
     let encoded = json::to_vec_pretty(&spec).map_err(io::Error::other)?;
