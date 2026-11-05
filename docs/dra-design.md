@@ -342,8 +342,12 @@ nodes: every ready DaemonSet pod must answer the probe and own a local slice;
 drain and uncordon a maintenance node while a different node retains a
 consumer; and perform an immutable-image upgrade while a consumer remains
 prepared. Never remove or drain a node with an in-use driver until kubelet's
-`dra_resource_claims_in_use` metric for that driver is zero and driver logs
-show unprepare completion. Retain `maxSurge: 0` for all of these gates. A
+`dra_resource_claims_in_use` metric establishes zero claims in use and driver
+logs show unprepare completion. In v1.36.1 the per-driver series disappears
+after its last prepared claim; the isolated multi-node runner requires the
+explicit `driver_name="<any>"` aggregate zero instead. See the
+[multi-node guide](dra-multi-node.md) for collector semantics and evidence.
+Retain `maxSurge: 0` for all of these gates. A
 target kubelet's seamless-upgrade behavior must be demonstrated with the real
 driver before allowing a surge rollout.
 
@@ -614,3 +618,16 @@ schema 1.36 and resource health, config digest
 The builder was returned to stopped with `rosetta=false`. This change selects
 generated API types and preserves existing wire/artifact assertions; no new
 live cluster run or protocol-source change was needed.
+
+### Multi-node lifecycle acceptance (2026-11-05)
+
+Task `k8s-device-plugin-rs-mok` passed concurrent allocation/CDI/metadata
+isolation, safe drain/uncordon and an immutable-image upgrade with a prepared
+consumer on native v1.36.1 with two workers. The runner keeps `maxSurge: 0`,
+verifies imported/running image identities and observes container termination
+before replacement startup. Final unprepare and owned-cluster cleanup passed;
+existing stopped profiles and the selected context were preserved. Full CI
+and 14 VM-free orchestration/failure tests passed. See the
+[run guide and evidence](dra-multi-node.md#acceptance-2026-11-05) for the exact
+scope, metric semantics and image/source identities. Hardware-specific
+production deployment qualification remains separate.

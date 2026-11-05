@@ -23,15 +23,16 @@ consumer selects a concrete integration contract:
 | List-type and derived attributes | Inventory values and selection expressions requiring them. |
 | Network/post-CNI and live metadata | Update lifecycle and container-facing consistency contract. |
 
-The next selected engineering task is `k8s-device-plugin-rs-mok`: automate and
-record multi-node readiness, drain/recovery and immutable-image upgrade
-validation with the existing widget fixture and RPC probe. It requires an
-isolated native-arm64 v1.36 cluster with at least two eligible nodes, distinct
-immutable image digests, bounded failure/cleanup handling and restoration of
-initial state. Keep `maxSurge: 0` and `rosetta=false`. This work is independent
-of the advanced-feature epic and enables no additional DRA feature gates.
+Task `k8s-device-plugin-rs-mok` completed native multi-node readiness,
+drain/recovery and immutable-image upgrade validation with the widget fixture
+and RPC probe. The fresh v1.36.1 control plane and two workers passed with
+distinct immutable images, `maxSurge: 0` and `rosetta=false`; failure/cleanup
+tests and full CI passed. The owned cluster was deleted and the original
+environment preserved. See the [run guide and dated evidence](../dra-multi-node.md#acceptance-2026-11-05).
+This work is independent of the advanced-feature epic and enables no
+additional DRA feature gates.
 
-Successful widget acceptance will establish framework lifecycle evidence.
+Successful widget acceptance establishes framework lifecycle evidence.
 A hardware driver still needs representative deployment qualification for its
 actual devices, mounts, credentials, admission policy and cleanup. The
 [production deployment contract](../../dra/k8s/README.md#production-deployment-contract)

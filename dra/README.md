@@ -460,6 +460,16 @@ Set `DRA_E2E_SKIP_BUILD=1` only when the
 current local `docker.io/library/k8s-device-plugin-dra-example:latest` image
 has already been built.
 
+#### Isolated multi-node lifecycle validation
+
+Use [`hack/validate-multi-node.sh`](hack/validate-multi-node.sh) for concurrent
+per-node claims, safe maintenance and an immutable-image rollout with an active
+consumer on a fresh native v1.36.1 control plane and two workers. It owns and
+deletes only that new cluster and uses a temporary kubeconfig. See the
+[multi-node guide](../docs/dra-multi-node.md) for image inputs, safety gates,
+evidence and the hardware-qualification boundary. VM-free failure tests run
+in CI through `mise run dra-test-multi-node`; live acceptance is separate.
+
 ### Third-review regression acceptance
 
 The serial matrix also runs `hack/e2e-first-available.sh` on both native

@@ -50,3 +50,25 @@ Kubernetes version, node architecture, logs and final environment state.
 Widget acceptance covers the framework lifecycle. Real device attachment,
 hardware cleanup, production admission policy and least-privilege deployment
 still need representative qualification by each hardware driver.
+
+## Completion: 2026-11-05
+
+Implemented `dra/hack/validate-multi-node.sh`, its 14 stateful VM-free tests
+and the CI task. The final native run and cleanup exited zero on a fresh
+v1.36.1 control plane plus two native arm64/Rosetta-disabled workers. Concurrent
+allocations, CDI/metadata isolation, safe maintenance, active-consumer upgrade,
+replacement readiness and final unprepare/cleanup passed. Full CI passed.
+
+Two live API details refine the evidence contract: kubelet v1.36.1 drops the
+per-driver metric after its final prepared claim, so require an explicit
+`driver_name="<any>"` aggregate zero; Pod deletion notification can follow
+replacement creation, so compare observed old container termination with
+replacement running events and their timestamps, while retaining both Pod
+addition/deletion events. Missing metrics or termination evidence still fail.
+
+The [run guide](../dra-multi-node.md#acceptance-2026-11-05) and
+[source-controlled evidence](../validation/mok-2026-11-05.json) record image
+and source identities, per-node lifecycle order, unprepare logs and final
+environment state. Existing profiles, the builder, selected context, local
+core feature edit and private reviews were preserved. The published v0.4.1
+tag and h2 pin were unchanged.

@@ -1,0 +1,293 @@
+{
+  "task": "k8s-device-plugin-rs-mok",
+  "date": "2026-11-05",
+  "scope": "widget framework lifecycle",
+  "runnerSHA256": "70761971a71e03ed64f40667c4beba22846c784b4d68e9db075b4e68b7be24db",
+  "watchSHA256": "9a80fb52d72b0042531473250830e7d75dc10b6ca7fe3dce321be13af4872c91",
+  "tools": {
+    "container": "1.6.1",
+    "helper": "1.6.1-k8s-versioned",
+    "helperCommit": "6fc0528243ce2de4ea653a3fbda84b9c57a8a721",
+    "imageBuildRust": "1.98",
+    "ciRust": "1.99.1",
+    "imageSchema": "1.37"
+  },
+  "source": {
+    "baseline": "8e975fdb826828acf6f387c30bd47690a8a29d72 (v0.4.1)",
+    "upgrade": "342178d19a5c57f48219e7b36dcbcd0591f19b8c",
+    "excludedUserEdit": "core/Cargo.toml default resource-health feature"
+  },
+  "images": {
+    "baseline": {
+      "name": "docker.io/library/dra-mok:baseline-041",
+      "index": "sha256:2610071bb3195d0c58715a3a9144ff47ea24f559e1dda0337edb35c33c2409e6",
+      "manifest": "sha256:b0b0cb1b54bc1973d14b70a56894759257ac976241d4b70684114b33798a6f76",
+      "platform": {
+        "architecture": "arm64",
+        "os": "linux"
+      },
+      "runtime": [
+        {
+          "node": "dra-validation-mok-136",
+          "image": "docker.io/library/dra-mok@sha256:2610071bb3195d0c58715a3a9144ff47ea24f559e1dda0337edb35c33c2409e6",
+          "id": "sha256:db728338074bbde0bdc34a69b16257c3cbb44577b38546924345421246506915"
+        },
+        {
+          "node": "dra-validation-mok-136-worker-1",
+          "image": "docker.io/library/dra-mok@sha256:2610071bb3195d0c58715a3a9144ff47ea24f559e1dda0337edb35c33c2409e6",
+          "id": "sha256:db728338074bbde0bdc34a69b16257c3cbb44577b38546924345421246506915"
+        },
+        {
+          "node": "dra-validation-mok-136-worker-2",
+          "image": "docker.io/library/dra-mok@sha256:2610071bb3195d0c58715a3a9144ff47ea24f559e1dda0337edb35c33c2409e6",
+          "id": "sha256:db728338074bbde0bdc34a69b16257c3cbb44577b38546924345421246506915"
+        }
+      ],
+      "podImageIDs": [
+        {
+          "node": "dra-validation-mok-136-worker-2",
+          "imageID": "docker.io/library/dra-mok@sha256:2610071bb3195d0c58715a3a9144ff47ea24f559e1dda0337edb35c33c2409e6"
+        },
+        {
+          "node": "dra-validation-mok-136-worker-1",
+          "imageID": "docker.io/library/dra-mok@sha256:2610071bb3195d0c58715a3a9144ff47ea24f559e1dda0337edb35c33c2409e6"
+        }
+      ]
+    },
+    "upgrade": {
+      "name": "docker.io/library/dra-mok:upgrade-342178d",
+      "index": "sha256:5d6984656c406a4a7848c57006e7047df9edea512e54cb47fd49c089c6e8415a",
+      "manifest": "sha256:57fd7f65a7ae49b4871ad6ba7bb447dd000a62f305322ec7eee01cf5c5ddfd28",
+      "platform": {
+        "architecture": "arm64",
+        "os": "linux"
+      },
+      "runtime": [
+        {
+          "node": "dra-validation-mok-136",
+          "image": "docker.io/library/dra-mok@sha256:5d6984656c406a4a7848c57006e7047df9edea512e54cb47fd49c089c6e8415a",
+          "id": "sha256:07a038eeb3546280be8c36b9adc3891af0a0283fb2f43fff4c63980c62817a53"
+        },
+        {
+          "node": "dra-validation-mok-136-worker-1",
+          "image": "docker.io/library/dra-mok@sha256:5d6984656c406a4a7848c57006e7047df9edea512e54cb47fd49c089c6e8415a",
+          "id": "sha256:07a038eeb3546280be8c36b9adc3891af0a0283fb2f43fff4c63980c62817a53"
+        },
+        {
+          "node": "dra-validation-mok-136-worker-2",
+          "image": "docker.io/library/dra-mok@sha256:5d6984656c406a4a7848c57006e7047df9edea512e54cb47fd49c089c6e8415a",
+          "id": "sha256:07a038eeb3546280be8c36b9adc3891af0a0283fb2f43fff4c63980c62817a53"
+        }
+      ],
+      "podImageIDs": [
+        {
+          "node": "dra-validation-mok-136-worker-2",
+          "imageID": "docker.io/library/dra-mok@sha256:5d6984656c406a4a7848c57006e7047df9edea512e54cb47fd49c089c6e8415a"
+        },
+        {
+          "node": "dra-validation-mok-136-worker-1",
+          "imageID": "docker.io/library/dra-mok@sha256:5d6984656c406a4a7848c57006e7047df9edea512e54cb47fd49c089c6e8415a"
+        }
+      ]
+    }
+  },
+  "nodes": [
+    {
+      "name": "dra-validation-mok-136-worker-1",
+      "arch": "arm64",
+      "rosetta": false,
+      "kubernetes": "v1.36.1"
+    },
+    {
+      "name": "dra-validation-mok-136-worker-2",
+      "arch": "arm64",
+      "rosetta": false,
+      "kubernetes": "v1.36.1"
+    },
+    {
+      "name": "dra-validation-mok-136",
+      "arch": "arm64",
+      "rosetta": false,
+      "kubernetes": "v1.36.1"
+    }
+  ],
+  "deployment": {
+    "strategy": {
+      "rollingUpdate": {
+        "maxSurge": 0,
+        "maxUnavailable": 1
+      },
+      "type": "RollingUpdate"
+    },
+    "nodeSelector": {
+      "dra.example.com/mok": "dra-validation-mok-136"
+    },
+    "image": "docker.io/library/dra-mok@sha256:2610071bb3195d0c58715a3a9144ff47ea24f559e1dda0337edb35c33c2409e6",
+    "env": [
+      {
+        "name": "NODE_NAME",
+        "valueFrom": {
+          "fieldRef": {
+            "fieldPath": "spec.nodeName"
+          }
+        }
+      },
+      {
+        "name": "DRIVER_NAME",
+        "value": "dra.example.com"
+      },
+      {
+        "name": "POOL_NAME",
+        "value": "$(NODE_NAME)"
+      },
+      {
+        "name": "DEVICE_NAMES",
+        "value": "$(NODE_NAME)"
+      },
+      {
+        "name": "DRA_EXAMPLE_DEVICE_METADATA",
+        "value": "1"
+      },
+      {
+        "name": "RUST_LOG",
+        "value": "info"
+      }
+    ]
+  },
+  "claims": [
+    {
+      "claim": "dra-mok-claim-a",
+      "uid": "7388b1f7-9735-4510-b0db-1646c09ef622",
+      "allocation": [
+        {
+          "device": "dra-validation-mok-136-worker-1",
+          "driver": "dra.example.com",
+          "pool": "dra-validation-mok-136-worker-1",
+          "request": "widget"
+        }
+      ],
+      "consumer": {
+        "uid": "8cc5ac6a-c7e4-4098-a805-21c09e2cb73d",
+        "node": "dra-validation-mok-136-worker-1",
+        "containerID": "containerd://f827ac0576082858f55101bfa3205ec873b27071b28e7e9de8ffbf04481e2141"
+      }
+    },
+    {
+      "claim": "dra-mok-claim-b",
+      "uid": "72937772-0231-4732-83f1-f71331b70b36",
+      "allocation": [
+        {
+          "device": "dra-validation-mok-136-worker-2",
+          "driver": "dra.example.com",
+          "pool": "dra-validation-mok-136-worker-2",
+          "request": "widget"
+        }
+      ],
+      "consumer": {
+        "uid": "388f8570-48a5-46e6-b540-a48c2f3b5d83",
+        "node": "dra-validation-mok-136-worker-2",
+        "containerID": "containerd://022148683c0d49c32bc3ac3481e88224fa76d2947ec9c85203335214d349b307"
+      }
+    }
+  ],
+  "upgradeOrder": [
+    {
+      "node": "dra-validation-mok-136-worker-2",
+      "old": "4f47475e-e0dd-4419-9304-1d5b5f3599f2",
+      "new": "bfe00687-703b-474a-93cf-a5cf26b330a8",
+      "deletedEvent": 21,
+      "addedEvent": 17,
+      "terminatedEvent": 16,
+      "runningEvent": 23,
+      "finished": "2026-11-05T15:48:00Z",
+      "started": "2026-11-05T15:48:00Z"
+    },
+    {
+      "node": "dra-validation-mok-136-worker-1",
+      "old": "6790ec56-7d57-4840-8b55-044a51ee493f",
+      "new": "56033703-b73d-40a4-b185-7efb30a5172c",
+      "deletedEvent": 11,
+      "addedEvent": 5,
+      "terminatedEvent": 4,
+      "runningEvent": 9,
+      "finished": "2026-11-05T15:47:27Z",
+      "started": "2026-11-05T15:47:27Z"
+    }
+  ],
+  "unprepare": {
+    "a": [
+      "2026-11-05T15:48:06.641364Z  INFO node_unprepare_resources: minimal_driver: unpreparing DRA claim claim_namespace=\"k8s-device-plugin-dra-example\" claim_name=\"dra-mok-claim-a\" claim_uid=\"7388b1f7-9735-4510-b0db-1646c09ef622\""
+    ],
+    "b": [
+      "2026-11-05T15:46:54.468030Z  INFO node_unprepare_resources: minimal_driver: unpreparing DRA claim claim_namespace=\"k8s-device-plugin-dra-example\" claim_name=\"dra-mok-claim-b\" claim_uid=\"72937772-0231-4732-83f1-f71331b70b36\""
+    ]
+  },
+  "releaseMetrics": {
+    "a": [
+      "dra_resource_claims_in_use{driver_name=\"<any>\"} 0"
+    ],
+    "b": [
+      "dra_resource_claims_in_use{driver_name=\"<any>\"} 0"
+    ]
+  },
+  "ci": {
+    "workspaceTests": 203,
+    "draHealthAndExampleTests": 123,
+    "matrixTests": 28,
+    "profileTests": 5,
+    "multiNodeTests": 14,
+    "consumerSchemas": [
+      "v1_36",
+      "v1_37"
+    ],
+    "result": 0
+  },
+  "result": {
+    "result": 0,
+    "cleanup": 0
+  },
+  "environment": {
+    "before": [
+      {
+        "id": "buildkit",
+        "state": "stopped",
+        "arch": "arm64",
+        "rosetta": false
+      },
+      {
+        "id": "dra-upgrade-348-136",
+        "state": "stopped",
+        "arch": "arm64",
+        "rosetta": false
+      },
+      {
+        "id": "dra-upgrade-348-137",
+        "state": "stopped",
+        "arch": "arm64",
+        "rosetta": false
+      }
+    ],
+    "after": [
+      {
+        "id": "buildkit",
+        "state": "stopped",
+        "arch": "arm64",
+        "rosetta": false
+      },
+      {
+        "id": "dra-upgrade-348-136",
+        "state": "stopped",
+        "arch": "arm64",
+        "rosetta": false
+      },
+      {
+        "id": "dra-upgrade-348-137",
+        "state": "stopped",
+        "arch": "arm64",
+        "rosetta": false
+      }
+    ],
+    "contextBefore": "dra-validation-advanced-137",
+    "contextAfter": "dra-validation-advanced-137"
+  }
+}

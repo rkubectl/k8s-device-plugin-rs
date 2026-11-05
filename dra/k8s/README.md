@@ -127,8 +127,11 @@ Run these checks on a representative multi-node target before approving a
 driver release. They are operational gates, not claims that the single-node
 fixture has already proved them.
 
-Task `k8s-device-plugin-rs-mok` tracks reproducible automation and native
-multi-node acceptance of these framework gates with the widget fixture.
+The [multi-node runner and guide](../../docs/dra-multi-node.md) provide
+reproducible automation of these framework gates with the widget fixture,
+tracked by `k8s-device-plugin-rs-mok`.
+Native widget acceptance passed on 2026-11-05 with a fresh v1.36.1 control
+plane and two workers; the guide records the image and lifecycle evidence.
 Its scope and the independently deferred advanced capabilities are recorded
 in the [current roadmap](../../docs/plans/dra-next-adapters.md). The widget run
 does not replace qualification of the target hardware driver's deployment.
@@ -142,8 +145,12 @@ does not replace qualification of the target hardware driver's deployment.
    disruption policy, then uncordon it. Verify its driver becomes ready again,
    republishes its slice, and the probe succeeds. Before draining or removing
    a node with a prepared claim, wait for kubelet's
-   `dra_resource_claims_in_use{driver_name="..."}` metric to reach zero and
-   verify `NodeUnprepareResources` in driver logs; removing an in-use driver
+   `dra_resource_claims_in_use` metric to establish zero claims in use and
+   verify `NodeUnprepareResources` in driver logs. Kubernetes v1.36.1 omits
+   per-driver series after the last prepared claim; the runner requires an
+   explicit `driver_name="<any>"` aggregate zero, which proves every driver
+   on that isolated node is unused. A missing metric alone is not proof.
+   Removing an in-use driver
    can strand pod cleanup.
 3. Upgrade with an immutable image reference while a consumer remains active.
    `maxSurge: 0` is mandatory here: observe the old driver pod fully terminate
