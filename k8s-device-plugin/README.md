@@ -11,7 +11,7 @@ application needs:
 
 ```toml
 [dependencies]
-k8s-device-plugin = { version = "0.4.0", default-features = false, features = ["dra"] }
+k8s-device-plugin = { version = "0.4.1", default-features = false, features = ["dra"] }
 k8s-openapi = { version = "0.29", features = ["v1_37"] }
 ```
 
@@ -32,7 +32,7 @@ the DRA runtime:
 
 ```toml
 [dependencies]
-k8s-device-plugin = { version = "0.4.0", default-features = false, features = ["dra", "resource-health"] }
+k8s-device-plugin = { version = "0.4.1", default-features = false, features = ["dra", "resource-health"] }
 k8s-openapi = { version = "0.29", features = ["v1_37"] }
 ```
 
