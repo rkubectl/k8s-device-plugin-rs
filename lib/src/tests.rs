@@ -403,7 +403,7 @@ impl DeviceAllocator for SlowPlugin {
 
 impl K8sDevicePlugin for SlowPlugin {}
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn allocate_runs_containers_concurrently_and_preserves_order() {
     use v1beta1::DevicePlugin as _;
 
@@ -415,17 +415,18 @@ async fn allocate_runs_containers_concurrently_and_preserves_order() {
         .collect::<Vec<_>>();
     let request = tonic::Request::new(v1beta1::AllocateRequest { container_requests });
 
-    let start = std::time::Instant::now();
+    let start = tokio::time::Instant::now();
     let response = service.allocate(request).await.unwrap().into_inner();
     let elapsed = start.elapsed();
 
-    // 5 containers x 20ms sleep each; concurrent execution should take
-    // much less than the 100ms a sequential loop would need.
+    // Virtual time distinguishes concurrent 20ms sleeps from a sequential
+    // 100ms total without depending on the host's scheduling latency.
     assert!(
         elapsed < Duration::from_millis(80),
         "allocate took {elapsed:?}, looks sequential"
     );
 
+    assert_eq!(response.container_responses.len(), 5);
     for (i, container_response) in response.container_responses.iter().enumerate() {
         assert_eq!(
             container_response.envs.get("DEVICE_IDS"),

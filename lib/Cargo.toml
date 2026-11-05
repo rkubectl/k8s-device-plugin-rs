@@ -26,7 +26,7 @@ k8s-device-plugin-test.workspace = true
 parking_lot.workspace = true
 prometheus_exporter.workspace = true
 camino-tempfile.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }
 tracing-subscriber.workspace = true
 
 
