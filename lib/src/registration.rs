@@ -8,19 +8,22 @@ pub struct RegistrationClient {
 }
 
 impl RegistrationClient {
-    pub async fn new(path: impl AsRef<Utf8Path>) -> tonic::Result<Self> {
-        let socket_path = path.as_ref().to_path_buf();
-        let connector_path = socket_path.clone();
-
+    fn endpoint() -> tonic::Result<transport::Endpoint> {
         // The URI host is ignored for Unix Domain Socket transport.
-        let endpoint = transport::Endpoint::try_from("http://[::]:50051")
+        Ok(transport::Endpoint::try_from("http://[::]:50051")
             .map_err(|err| {
                 tonic::Status::internal(format!(
                     "failed to build kubelet registration endpoint: {err}"
                 ))
             })?
             .connect_timeout(REGISTRATION_TIMEOUT)
-            .timeout(REGISTRATION_TIMEOUT);
+            .timeout(REGISTRATION_TIMEOUT))
+    }
+
+    pub async fn new(path: impl AsRef<Utf8Path>) -> tonic::Result<Self> {
+        let socket_path = path.as_ref().to_path_buf();
+        let connector_path = socket_path.clone();
+        let endpoint = Self::endpoint()?;
 
         let channel = endpoint
             .connect_with_connector(service_fn(move |_| {
@@ -121,16 +124,23 @@ mod tests {
 #[cfg(test)]
 mod timeout_tests {
     use camino_tempfile::Utf8TempDir;
+    use tokio::io::AsyncReadExt;
+    use tokio::sync::mpsc;
+    use tokio::sync::oneshot;
+    use tokio::time;
 
     use super::*;
 
-    struct HangingRegistration;
+    struct HangingRegistration {
+        started: mpsc::Sender<()>,
+    }
     #[tonic::async_trait]
     impl v1beta1::Registration for HangingRegistration {
         async fn register(
             &self,
             _: tonic::Request<v1beta1::RegisterRequest>,
         ) -> tonic::Result<tonic::Response<v1beta1::Empty>> {
+            self.started.send(()).await.unwrap();
             std::future::pending().await
         }
     }
@@ -140,9 +150,12 @@ mod timeout_tests {
         let directory = Utf8TempDir::new().unwrap();
         let path = directory.path().join("registration.sock");
         let listener = net::UnixListener::bind(&path).unwrap();
-        let server = tokio::spawn(
+        let (started, mut requests) = mpsc::channel(1);
+        let server = task::spawn(
             transport::Server::builder()
-                .add_service(v1beta1::RegistrationServer::new(HangingRegistration))
+                .add_service(v1beta1::RegistrationServer::new(HangingRegistration {
+                    started,
+                }))
                 .serve_with_incoming(UnixListenerStream::new(listener)),
         );
         let service = DevicePluginService::new(StaticDevicePlugin::new(vec![]));
@@ -152,17 +165,46 @@ mod timeout_tests {
             "unused.sock".into(),
             path.clone(),
         );
-        let result = tokio::time::timeout(
-            REGISTRATION_TIMEOUT * 2 + Duration::from_secs(2),
-            plugin.try_register(&path, 2, Duration::ZERO),
-        )
-        .await;
-        assert!(
-            result
-                .expect("RPC deadlines must bound both registration attempts")
-                .is_err()
-        );
+        let max_attempts = 2;
+        let registration = task::spawn(async move {
+            plugin
+                .try_register(&path, max_attempts, Duration::ZERO)
+                .await
+        });
+        for _ in 0..max_attempts {
+            // Establish each real RPC before moving its deadline. Resume time
+            // between attempts so auto-advance cannot outrun the next handshake.
+            time::timeout(REGISTRATION_TIMEOUT, requests.recv())
+                .await
+                .expect("registration attempt must reach the server")
+                .expect("registration server must remain available");
+            time::pause();
+            time::advance(REGISTRATION_TIMEOUT + Duration::from_millis(1)).await;
+            time::resume();
+        }
+        let result = time::timeout(REGISTRATION_TIMEOUT, registration)
+            .await
+            .expect("RPC deadlines must exhaust the retry budget")
+            .expect("registration task must complete");
+        assert!(result.is_err());
         server.abort();
+        let _ = server.await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn registration_connect_timeout_bounds_a_stalled_connector() {
+        let endpoint = RegistrationClient::endpoint().unwrap();
+        let connector =
+            service_fn(|_| std::future::pending::<io::Result<TokioIo<net::UnixStream>>>());
+        let start = time::Instant::now();
+        let result = time::timeout(
+            REGISTRATION_TIMEOUT + Duration::from_secs(1),
+            endpoint.connect_with_connector(connector),
+        )
+        .await
+        .expect("the endpoint must bound a stalled connection attempt");
+        assert!(result.is_err());
+        assert!(start.elapsed() >= REGISTRATION_TIMEOUT);
     }
 
     #[tokio::test]
@@ -170,20 +212,32 @@ mod timeout_tests {
         let directory = Utf8TempDir::new().unwrap();
         let path = directory.path().join("registration.sock");
         let listener = net::UnixListener::bind(&path).unwrap();
-        let accept = tokio::spawn(async move {
-            let (_connection, _) = listener.accept().await.unwrap();
+        let (ready, preface_received) = oneshot::channel();
+        let accept = task::spawn(async move {
+            let (mut connection, _) = listener.accept().await.unwrap();
+            let mut preface = [0; 24];
+            connection.read_exact(&mut preface).await.unwrap();
+            assert_eq!(&preface, b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
+            ready.send(()).unwrap();
             std::future::pending::<()>().await;
         });
-        let result = tokio::time::timeout(REGISTRATION_TIMEOUT + Duration::from_secs(1), async {
+        let registration = task::spawn(async move {
             let mut client = RegistrationClient::new(&path).await?;
             client.register("plugin.sock", "example.com/device").await
-        })
-        .await;
-        assert!(
-            result
-                .expect("connection must have its own deadline")
-                .is_err()
-        );
+        });
+        time::timeout(REGISTRATION_TIMEOUT, preface_received)
+            .await
+            .expect("client must send its HTTP/2 preface")
+            .expect("peer must observe the HTTP/2 preface");
+        // The peer deliberately never replies. Only the deadline can finish
+        // registration; an outer virtual-time guard detects a missing deadline.
+        time::pause();
+        let result = time::timeout(REGISTRATION_TIMEOUT + Duration::from_secs(1), registration)
+            .await
+            .expect("registration must time out against a silent HTTP/2 peer")
+            .expect("registration task must complete");
+        assert!(result.is_err());
         accept.abort();
+        let _ = accept.await;
     }
 }
