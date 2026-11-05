@@ -1,8 +1,45 @@
 # Next DRA adapters
 
-Parent: `k8s-device-plugin-rs-qt7.6`.
+Tracking: `k8s-device-plugin-rs-qt7.6`, a standalone deferred epic. Its
+historical ID and completed child IDs are retained for existing references.
 
-## Selected scope
+## Current roadmap (2026-11-05)
+
+The original `qt7` framework baseline is complete: `qt7.1` through `qt7.5`
+delivered the v1.36 contract and reproducible validation image, native baseline
+acceptance, authoritative ResourceSlice reconciliation, liveness/lifecycle and
+deployment guidance, and opt-in resource-health streaming. The advanced epic
+`qt7.6` is now independent of that completed baseline.
+
+All nine selected advanced-adapter children are closed, including container
+identity and scalar attributes. Further capabilities remain deferred until a
+consumer selects a concrete integration contract:
+
+| Remaining capability | Consumer information needed |
+|---|---|
+| Partitionable devices and shared counters | Partition/sharing model and device lifecycle. |
+| Consumable capacity | Partial-capacity reservation and release semantics. |
+| Node-allocatable-resource mapping | Target node resource and consuming workload. |
+| List-type and derived attributes | Inventory values and selection expressions requiring them. |
+| Network/post-CNI and live metadata | Update lifecycle and container-facing consistency contract. |
+
+The next selected engineering task is `k8s-device-plugin-rs-mok`: automate and
+record multi-node readiness, drain/recovery and immutable-image upgrade
+validation with the existing widget fixture and RPC probe. It requires an
+isolated native-arm64 v1.36 cluster with at least two eligible nodes, distinct
+immutable image digests, bounded failure/cleanup handling and restoration of
+initial state. Keep `maxSurge: 0` and `rosetta=false`. This work is independent
+of the advanced-feature epic and enables no additional DRA feature gates.
+
+Successful widget acceptance will establish framework lifecycle evidence.
+A hardware driver still needs representative deployment qualification for its
+actual devices, mounts, credentials, admission policy and cleanup. The
+[production deployment contract](../../dra/k8s/README.md#production-deployment-contract)
+and its multi-node gates retain that boundary; closing `qt7` does not certify
+a hardware deployment. The dated sections below preserve the earlier scope
+and acceptance history.
+
+## Selected adapter cycle (2026-10-23)
 
 On 2026-10-23 the maintainer selected this sequence:
 
@@ -25,9 +62,10 @@ carries opt-in metadata and leaves the v0.1.0 PoolDevice layout intact.
 New extensible types use constructors/builders. The publisher reads one
 complete snapshot per reconciliation.
 
-Graph tools are unavailable in this session. Use exact source reads for the
-core trait, Arc delegation, ResourceSlice publication/generation comparison,
-claim resolution, status publication, and relevant tests. Verify live API
+The original planning session used exact source reads for the core trait,
+Arc delegation, ResourceSlice publication/generation comparison, claim
+resolution, status publication, and relevant tests because graph tools were
+unavailable. Verify live API
 discovery on the target profile as well as published Kubernetes documentation.
 Taints and administrator rules are stable in v1.37; binding conditions remain
 beta/default-on. Workload ResourceClaims are beta/default-off in v1.37, and
@@ -153,7 +191,9 @@ or -1 locality must be omitted. Do not add invented topology to the widget.
 A real NUMA-constrained consumer would justify a separate discovery/example
 follow-up; it does not block the completed cycle.
 
-Keep the remaining epic scope deferred until a consumer selects it:
+The following table records the deferred scope at that checkpoint; the
+current roadmap above accounts for later container-metadata completion.
+Keep further capability work deferred until a consumer selects it:
 
 | Remaining capability | Consumer information needed before implementation |
 |---|---|

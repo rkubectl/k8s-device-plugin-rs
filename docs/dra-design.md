@@ -1,12 +1,18 @@
 # Dynamic Resource Allocation (DRA) support — design
 
-Status: **Phase 2 reconciliation implemented**. The compatibility target is
-Kubernetes v1.36 using stable `resource.k8s.io/v1` with the default DRA
+Status: **v1.36 framework baseline complete** (`qt7`). The compatibility
+target is Kubernetes v1.36 using stable `resource.k8s.io/v1` with the default DRA
 configuration. Live baseline validation completed on Kubernetes v1.36.1
 linux/arm64 through the checked-in smoke path. The native v1.36.1/v1.37.0 profiles also passed the guarded matrix with
 opt-in device-taint and binding-condition fixtures on 2026-10-23. See
 [cluster validation](#cluster-validation) for the exact exercised path and
 remaining production boundaries.
+
+The completed baseline epic is separate from the standalone, deferred
+`qt7.6` advanced-feature roadmap. Task `k8s-device-plugin-rs-mok` now tracks
+multi-node drain/recovery and immutable-image upgrade validation with the
+widget fixture. The [current roadmap](plans/dra-next-adapters.md) distinguishes
+that framework validation from hardware-specific production qualification.
 
 ## Background
 
@@ -254,8 +260,8 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
 
 ## Phasing
 
-1. **Phase 1** — registration server + `DRAPlugin` service + a DRA API `v1`
-   `ResourceSlicePublisher`. Enough to demo structured-parameter allocation
+1. **Phase 1 (implemented)** — registration server + `DRAPlugin` service +
+   a DRA API `v1` `ResourceSlicePublisher`. Enough to demo structured-parameter allocation
    end-to-end for the POC.
 2. **Phase 2 (implemented)** — authoritative `ResourceSlice`
    splitting/reconciliation for pools exceeding the per-slice device limit,
@@ -283,9 +289,10 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
    [Resource-pool status](dra-pool-status.md) now supplies an opt-in client and
    verified controller snapshots on that profile. The four selected adapters
    and remaining deferred scope are recorded in [the tracked plan](plans/dra-next-adapters.md).
-   The next selected [container-metadata adapter](dra-container-metadata.md)
-   adds opt-in read-only identity and scalar attributes, preserving current
-   preparation APIs and default behavior.
+   The implemented [container-metadata adapter](dra-container-metadata.md)
+   supplies opt-in read-only identity and scalar attributes, preserving current
+   preparation APIs and default behavior. Network/post-CNI and live metadata
+   remain consumer-driven follow-ups.
 
 ## Deployment note: no rolling updates in Phase 1
 

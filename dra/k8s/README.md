@@ -127,6 +127,12 @@ Run these checks on a representative multi-node target before approving a
 driver release. They are operational gates, not claims that the single-node
 fixture has already proved them.
 
+Task `k8s-device-plugin-rs-mok` tracks reproducible automation and native
+multi-node acceptance of these framework gates with the widget fixture.
+Its scope and the independently deferred advanced capabilities are recorded
+in the [current roadmap](../../docs/plans/dra-next-adapters.md). The widget run
+does not replace qualification of the target hardware driver's deployment.
+
 1. Schedule the DaemonSet only on nodes with the target hardware. Wait until
    desired, current, updated, and ready DaemonSet counts agree. Run
    `dra/hack/e2e-smoke.sh`; it probes every driver pod and confirms a local
