@@ -342,6 +342,92 @@ async fn publish_once_rejects_duplicate_devices_before_mutation() {
     assert!(error.to_string().contains("duplicate device names"));
 }
 
+#[tokio::test]
+async fn stale_delete_tolerates_only_not_found_and_preserves_preconditions() {
+    for code in [404, 409, 403, 500] {
+        let (publisher, mut handle) = mock_publisher(StaticPool(BTreeMap::new()));
+        let script = async {
+            respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
+            let stale = owned_slice("stale", 3, "removed-pool", 1, vec![device("old")]);
+            respond(&mut handle, 200, &resource_slice_list(vec![stale])).await;
+            let (request, send) = handle.next_request().await.unwrap();
+            assert_eq!(request.method(), http::Method::DELETE);
+            assert!(request.uri().path().ends_with("/stale"));
+            let body = request_body_json(request).await;
+            assert_eq!(body["preconditions"]["uid"], "uid-stale");
+            assert_eq!(body["preconditions"]["resourceVersion"], "7");
+            send.send_response(
+                http::Response::builder()
+                    .status(code)
+                    .body(client::Body::from(
+                        json::to_vec(&metav1::Status {
+                            code: Some(i32::from(code)),
+                            status: Some("Failure".into()),
+                            reason: Some("scripted deletion failure".into()),
+                            ..default()
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            );
+        };
+        let (_, result) = tokio::join!(script, publisher.publish_once());
+        if code == 404 {
+            result.expect("an already deleted stale slice is success");
+        } else {
+            assert!(matches!(result, Err(kube::Error::Api(status)) if status.code == code));
+        }
+    }
+}
+
+#[test]
+fn empty_capacity_policy_values_match_but_nonempty_values_remain_distinct() {
+    let mut desired = owned_slice("slice", 4, "pool-0", 1, vec![device("widget-0")]);
+    desired.spec.devices.as_mut().unwrap()[0].capacity = Some(BTreeMap::from([(
+        "memory".into(),
+        resourcev1::DeviceCapacity {
+            value: apiresource::Quantity("1".into()),
+            request_policy: Some(resourcev1::CapacityRequestPolicy {
+                default: Some(apiresource::Quantity("1".into())),
+                ..default()
+            }),
+        },
+    )]));
+    let mut current = desired.clone();
+    let capacity = current.spec.devices.as_mut().unwrap()[0]
+        .capacity
+        .as_mut()
+        .unwrap()
+        .get_mut("memory")
+        .unwrap();
+    capacity.request_policy.as_mut().unwrap().valid_values = Some(vec![]);
+    assert!(resource_slice_matches(&current, &desired));
+    let name = "slice".to_string();
+    assert_eq!(
+        pool_generation(
+            &[(&name, &current)],
+            "pool-0",
+            std::slice::from_ref(&desired)
+        )
+        .unwrap(),
+        4
+    );
+
+    let capacity = current.spec.devices.as_mut().unwrap()[0]
+        .capacity
+        .as_mut()
+        .unwrap()
+        .get_mut("memory")
+        .unwrap();
+    capacity.request_policy.as_mut().unwrap().valid_values =
+        Some(vec![apiresource::Quantity("1".into())]);
+    assert!(!resource_slice_matches(&current, &desired));
+    assert_eq!(
+        pool_generation(&[(&name, &current)], "pool-0", &[desired]).unwrap(),
+        5
+    );
+}
+
 #[test]
 fn retry_delay_is_bounded() {
     assert_eq!(

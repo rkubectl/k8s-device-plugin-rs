@@ -216,6 +216,12 @@ impl dra::v1::DraPlugin for DraPluginService {
             .map(claim_from_wire)
             .collect::<Vec<_>>();
 
+        // Liveness probes use an empty batch. Keep them independent of backend
+        // behavior, including metadata preparation hooks.
+        if claim_refs.is_empty() {
+            return Ok(tonic::Response::new(default()));
+        }
+
         if let Some(metadata) = &self.metadata {
             let claims = self.prepare_metadata(claim_refs, metadata).await;
             return Ok(tonic::Response::new(

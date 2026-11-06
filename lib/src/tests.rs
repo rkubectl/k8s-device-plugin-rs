@@ -765,6 +765,26 @@ async fn run_reregisters_after_kubelet_disconnects() {
     registration_server.shutdown();
 }
 
+#[tokio::test(start_paused = true)]
+async fn run_reaps_server_before_returning_registration_failure() {
+    let dir = Utf8TempDir::new().unwrap();
+    let endpoint = dir.path().join("plugin.sock");
+    let plugin = DevicePlugin::for_test(
+        "example.com/device",
+        make_service(),
+        endpoint.clone(),
+        dir.path().join("missing-kubelet.sock"),
+    );
+
+    let error = plugin.run().await.unwrap_err();
+    assert!(error.to_string().contains("missing-kubelet.sock"));
+    // Check synchronously, before the executor can finish a detached abort.
+    assert!(
+        std::os::unix::net::UnixStream::connect(endpoint.as_std_path()).is_err(),
+        "the listener must already be closed when run returns"
+    );
+}
+
 async fn wait_for_request_count(
     server: &k8s_device_plugin_test::registration::MockRegistrationServer,
     count: usize,

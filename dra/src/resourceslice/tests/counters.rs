@@ -133,6 +133,65 @@ async fn counters_and_devices_publish_separately_and_second_poll_is_unchanged() 
 }
 
 #[tokio::test]
+async fn server_returned_empty_collections_do_not_republish() {
+    let inventory = PoolInventory::new(vec![
+        consuming_device("card-0", "pair-a", 1),
+        InventoryDevice::new(PoolDevice::new("plain")),
+    ])
+    .with_counter_set(counter_set("pair-a", 2));
+    let (publisher, mut handle) = snapshot_publisher(inventory);
+    let script = async {
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &resource_slice_list(vec![])).await;
+        let mut devices = reply_to_write(&mut handle, http::Method::POST).await;
+        let mut counters = reply_to_write(&mut handle, http::Method::POST).await;
+        devices.spec.shared_counters = Some(vec![]);
+        counters.spec.devices = Some(vec![]);
+        for device in devices.spec.devices.iter_mut().flatten() {
+            device.attributes = Some(BTreeMap::new());
+            device.capacity = Some(BTreeMap::new());
+            device.binding_conditions = Some(vec![]);
+            device.binding_failure_conditions = Some(vec![]);
+            device.taints = Some(vec![]);
+            if device.consumes_counters.is_none() {
+                device.consumes_counters = Some(vec![]);
+            }
+            k8s_openapi::k8s_if_ge_1_37! {
+                device.node_allocatable_resources = Some(BTreeMap::new());
+                for consumption in device.consumes_counters.iter_mut().flatten() {
+                    consumption.compatibility_groups = Some(vec![]);
+                }
+            }
+            k8s_openapi::k8s_if_le_1_36! {
+                device.node_allocatable_resource_mappings = Some(BTreeMap::new());
+            }
+        }
+        k8s_openapi::k8s_if_ge_1_37! {
+            devices.spec.skip_node_operations = Some(vec![]);
+            counters.spec.skip_node_operations = Some(vec![]);
+        }
+        for _ in 0..2 {
+            let request = respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
+            assert_eq!(request.method(), http::Method::GET);
+            let request = respond(
+                &mut handle,
+                200,
+                &resource_slice_list(vec![devices.clone(), counters.clone()]),
+            )
+            .await;
+            assert_eq!(request.method(), http::Method::GET);
+        }
+        assert_no_writes(&mut handle).await;
+    };
+    let publish = async {
+        for _ in 0..3 {
+            publisher.publish_once().await.unwrap();
+        }
+    };
+    tokio::join!(script, publish);
+}
+
+#[tokio::test]
 async fn fractional_capacity_and_counters_converge_across_server_notation() {
     let inventory = PoolInventory::new(vec![
         InventoryDevice::new(

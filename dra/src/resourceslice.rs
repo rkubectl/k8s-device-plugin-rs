@@ -159,7 +159,29 @@ fn inventory_device_to_wire(
 /// Returns devices in the stable order used for comparison and publication.
 fn canonicalize_devices(mut devices: Vec<resourcev1::Device>) -> Vec<resourcev1::Device> {
     for device in &mut devices {
+        device.attributes = device.attributes.take().filter(|values| !values.is_empty());
+        device.capacity = device.capacity.take().filter(|values| !values.is_empty());
+        k8s_openapi::k8s_if_ge_1_37! {
+            device.node_allocatable_resources = device
+                .node_allocatable_resources
+                .take()
+                .filter(|values| !values.is_empty());
+        }
+        k8s_openapi::k8s_if_le_1_36! {
+            device.node_allocatable_resource_mappings = device
+                .node_allocatable_resource_mappings
+                .take()
+                .filter(|values| !values.is_empty());
+        }
         if let Some(consumptions) = &mut device.consumes_counters {
+            k8s_openapi::k8s_if_ge_1_37! {
+                for consumption in consumptions.iter_mut() {
+                    consumption.compatibility_groups = consumption
+                        .compatibility_groups
+                        .take()
+                        .filter(|values| !values.is_empty());
+                }
+            }
             consumptions.sort_by(|left, right| left.counter_set.cmp(&right.counter_set));
             if consumptions.is_empty() {
                 device.consumes_counters = None;
@@ -360,7 +382,12 @@ impl ResourceSlicePublisher {
                 uid: Some(uid),
                 resource_version: Some(resource_version),
             });
-            resource_slices.delete(&name, &dp).await?;
+            match resource_slices.delete(&name, &dp).await {
+                Ok(_) => {}
+                // Another actor may have removed the slice since our list.
+                Err(kube::Error::Api(status)) if status.code == 404 => {}
+                Err(error) => return Err(error),
+            }
         }
         Ok(())
     }
@@ -547,7 +574,21 @@ fn resource_slice_matches(
 }
 
 fn canonicalize_slice_spec(spec: &mut resourcev1::ResourceSliceSpec) {
-    spec.devices = spec.devices.take().map(canonicalize_devices);
+    spec.devices = spec
+        .devices
+        .take()
+        .filter(|values| !values.is_empty())
+        .map(canonicalize_devices);
+    spec.shared_counters = spec
+        .shared_counters
+        .take()
+        .filter(|values| !values.is_empty());
+    k8s_openapi::k8s_if_ge_1_37! {
+        spec.skip_node_operations = spec
+            .skip_node_operations
+            .take()
+            .filter(|values| !values.is_empty());
+    }
     for device in spec.devices.iter_mut().flatten() {
         for capacity in device
             .capacity
@@ -555,6 +596,12 @@ fn canonicalize_slice_spec(spec: &mut resourcev1::ResourceSliceSpec) {
             .flat_map(|values| values.values_mut())
         {
             canonicalize_quantity(&mut capacity.value);
+            if let Some(policy) = &mut capacity.request_policy {
+                policy.valid_values = policy
+                    .valid_values
+                    .take()
+                    .filter(|values| !values.is_empty());
+            }
         }
         for consumption in device.consumes_counters.iter_mut().flatten() {
             for counter in consumption.counters.values_mut() {

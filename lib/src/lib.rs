@@ -209,6 +209,7 @@ impl DevicePlugin {
                 // Registration is permanently exhausted: abort the spawned server task
                 // so it doesn't keep serving RPCs against a listener nobody can reach.
                 server_handle.abort();
+                let _ = server_handle.await;
                 return Err(err);
             }
             tracing::info!("registered with kubelet");

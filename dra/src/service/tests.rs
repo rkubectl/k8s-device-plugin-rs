@@ -178,6 +178,32 @@ async fn spawn_at_refuses_an_active_plugin_socket() {
 }
 
 #[tokio::test]
+async fn empty_prepare_skips_backend_with_and_without_metadata() {
+    use dra::v1::DraPlugin as _;
+
+    for with_metadata in [false, true] {
+        let (resolver, kube_handle) = mock_resolver();
+        // Any unexpected Kubernetes access fails instead of waiting on a responder.
+        drop(kube_handle);
+        let preparer = Arc::new(FakeClaimPreparer::default());
+        let mut service = DraPluginService::new(resolver, Arc::clone(&preparer));
+        if with_metadata {
+            service = service
+                .with_device_metadata("example.com", DeviceMetadataOptions::v1beta1())
+                .unwrap();
+        }
+        let response = service
+            .node_prepare_resources(tonic::Request::new(default()))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(response.claims.is_empty());
+        assert_eq!(preparer.prepare_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(preparer.unprepare_calls.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[tokio::test]
 async fn node_prepare_resources_reports_success() {
     let (resolver, kube_handle) = mock_resolver();
     let kube_server = spawn_kube_responder(
