@@ -6,10 +6,10 @@ are released under one annotated `vX.Y.Z` tag.
 
 The standalone `k8s-quantity` crate participates in that shared version and
 must be published before `k8s-device-plugin-core`, which depends on it.
-`cargo-release` derives that order from the dependency graph. The unreleased
+`cargo-release` derives that order from the dependency graph. The v0.5.0
 Quantity API migration replaces the public integer tuple field and `Copy`;
-select a suitable minor release for that breaking change instead of using
-the default patch preview as the release decision.
+use a minor release for such breaking changes instead of using the default
+patch preview as the release decision.
 
 The release source is always tagged and pushed before publication. That makes
 the tag, rather than a mutable working tree, the auditable source for every
