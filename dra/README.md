@@ -262,6 +262,7 @@ The example reads these environment variables:
 | `DEVICE_NAMES` | `widget-0` | Comma-separated static device names. |
 | `NODE_NAME` | *(required)* | Kubernetes node that owns the published `ResourceSlice`. |
 | `DRA_EXAMPLE_DEVICE_METADATA` | `0` | Set `1` to expose validation identity/attributes through read-only CDI files. |
+| `DRA_EXAMPLE_SHARED_COUNTERS` | `0` | Set `1` to replace `DEVICE_NAMES` with four fake cards and two overlapping pair views. |
 | `DRA_EXAMPLE_BINDING_CONDITIONS` | `0` | Set `1` to require simulated external attachment readiness before binding. |
 | `DRA_EXAMPLE_TAINT_EFFECT` | *(unset)* | Optional fake-device maintenance policy: `None`, `NoSchedule`, or `NoExecute`. |
 | `RUST_LOG` | *(unset)* | Standard `tracing-subscriber` filter, for example `info`. |
@@ -269,6 +270,14 @@ The example reads these environment variables:
 For explicit inventory policy, see [device taints](../docs/dra-device-taints.md):
 `ResourcePool::inventory()` adds opt-in `InventoryDevice` metadata while
 preserving existing backends and `PoolDevice` struct literals.
+
+For overlapping card and pair devices, see
+[partitionable devices and shared counters](../docs/dra-shared-counters.md).
+Override `ResourcePool::snapshot()` to return coherent `PoolInventory` devices
+and counter sets. Existing backends retain their inventory defaults. The
+validation driver selects its fake card/pair pool with
+`DRA_EXAMPLE_SHARED_COUNTERS=1`; the optional matrix fixture uses
+`DRA_E2E_SHARED_COUNTERS=1`.
 
 For asynchronous setup before Pod binding, see [device binding conditions](../docs/dra-binding-conditions.md)
 and the separate validation controller. Node preparers can use

@@ -3,7 +3,7 @@
 Tracking: `k8s-device-plugin-rs-qt7.6`, a standalone deferred epic. Its
 historical ID and completed child IDs are retained for existing references.
 
-## Current roadmap (2026-11-05)
+## Current roadmap (2026-11-06)
 
 The original `qt7` framework baseline is complete: `qt7.1` through `qt7.5`
 delivered the v1.36 contract and reproducible validation image, native baseline
@@ -11,13 +11,17 @@ acceptance, authoritative ResourceSlice reconciliation, liveness/lifecycle and
 deployment guidance, and opt-in resource-health streaming. The advanced epic
 `qt7.6` is now independent of that completed baseline.
 
-All nine selected advanced-adapter children are closed, including container
-identity and scalar attributes. Further capabilities remain deferred until a
-consumer selects a concrete integration contract:
+The earlier nine selected advanced-adapter children are closed, including
+container identity and scalar attributes. GitHub
+[#2](https://github.com/rkubectl/k8s-device-plugin-rs/issues/2) now supplies a
+concrete card/pair consumer for partitionable devices. Tasks `qt7.6.9` and
+`ls9` completed its implementation and acceptance on native v1.36.1 and
+v1.37.0, including unchanged polls, scheduler exclusion/release and CDI; see the
+[shared-counter guide](../dra-shared-counters.md). Other capabilities remain
+deferred until a consumer selects a concrete integration contract:
 
 | Remaining capability | Consumer information needed |
 |---|---|
-| Partitionable devices and shared counters | Partition/sharing model and device lifecycle. |
 | Consumable capacity | Partial-capacity reservation and release semantics. |
 | Node-allocatable-resource mapping | Target node resource and consuming workload. |
 | List-type and derived attributes | Inventory values and selection expressions requiring them. |
@@ -193,7 +197,8 @@ A real NUMA-constrained consumer would justify a separate discovery/example
 follow-up; it does not block the completed cycle.
 
 The following table records the deferred scope at that checkpoint; the
-current roadmap above accounts for later container-metadata completion.
+current roadmap above accounts for later container-metadata completion and
+the selected shared-counter work.
 Keep further capability work deferred until a consumer selects it:
 
 | Remaining capability | Consumer information needed before implementation |

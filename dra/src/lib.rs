@@ -36,6 +36,7 @@ use k8s_device_plugin_core::ClaimRef;
 use k8s_device_plugin_core::DraDriver;
 use k8s_device_plugin_core::InventoryDevice;
 use k8s_device_plugin_core::PoolDevice;
+use k8s_device_plugin_core::PoolInventory;
 use k8s_device_plugin_core::PrepareError;
 use k8s_device_plugin_core::PreparedDevice;
 use k8s_device_plugin_core::ResolvedClaim;

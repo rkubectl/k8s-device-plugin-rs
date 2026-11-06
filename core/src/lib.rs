@@ -13,7 +13,9 @@ pub use dra::AllocatedDevice;
 pub use dra::AttributeValue;
 pub use dra::ClaimPreparer;
 pub use dra::ClaimRef;
+pub use dra::CounterSet;
 pub use dra::DeviceBinding;
+pub use dra::DeviceCounterConsumption;
 pub use dra::DeviceTaint;
 pub use dra::DeviceTaintEffect;
 #[cfg(feature = "resource-health")]
@@ -21,6 +23,7 @@ pub use dra::DraDeviceHealth;
 pub use dra::DraDriver;
 pub use dra::InventoryDevice;
 pub use dra::PoolDevice;
+pub use dra::PoolInventory;
 pub use dra::PrepareError;
 pub use dra::PreparedDevice;
 pub use dra::PreparedDeviceWithMetadata;
@@ -41,6 +44,7 @@ pub use socket_name::MAX_SOCKET_PATH_LEN;
 pub use socket_name::sanitize_socket_name;
 pub use unix_socket::bind_unix_listener;
 pub use validation::ValidationError;
+pub use validation::is_valid_counter_name;
 pub use validation::validate_absolute_path;
 pub use validation::validate_device_id;
 pub use validation::validate_driver_name;
@@ -132,7 +136,6 @@ pub trait K8sDevicePlugin: DeviceDiscovery + DeviceAllocator {
     }
 }
 
-#[cfg(test)]
 fn default<T: Default>() -> T {
     T::default()
 }

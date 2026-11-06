@@ -23,15 +23,19 @@ use serde_json as json;
 
 use k8s_device_plugin_core::ClaimPreparer;
 use k8s_device_plugin_core::ClaimRef;
+use k8s_device_plugin_core::CounterSet;
 use k8s_device_plugin_core::DeviceBinding;
+use k8s_device_plugin_core::DeviceCounterConsumption;
 use k8s_device_plugin_core::DeviceTaint;
 use k8s_device_plugin_core::DeviceTaintEffect;
 use k8s_device_plugin_core::DraDriver;
 use k8s_device_plugin_core::InventoryDevice;
 use k8s_device_plugin_core::PoolDevice;
+use k8s_device_plugin_core::PoolInventory;
 use k8s_device_plugin_core::PrepareError;
 use k8s_device_plugin_core::PreparedDevice;
 use k8s_device_plugin_core::PreparedDeviceWithMetadata;
+use k8s_device_plugin_core::Quantity;
 use k8s_device_plugin_core::ResolvedClaim;
 use k8s_device_plugin_core::ResourcePool;
 use k8s_device_plugin_dra::ClaimDeviceStatus;
@@ -97,6 +101,7 @@ struct StaticDraDriver {
     status_publisher: Option<ClaimDeviceStatusPublisher>,
     taint: Option<DeviceTaint>,
     binding: Option<DeviceBinding>,
+    pool_inventory: Option<PoolInventory>,
 }
 
 impl StaticDraDriver {
@@ -108,6 +113,7 @@ impl StaticDraDriver {
             status_publisher: None,
             taint: None,
             binding: None,
+            pool_inventory: None,
         }
     }
 
@@ -129,6 +135,16 @@ impl StaticDraDriver {
         self.binding = binding;
         self
     }
+
+    fn with_inventory(mut self, inventory: PoolInventory) -> Self {
+        self.devices = inventory
+            .devices
+            .iter()
+            .map(|device| device.device.clone())
+            .collect();
+        self.pool_inventory = Some(inventory);
+        self
+    }
 }
 
 #[async_trait]
@@ -138,12 +154,20 @@ impl ResourcePool for StaticDraDriver {
     }
 
     async fn inventory(&self) -> BTreeMap<String, Vec<InventoryDevice>> {
-        let devices = self
-            .devices
-            .iter()
-            .cloned()
+        let inventory = self.pool_inventory.as_ref().map_or_else(
+            || {
+                self.devices
+                    .iter()
+                    .cloned()
+                    .map(InventoryDevice::from)
+                    .collect()
+            },
+            |inventory| inventory.devices.clone(),
+        );
+        let devices = inventory
+            .into_iter()
             .map(|device| {
-                let mut inventory = InventoryDevice::new(device);
+                let mut inventory = device;
                 if let Some(taint) = &self.taint {
                     inventory = inventory.with_taint(taint.clone());
                 }
@@ -155,6 +179,44 @@ impl ResourcePool for StaticDraDriver {
             .collect();
         BTreeMap::from([(self.pool.clone(), devices)])
     }
+
+    async fn snapshot(&self) -> BTreeMap<String, PoolInventory> {
+        self.inventory()
+            .await
+            .into_iter()
+            .map(|(name, devices)| {
+                let mut inventory = PoolInventory::new(devices);
+                if let Some(pool) = &self.pool_inventory {
+                    inventory.shared_counters = pool.shared_counters.clone();
+                }
+                (name, inventory)
+            })
+            .collect()
+    }
+}
+
+/// Two pairs, each exposed both as individual cards and as a complete bridge.
+fn partitionable_inventory() -> PoolInventory {
+    let mut inventory = PoolInventory::default();
+    for pair in ["a", "b"] {
+        let set = format!("pair-{pair}");
+        inventory
+            .shared_counters
+            .push(CounterSet::new(&set).counter("cards", Quantity(2)));
+        for (suffix, kind, consumption) in
+            [("0", "card", 1), ("1", "card", 1), ("bridge", "pair", 2)]
+        {
+            let device = PoolDevice::new(format!("{pair}-{suffix}"))
+                .attribute("type", kind)
+                .attribute("pair", pair);
+            inventory
+                .devices
+                .push(InventoryDevice::new(device).with_consumes_counters(
+                    DeviceCounterConsumption::new(&set).counter("cards", Quantity(consumption)),
+                ));
+        }
+    }
+    inventory
 }
 
 #[async_trait]
@@ -318,15 +380,28 @@ async fn main() -> io::Result<()> {
     let node_name = env::var("NODE_NAME")
         .map_err(|error| io::Error::other(format!("NODE_NAME must be set: {error}")))?;
 
-    if devices.is_empty() {
+    let mut driver = StaticDraDriver::new(driver_name.clone(), pool_name.clone(), devices)
+        .with_taint(taint)
+        .with_binding(binding);
+    match env_or_default("DRA_EXAMPLE_SHARED_COUNTERS", "0").as_str() {
+        "0" => {}
+        "1" => driver = driver.with_inventory(partitionable_inventory()),
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "DRA_EXAMPLE_SHARED_COUNTERS must be 0 or 1",
+            ));
+        }
+    }
+    if driver.devices.is_empty() {
         tracing::warn!("no DEVICE_NAMES configured -- publishing an empty ResourceSlice");
     }
-    write_cdi_spec(&devices, metadata_enabled).await?;
+    write_cdi_spec(&driver.devices, metadata_enabled).await?;
     tracing::info!(
         driver_name,
         pool_name,
         node_name,
-        device_count = devices.len(),
+        device_count = driver.devices.len(),
         "starting validation-only DRA driver"
     );
 
@@ -335,10 +410,7 @@ async fn main() -> io::Result<()> {
         .map_err(io::Error::other)?;
     let status_publisher = ClaimDeviceStatusPublisher::new(client.clone(), driver_name.clone())
         .map_err(io::Error::other)?;
-    let driver = StaticDraDriver::new(driver_name.clone(), pool_name, devices)
-        .with_status_publisher(status_publisher)
-        .with_taint(taint)
-        .with_binding(binding);
+    let driver = driver.with_status_publisher(status_publisher);
     let plugin = match env_or_default("DRA_EXAMPLE_RESOURCE_HEALTH", "0").as_str() {
         "0" => DraPlugin::new(client, driver_name.clone(), node_name, driver),
         "1" => {

@@ -4,10 +4,13 @@ use super::*;
 use tokio::sync::mpsc;
 
 pub use attribute::AttributeValue;
+pub use inventory::CounterSet;
 pub use inventory::DeviceBinding;
+pub use inventory::DeviceCounterConsumption;
 pub use inventory::DeviceTaint;
 pub use inventory::DeviceTaintEffect;
 pub use inventory::InventoryDevice;
+pub use inventory::PoolInventory;
 
 mod attribute;
 mod inventory;
@@ -63,11 +66,12 @@ pub trait ResourcePool: Send + Sync {
     /// Devices this driver currently offers, keyed by pool name.
     async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>>;
 
-    /// One complete publication snapshot, including optional device policies.
+    /// All devices in one snapshot, including optional device policies.
     ///
     /// The default preserves existing backends. Override this method when
     /// publishing taints so devices and their policies come from the same
-    /// backend snapshot. The runtime calls this once per reconciliation.
+    /// backend snapshot. The default [`Self::snapshot`] calls this once per
+    /// reconciliation.
     async fn inventory(&self) -> BTreeMap<String, Vec<InventoryDevice>> {
         self.devices()
             .await
@@ -78,6 +82,19 @@ pub trait ResourcePool: Send + Sync {
                     devices.into_iter().map(InventoryDevice::from).collect(),
                 )
             })
+            .collect()
+    }
+
+    /// Complete pools, including shared counters and the devices consuming them.
+    ///
+    /// Override this for partitionable devices, reading counters and devices
+    /// from the same backend state. The runtime calls this once per reconciliation.
+    /// The default preserves existing `devices` and `inventory` implementations.
+    async fn snapshot(&self) -> BTreeMap<String, PoolInventory> {
+        self.inventory()
+            .await
+            .into_iter()
+            .map(|(name, devices)| (name, devices.into()))
             .collect()
     }
 }
@@ -234,6 +251,10 @@ impl<T: ResourcePool + ?Sized> ResourcePool for Arc<T> {
 
     async fn inventory(&self) -> BTreeMap<String, Vec<InventoryDevice>> {
         (**self).inventory().await
+    }
+
+    async fn snapshot(&self) -> BTreeMap<String, PoolInventory> {
+        (**self).snapshot().await
     }
 }
 

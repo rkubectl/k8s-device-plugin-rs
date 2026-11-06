@@ -5,6 +5,13 @@ use kube::Resource as _;
 
 use super::*;
 
+use counters::MAX_COUNTER_SETS_PER_SLICE;
+use counters::consumptions_to_wire;
+use counters::counter_sets_to_wire;
+use counters::validate_counter_references;
+
+mod counters;
+
 /// Devices change far less often than a device's health status, so this
 /// defaults meaningfully longer than `DevicePluginService`'s 5s health-poll
 /// interval (`lib/src/lib.rs`).
@@ -14,7 +21,7 @@ const DEFAULT_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
 
 /// Kubernetes limits a `ResourceSlice` to 128 ordinary devices.
 const MAX_DEVICES_PER_SLICE: usize = 128;
-const MAX_DEVICES_PER_TAINTED_SLICE: usize = 64;
+const MAX_DEVICES_PER_ADVANCED_SLICE: usize = 64;
 const MAX_TAINTS_PER_DEVICE: usize = 16;
 const MAX_BINDING_CONDITIONS_PER_DEVICE: usize = 4;
 
@@ -123,6 +130,7 @@ fn inventory_device_to_wire(
         .collect::<kube::Result<Vec<_>>>()?;
     let mut wire = resourcev1::Device {
         taints: (!taints.is_empty()).then_some(taints),
+        consumes_counters: consumptions_to_wire(inventory.consumes_counters, pool_name)?,
         ..pool_device_to_wire(inventory.device)
     };
     if let Some(binding) = inventory.binding {
@@ -151,6 +159,12 @@ fn inventory_device_to_wire(
 /// Returns devices in the stable order used for comparison and publication.
 fn canonicalize_devices(mut devices: Vec<resourcev1::Device>) -> Vec<resourcev1::Device> {
     for device in &mut devices {
+        if let Some(consumptions) = &mut device.consumes_counters {
+            consumptions.sort_by(|left, right| left.counter_set.cmp(&right.counter_set));
+            if consumptions.is_empty() {
+                device.consumes_counters = None;
+            }
+        }
         for conditions in [
             &mut device.binding_conditions,
             &mut device.binding_failure_conditions,
@@ -289,8 +303,8 @@ impl ResourceSlicePublisher {
 
     /// Reconciles the complete snapshot once.
     ///
-    /// Pools absent from [`ResourcePool::inventory`] and pools with no devices
-    /// have no desired slices, so their existing slices are deleted.
+    /// Pools absent from [`ResourcePool::snapshot`] and pools with no devices
+    /// or counters have no desired slices, so their existing slices are deleted.
     pub async fn publish_once(&self) -> kube::Result<()> {
         let owner = self.owner_reference().await?;
         let resource_slices = self.client.resource_slices();
@@ -311,9 +325,15 @@ impl ResourceSlicePublisher {
             .filter_map(|slice| slice.metadata.name.clone().map(|name| (name, slice)))
             .collect::<BTreeMap<_, _>>();
 
-        for (pool_name, devices) in self.resource_pool.inventory().await {
-            self.reconcile_pool(&resource_slices, &owner, &mut existing, &pool_name, devices)
-                .await?;
+        for (pool_name, inventory) in self.resource_pool.snapshot().await {
+            self.reconcile_pool(
+                &resource_slices,
+                &owner,
+                &mut existing,
+                &pool_name,
+                inventory,
+            )
+            .await?;
         }
 
         // Desired slices were created or updated first. Deleting the
@@ -369,15 +389,18 @@ impl ResourceSlicePublisher {
         owner: &metav1::OwnerReference,
         existing: &mut BTreeMap<String, resourcev1::ResourceSlice>,
         pool_name: &str,
-        devices: Vec<InventoryDevice>,
+        inventory: PoolInventory,
     ) -> kube::Result<()> {
         validate_pool_name(pool_name)
             .map_err(|error| invalid_pool_error(pool_name, &error.to_string()))?;
-        let wire_devices = devices
+        let counters = counter_sets_to_wire(inventory.shared_counters, pool_name)?;
+        let wire_devices = inventory
+            .devices
             .into_iter()
             .map(|device| inventory_device_to_wire(device, pool_name))
             .collect::<kube::Result<Vec<_>>>()?;
         let mut wire_devices = canonicalize_devices(wire_devices);
+        validate_counter_references(&wire_devices, &counters, pool_name)?;
         if wire_devices
             .windows(2)
             .any(|pair| pair[0].name == pair[1].name)
@@ -393,34 +416,37 @@ impl ResourceSlicePublisher {
             .filter(|(_, slice)| slice.spec.pool.name == pool_name)
             .collect::<Vec<_>>();
         preserve_taint_times(&mut wire_devices, &pool_existing);
-        let chunk_size = if wire_devices.iter().any(|device| device.taints.is_some()) {
-            MAX_DEVICES_PER_TAINTED_SLICE
+        let chunk_size = if wire_devices
+            .iter()
+            .any(|device| device.taints.is_some() || device.consumes_counters.is_some())
+        {
+            MAX_DEVICES_PER_ADVANCED_SLICE
         } else {
             MAX_DEVICES_PER_SLICE
         };
         let mut wire_devices = wire_devices.into_iter();
         let mut chunks = Vec::new();
         while wire_devices.len() > 0 {
-            chunks.push(wire_devices.by_ref().take(chunk_size).collect());
+            chunks.push((Some(wire_devices.by_ref().take(chunk_size).collect()), None));
+        }
+        let mut counters = counters.into_iter();
+        while counters.len() > 0 {
+            chunks.push((
+                None,
+                Some(counters.by_ref().take(MAX_COUNTER_SETS_PER_SLICE).collect()),
+            ));
         }
         if chunks.is_empty() {
             return Ok(());
         }
-        let generation = pool_generation(
-            &pool_existing,
-            &self.driver_name,
-            &self.node_name,
-            pool_name,
-            &chunks,
-        )?;
         let slice_count = i64::try_from(chunks.len())
             .map_err(|_| invalid_pool_error(pool_name, "requires too many ResourceSlices"))?;
-
-        for (index, devices) in chunks.into_iter().enumerate() {
+        let mut desired = Vec::with_capacity(chunks.len());
+        for (index, (devices, shared_counters)) in chunks.into_iter().enumerate() {
             let name = slice_name(&self.driver_name, &self.node_name, pool_name, index);
-            let desired = resourcev1::ResourceSlice {
+            desired.push(resourcev1::ResourceSlice {
                 metadata: metav1::ObjectMeta {
-                    name: Some(name.clone()),
+                    name: Some(name),
                     owner_references: Some(vec![owner.clone()]),
                     ..default()
                 },
@@ -429,14 +455,23 @@ impl ResourceSlicePublisher {
                     node_name: Some(self.node_name.clone()),
                     pool: resourcev1::ResourcePool {
                         name: pool_name.to_string(),
-                        generation,
+                        generation: 0,
                         resource_slice_count: slice_count,
                     },
-                    devices: Some(devices),
+                    devices,
+                    shared_counters,
                     ..default()
                 },
-            };
-
+            });
+        }
+        let generation = pool_generation(&pool_existing, pool_name, &desired)?;
+        for mut desired in desired {
+            desired.spec.pool.generation = generation;
+            let name = desired
+                .metadata
+                .name
+                .clone()
+                .expect("desired slice has a name");
             let pp = api::PostParams::default();
             if existing
                 .get(&name)
@@ -504,25 +539,33 @@ fn resource_slice_matches(
     desired: &resourcev1::ResourceSlice,
 ) -> bool {
     let mut current_spec = current.spec.clone();
-    current_spec.devices = current_spec.devices.map(canonicalize_devices);
+    canonicalize_slice_spec(&mut current_spec);
     current_spec == desired.spec
         && current.metadata.owner_references == desired.metadata.owner_references
 }
 
+fn canonicalize_slice_spec(spec: &mut resourcev1::ResourceSliceSpec) {
+    spec.devices = spec.devices.take().map(canonicalize_devices);
+    if let Some(counters) = &mut spec.shared_counters {
+        counters.sort_by(|left, right| left.name.cmp(&right.name));
+    }
+}
+
 fn pool_generation(
     existing: &[(&String, &resourcev1::ResourceSlice)],
-    driver_name: &str,
-    node_name: &str,
     pool_name: &str,
-    desired_chunks: &[Vec<resourcev1::Device>],
+    desired: &[resourcev1::ResourceSlice],
 ) -> kube::Result<i64> {
-    let expected = desired_chunks
+    let expected = desired
         .iter()
-        .enumerate()
-        .map(|(index, devices)| {
+        .map(|slice| {
             (
-                slice_name(driver_name, node_name, pool_name, index),
-                devices,
+                slice
+                    .metadata
+                    .name
+                    .as_ref()
+                    .expect("desired slice has a name"),
+                &slice.spec,
             )
         })
         .collect::<BTreeMap<_, _>>();
@@ -530,21 +573,15 @@ fn pool_generation(
         .iter()
         .map(|(_, slice)| slice.spec.pool.generation)
         .collect::<BTreeSet<_>>();
-    let expected_count = i64::try_from(desired_chunks.len())
-        .map_err(|_| invalid_pool_error(pool_name, "requires too many ResourceSlices"))?;
     let unchanged = !expected.is_empty()
         && existing.len() == expected.len()
         && generations.len() == 1
         && existing.iter().all(|(name, slice)| {
-            expected.get(*name).is_some_and(|devices| {
-                slice.spec.pool.resource_slice_count == expected_count
-                    && slice
-                        .spec
-                        .devices
-                        .clone()
-                        .map(canonicalize_devices)
-                        .as_ref()
-                        == Some(*devices)
+            expected.get(*name).is_some_and(|desired| {
+                let mut current = slice.spec.clone();
+                canonicalize_slice_spec(&mut current);
+                current.pool.generation = desired.pool.generation;
+                current == **desired
             })
         });
     if unchanged && let Some(generation) = generations.first() {

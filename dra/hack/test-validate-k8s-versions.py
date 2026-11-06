@@ -80,13 +80,13 @@ class MatrixTests(unittest.TestCase):
             (root / 'state.json').write_text(json.dumps(state))
             script = root / 'validate-k8s-versions.sh'
             shutil.copyfile(Path(__file__).with_name(script.name), script)
-            for name in ['container', 'kubectl', 'e2e-smoke.sh', 'e2e-first-available.sh', 'e2e-resource-health.sh', 'e2e-extended-resource.sh', 'e2e-taints.sh', 'e2e-binding.sh', 'e2e-workload.sh', 'e2e-pool-status.sh', 'e2e-metadata.sh']:
+            for name in ['container', 'kubectl', 'e2e-smoke.sh', 'e2e-first-available.sh', 'e2e-resource-health.sh', 'e2e-extended-resource.sh', 'e2e-taints.sh', 'e2e-binding.sh', 'e2e-workload.sh', 'e2e-pool-status.sh', 'e2e-metadata.sh', 'e2e-shared-counters.sh']:
                 path = root / name
                 path.write_text(FAKE_COMMAND)
                 path.chmod(0o755)
             env = dict(os.environ, MATRIX_TEST_ROOT=tmp, CONTAINER=str(root / 'container'),
                        KUBECTL=str(root / 'kubectl'), JQ=shutil.which('jq'),
-                       DRA_E2E_SKIP_BUILD='1', DRA_E2E_TAINTS='0', DRA_E2E_BINDING='0', DRA_E2E_WORKLOAD='0', DRA_E2E_POOL_STATUS='0', DRA_E2E_METADATA='0', DRA_E2E_METADATA_SHARED='0',
+                       DRA_E2E_SKIP_BUILD='1', DRA_E2E_TAINTS='0', DRA_E2E_BINDING='0', DRA_E2E_WORKLOAD='0', DRA_E2E_POOL_STATUS='0', DRA_E2E_METADATA='0', DRA_E2E_METADATA_SHARED='0', DRA_E2E_SHARED_COUNTERS='0',
                        DRA_E2E_IMAGE='docker.io/library/k8s-device-plugin-dra-example:latest',
                        DRA_E2E_V136_CLUSTER='dra-validation',
                        DRA_E2E_V137_CLUSTER='dra-validation-137')
@@ -138,6 +138,16 @@ class MatrixTests(unittest.TestCase):
                                               {'DRA_E2E_RESOURCE_HEALTH': '1'})
         self.assertEqual(result.returncode, 27, result.stderr)
         self.assert_baseline(state)
+
+    def test_shared_counters_use_both_profiles_and_restore_on_failure(self):
+        for failure in [None, 'e2e-shared-counters.sh']:
+            result, calls, state = self.run_matrix({'fail_smoke': failure},
+                                                  {'DRA_E2E_SHARED_COUNTERS': '1'})
+            self.assertEqual(result.returncode, 27 if failure else 0, result.stderr)
+            expected = ['dra-validation'] if failure else ['dra-validation', 'dra-validation-137']
+            self.assertEqual([c for c in calls if c[0] == 'e2e-shared-counters.sh'],
+                             [['e2e-shared-counters.sh', name] for name in expected])
+            self.assert_baseline(state)
 
     def test_health_build_and_both_profile_watches(self):
         result, calls, state = self.run_matrix(env_overrides={'DRA_E2E_RESOURCE_HEALTH': '1', 'DRA_E2E_SKIP_BUILD': '0'})

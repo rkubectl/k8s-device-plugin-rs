@@ -171,6 +171,10 @@ ordinary container extended-resource limits. The [extended-resource guide](docs/
 shows both sides: adapting the runnable Rust DRA driver and consuming it from a
 Pod without hand-authoring a `ResourceClaim`.
 
+For overlapping device views such as individual cards and complete hardware
+pairs, [shared counters](docs/dra-shared-counters.md) let the scheduler enforce
+their common capacity on Kubernetes v1.36 and v1.37.
+
 ## Observability
 
 The framework emits structured [`tracing`](https://docs.rs/tracing) events and spans — never raw `println!`/`eprintln!` — covering the registration lifecycle and every RPC handler. It doesn't install a subscriber itself (see `obs-library-facade`); your binary chooses one. The example plugin installs a plain formatting subscriber filtered by `RUST_LOG`:

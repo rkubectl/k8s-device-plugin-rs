@@ -10,6 +10,8 @@ use k8s_device_plugin_test::kube_mock::respond;
 
 use super::*;
 
+mod counters;
+
 #[test]
 fn owned_device_conversion_preserves_typed_attributes_and_capacity() {
     use k8s_device_plugin_core::Quantity;

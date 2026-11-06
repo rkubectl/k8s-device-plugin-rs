@@ -42,6 +42,11 @@ pub enum ValidationError {
     RelativePath(Utf8PathBuf),
 }
 
+/// Whether a shared counter or counter-set name is a DNS label (1–63 bytes).
+pub fn is_valid_counter_name(name: &str) -> bool {
+    is_valid_dns_label(name)
+}
+
 /// Validates the Kubernetes DRA driver identity, also used in plugin paths.
 pub fn validate_driver_name(name: &str) -> Result<(), ValidationError> {
     if name.len() > MAX_DRIVER_NAME_LEN || !is_valid_dns_subdomain(name) {
@@ -138,6 +143,16 @@ fn is_valid_dns_subdomain(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn counter_names_are_dns_labels() {
+        for name in ["cards", "pair-a", "0", &"a".repeat(63)] {
+            assert!(is_valid_counter_name(name));
+        }
+        for name in ["", "-a", "a-", "A", "a.b", "a/b", &"a".repeat(64)] {
+            assert!(!is_valid_counter_name(name));
+        }
+    }
 
     #[test]
     fn resource_name_accepts_valid_names() {

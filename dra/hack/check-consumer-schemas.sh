@@ -35,6 +35,13 @@ cat > "$check_dir/src/main.rs" <<'EOF'
 use k8s_openapi::api::resource::v1 as resourcev1;
 
 fn main() {
+    let inventory = k8s_device_plugin::PoolInventory::new(vec![
+        k8s_device_plugin::InventoryDevice::new(k8s_device_plugin::PoolDevice::new("card-0"))
+            .with_consumes_counters(k8s_device_plugin::DeviceCounterConsumption::new("pair-a")
+                .counter("cards", k8s_device_plugin::Quantity(1))),
+    ]).with_counter_set(k8s_device_plugin::CounterSet::new("pair-a")
+        .counter("cards", k8s_device_plugin::Quantity(2)));
+    assert_eq!(inventory.shared_counters.len(), 1);
     let claim = k8s_device_plugin::ClaimRef {
         namespace: "default".into(),
         name: "claim".into(),

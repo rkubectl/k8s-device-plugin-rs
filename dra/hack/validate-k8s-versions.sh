@@ -24,6 +24,7 @@ BINDING_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-binding.sh
 WORKLOAD_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-workload.sh
 POOL_STATUS_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-pool-status.sh
 METADATA_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-metadata.sh
+SHARED_COUNTERS_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-shared-counters.sh
 ACTIVE_CLUSTER=
 
 require_command() {
@@ -144,6 +145,9 @@ run_profile() {
     "$KUBECTL" --context "$cluster" -n "$NAMESPACE" rollout status daemonset/k8s-device-plugin-dra-example --timeout=180s
     KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" "$SMOKE_SCRIPT"
     KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" "$FIRST_AVAILABLE_SMOKE_SCRIPT"
+    if [[ ${DRA_E2E_SHARED_COUNTERS:-0} == 1 ]]; then
+        KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" JQ="$JQ" "$SHARED_COUNTERS_SMOKE_SCRIPT"
+    fi
     if [[ ${DRA_E2E_RESOURCE_HEALTH:-0} == 1 ]]; then
         KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" JQ="$JQ" "$RESOURCE_HEALTH_SMOKE_SCRIPT"
     fi

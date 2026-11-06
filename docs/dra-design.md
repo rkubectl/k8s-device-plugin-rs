@@ -220,7 +220,7 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
   `kube::Api` resolver, builds a `ResolvedClaim`, and calls
   `ClaimPreparer::prepare`.
 - **`ResourceSlicePublisher`** — lists the local driver's current slices,
-  derives the complete desired inventory from `ResourcePool::devices()`, and
+  derives the complete desired inventory from `ResourcePool::snapshot()`, and
   reconciles it authoritatively. Pools are split at 128 devices per slice;
   all slices for a changed pool receive one new generation and the same total
   count. Desired slices are created or updated before stale ones are deleted.
@@ -229,6 +229,12 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
   and stale deletes carry the listed UID and resourceVersion as preconditions.
   The serialized poll loop coalesces each snapshot and retries API failures
   with bounded exponential backoff.
+  The opt-in [shared-counter adapter](dra-shared-counters.md) adds coherent
+  pool counter sets and device consumption. Counter slices contain at most
+  eight sets and never devices; consuming devices use 64-device chunks. Both
+  slice kinds participate in generation/count comparison and stale cleanup.
+  Default snapshot conversion preserves existing backends and counter-free
+  publication.
 - **`DraPlugin::run()`** — lifecycle harness analogous to today's
   `DevicePlugin::run()`: bind the DRA service before exposing registration,
   spawn both gRPC servers, recreate the registration

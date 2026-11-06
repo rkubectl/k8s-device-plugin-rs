@@ -17,6 +17,14 @@ existing `devices()` snapshots; the `PoolDevice` layout remains compatible.
 See the [taint integration guide](../docs/dra-device-taints.md) for policy,
 timestamp, and claim-toleration behavior.
 
+For partitionable devices, override `ResourcePool::snapshot()` to return
+coherent `PoolInventory` devices and shared `CounterSet`s. Each
+`InventoryDevice::with_consumes_counters(...)` references a set through
+`DeviceCounterConsumption`, using the existing integer `Quantity` type.
+The default snapshot delegates to existing inventory implementations. See
+the [shared-counter guide](../docs/dra-shared-counters.md) for card/pair
+allocation, validation limits, and publication behavior.
+
 Paths carried by device allocations use `camino::Utf8PathBuf`; path-taking
 helpers use `camino::Utf8Path`. This encodes kubelet/CDI's UTF-8 requirement in
 `DevicePath` and `HostMount` instead of relying on transport-time conversion.
