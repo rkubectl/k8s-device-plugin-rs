@@ -12,10 +12,15 @@ Graph project `Volumes-rust-k8s-device-plugin-rs`, full generation
 `2026-11-06T22:12:25Z`, supplied the function inventory, candidate snippets and
 inbound/outbound traces. Coverage checks found no recorded gaps in the bounded
 first-party scopes or candidate paths. This is best-effort evidence, not proof
-of completeness. Some iterator callback edges were absent and fixture helpers
-were inconsistently marked as tests. Exact source/call-site searches
-supplemented those cases and cross-checked top-level Rust declarations,
+of completeness. Some iterator/method edges were absent or ambiguously
+resolved, and fixture helpers were inconsistently marked as tests. Exact
+source/call-site searches supplemented those cases and cross-checked top-level Rust declarations,
 including the public test-helper crate.
+
+After implementation, generation `2026-11-06T22:46:50Z` also reported fresh
+metadata and no recorded gaps for changed Rust and guard-script paths. The
+compiler and exact source, rather than ambiguous graph receiver inference,
+verify each object-validation call's type.
 
 ## Architecture decision
 
@@ -87,5 +92,26 @@ core boundary. DRA's existing independent schema matrix remains in place.
 
 ## Validation
 
-Implementation and focused validation are in progress. Record final checks
-before closing the ticket. No release is requested by this task.
+Implementation commit `56502f9` passed validation from a clean checkout,
+excluding the maintainer's existing core default-feature edit and private
+review files:
+
+- `mise run --jobs 1 ci`: formatting, strict Clippy, 227 workspace tests,
+  resource-health targets/examples, 29 matrix-orchestration tests, 14
+  multi-node tests, five profile tests, independent core boundary checks and
+  independent schema 1.36/1.37 consumers with/without resource health.
+- Sequential schema 1.37 and 1.36 runs: 241 default-feature and 246 all-feature
+  tests per schema with all targets, strict all-target/all-feature Clippy,
+  all-feature doctests and strict rustdoc.
+- Core tests without default features or a Kubernetes schema: 40 unit tests,
+  the existing two metadata API tests, the new object-validation test and its
+  doctest passed. Schema-free Quantity tests and doctest passed, including
+  the checked-in upstream corpus.
+- The independent core guard passed with default, minimal and all core
+  features, rejecting transport/API dependencies in its normal dependency
+  graph. The core manifest and lockfile have no changes in this task.
+
+No new live cluster validation was run: these moves preserve runtime behavior
+and wire projections, and existing transport, malformed-input, cancellation,
+journal/CDI golden-byte and numeric-wire tests remain intact. The v0.5.0 live
+acceptance record is unchanged. No release is requested by this task.
