@@ -19,6 +19,8 @@ camino.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["sync"], optional = true }
 
+k8s-quantity.workspace = true
+
 
 [dev-dependencies]
 camino-tempfile.workspace = true

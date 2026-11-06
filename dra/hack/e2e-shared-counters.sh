@@ -66,7 +66,11 @@ for attempt in {1..90}; do
     slices=$(snapshot)
     if "$JQ" -e 'length == 2 and ([.[].pool.generation] | unique | length) == 1 and
         all(.[]; .pool.resourceSliceCount == 2) and
-        ([.[].devices[]] | length) == 6 and ([.[].counters[]] | length) == 2' <<< "$slices" >/dev/null; then
+        ([.[].devices[]] | length) == 6 and ([.[].counters[]] | length) == 2 and
+        all(.[].counters[]; .counters.cards.value == "1") and
+        all(.[].devices[]; .capacity.fractional.value == "500m") and
+        all(.[].devices[] | select(.attributes.type.string == "card");
+            .consumesCounters[0].counters.cards.value == "500m")' <<< "$slices" >/dev/null; then
         break
     fi
     if ((attempt == 90)); then printf 'shared-counter inventory did not converge\n' >&2; exit 1; fi

@@ -33,25 +33,31 @@ let devices = [("card-0", "card", 1), ("card-1", "card", 1), ("bridge-a", "pair"
     .map(|(name, kind, count)| {
         InventoryDevice::new(PoolDevice::new(name).attribute("type", kind))
             .with_consumes_counters(
-                DeviceCounterConsumption::new("pair-a").counter("cards", Quantity(count)),
+                DeviceCounterConsumption::new("pair-a").counter("cards", Quantity::from(count)),
             )
     })
     .collect();
 let pool = PoolInventory::new(devices)
-    .with_counter_set(CounterSet::new("pair-a").counter("cards", Quantity(2)));
+    .with_counter_set(CounterSet::new("pair-a").counter("cards", Quantity::from(2)));
 ```
 
-Counters reuse the framework's integer `Quantity(i64)`; fractional and
-unit-suffixed input quantities are outside this API. The publisher emits
-canonical Kubernetes DecimalSI quantities, including `1000` as `1k`, so a
-server round trip converges. Names must be DNS labels. Each counter map must
+Counters and ordinary device capacities share the framework's exact
+`Quantity` type. Use `Quantity::from(2)` for integers or
+`"0.5".parse::<Quantity>()?` for fractions, SI units and exponent notation.
+There is no floating-point conversion. The publisher emits Kubernetes wire
+forms such as `0.5 -> 500m` and `1.5Gi -> 1536Mi`; equivalent server spellings
+compare numerically, so a round trip converges. See the
+[quantity migration and dependency review](plans/kubernetes-quantities.md).
+Names must be DNS labels. Each counter map must
 contain 1–32 entries, and each device may reference at most two distinct
 counter sets. Every referenced set and counter must exist in the same pool.
 Invalid counter definitions and references return the publisher's 422
 `invalid_pool_error` before any mutation of that pool. Counter definitions
 are scoped to a pool, including across multiple counter slices.
 
-Existing backends need no changes. The default `snapshot()` delegates to
+The snapshot extension preserves existing backend implementations; update
+integer Quantity constructors as described in the migration guide.
+The default `snapshot()` delegates to
 `inventory()`, which defaults to `devices()`. Existing `PoolDevice` literals,
 taints, and binding metadata remain supported. Use `snapshot()` instead of
 separate counter and device queries to avoid publishing incompatible reads.
@@ -92,7 +98,9 @@ returns the CDI artifacts for both member cards.
 
 The existing `minimal_driver` supports `DRA_EXAMPLE_SHARED_COUNTERS=1`. This
 replaces its configured widget inventory with four fake cards and two pair
-views, backed by two shared counter sets. It retains the ordinary status,
+views, backed by two shared counter sets. Each pair has one counter unit;
+each card consumes `0.5` and each pair consumes `1`. The fixture also publishes
+a `0.5` device capacity. It retains the ordinary status,
 preparation, and CDI marker paths. See
 [`partitionable_inventory`](../dra/examples/minimal_driver.rs) for the complete
 typed inventory and `ResourcePool::snapshot` implementation.
@@ -154,3 +162,13 @@ core/DRA all-target/all-feature tests, strict all-feature rustdoc, and strict
 Clippy on both schemas. Final API review preserved the existing exhaustive
 `ValidationError` enum; counter-name validation and all eight counter
 regressions passed again on both schemas after that compatibility adjustment.
+
+### Exact-quantity follow-up — 2026-11-06
+
+Task `56b` replaces the integer-only quantity with the standalone
+`k8s-quantity` crate and optional OpenAPI conversions. The updated fixture
+passed native v1.36.1/v1.37.0 acceptance with `0.5` counter consumption and
+device capacity, including unchanged polls, exclusion, release/retry and
+CDI. The v1.37 extended-resource regression and cleanup also passed. See the
+[quantity guide's acceptance record](plans/kubernetes-quantities.md#acceptance--2026-11-06)
+for the final image digest, conformance evidence and API migration.

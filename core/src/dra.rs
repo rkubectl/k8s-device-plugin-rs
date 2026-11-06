@@ -3,6 +3,9 @@ use super::*;
 #[cfg(feature = "resource-health")]
 use tokio::sync::mpsc;
 
+pub use k8s_quantity::Quantity;
+pub use k8s_quantity::QuantityParseError;
+
 pub use attribute::AttributeValue;
 pub use inventory::CounterSet;
 pub use inventory::DeviceBinding;
@@ -14,10 +17,6 @@ pub use inventory::PoolInventory;
 
 mod attribute;
 mod inventory;
-
-/// A device capacity quantity, e.g. memory or bandwidth.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Quantity(pub i64);
 
 /// A device this driver can offer, with the attributes and capacity DRA's
 /// device selectors match against — richer than the classic plugin's

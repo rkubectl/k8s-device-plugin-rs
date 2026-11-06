@@ -1,0 +1,28 @@
+[package]
+name = "k8s-quantity"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Exact Kubernetes resource quantities with SI units and numeric equality"
+readme = "README.md"
+include = ["src/**", "README.md"]
+
+[package.metadata.docs.rs]
+all-features = true
+cargo-args = ["--config", 'env.K8S_OPENAPI_ENABLED_VERSION="1.37"']
+
+[features]
+k8s-openapi = ["dep:k8s-openapi"]
+
+[dependencies]
+bigdecimal.workspace = true
+k8s-openapi = { workspace = true, optional = true }
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

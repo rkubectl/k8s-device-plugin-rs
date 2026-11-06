@@ -45,6 +45,7 @@ tower.workspace = true
 
 k8s-device-plugin-core.workspace = true
 k8s-device-plugin-proto = { workspace = true, features = ["dra"] }
+k8s-quantity = { workspace = true, features = ["k8s-openapi"] }
 
 
 [dev-dependencies]

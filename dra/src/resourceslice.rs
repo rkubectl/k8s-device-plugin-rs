@@ -75,7 +75,7 @@ fn pool_device_to_wire(device: PoolDevice) -> resourcev1::Device {
                     name,
                     resourcev1::DeviceCapacity {
                         request_policy: None,
-                        value: apiresource::Quantity(quantity.0.to_string()),
+                        value: quantity.into(),
                     },
                 )
             })
@@ -539,15 +539,44 @@ fn resource_slice_matches(
     desired: &resourcev1::ResourceSlice,
 ) -> bool {
     let mut current_spec = current.spec.clone();
+    let mut desired_spec = desired.spec.clone();
     canonicalize_slice_spec(&mut current_spec);
-    current_spec == desired.spec
+    canonicalize_slice_spec(&mut desired_spec);
+    current_spec == desired_spec
         && current.metadata.owner_references == desired.metadata.owner_references
 }
 
 fn canonicalize_slice_spec(spec: &mut resourcev1::ResourceSliceSpec) {
     spec.devices = spec.devices.take().map(canonicalize_devices);
+    for device in spec.devices.iter_mut().flatten() {
+        for capacity in device
+            .capacity
+            .iter_mut()
+            .flat_map(|values| values.values_mut())
+        {
+            canonicalize_quantity(&mut capacity.value);
+        }
+        for consumption in device.consumes_counters.iter_mut().flatten() {
+            for counter in consumption.counters.values_mut() {
+                canonicalize_quantity(&mut counter.value);
+            }
+        }
+    }
     if let Some(counters) = &mut spec.shared_counters {
         counters.sort_by(|left, right| left.name.cmp(&right.name));
+        for set in counters {
+            for counter in set.counters.values_mut() {
+                canonicalize_quantity(&mut counter.value);
+            }
+        }
+    }
+}
+
+fn canonicalize_quantity(value: &mut apiresource::Quantity) {
+    use k8s_quantity::Quantity;
+
+    if let Ok(quantity) = Quantity::try_from(&*value) {
+        value.0 = quantity.canonical_decimal();
     }
 }
 
@@ -559,13 +588,15 @@ fn pool_generation(
     let expected = desired
         .iter()
         .map(|slice| {
+            let mut spec = slice.spec.clone();
+            canonicalize_slice_spec(&mut spec);
             (
                 slice
                     .metadata
                     .name
                     .as_ref()
                     .expect("desired slice has a name"),
-                &slice.spec,
+                spec,
             )
         })
         .collect::<BTreeMap<_, _>>();
@@ -581,7 +612,7 @@ fn pool_generation(
                 let mut current = slice.spec.clone();
                 canonicalize_slice_spec(&mut current);
                 current.pool.generation = desired.pool.generation;
-                current == **desired
+                current == *desired
             })
         });
     if unchanged && let Some(generation) = generations.first() {

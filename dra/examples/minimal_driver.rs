@@ -202,17 +202,23 @@ fn partitionable_inventory() -> PoolInventory {
         let set = format!("pair-{pair}");
         inventory
             .shared_counters
-            .push(CounterSet::new(&set).counter("cards", Quantity(2)));
-        for (suffix, kind, consumption) in
-            [("0", "card", 1), ("1", "card", 1), ("bridge", "pair", 2)]
-        {
+            .push(CounterSet::new(&set).counter("cards", Quantity::from(1)));
+        for (suffix, kind, consumption) in [
+            ("0", "card", "0.5"),
+            ("1", "card", "0.5"),
+            ("bridge", "pair", "1"),
+        ] {
             let device = PoolDevice::new(format!("{pair}-{suffix}"))
                 .attribute("type", kind)
-                .attribute("pair", pair);
+                .attribute("pair", pair)
+                .capacity("fractional", "0.5".parse().expect("valid fixture quantity"));
             inventory
                 .devices
                 .push(InventoryDevice::new(device).with_consumes_counters(
-                    DeviceCounterConsumption::new(&set).counter("cards", Quantity(consumption)),
+                    DeviceCounterConsumption::new(&set).counter(
+                        "cards",
+                        consumption.parse().expect("valid fixture quantity"),
+                    ),
                 ));
         }
     }

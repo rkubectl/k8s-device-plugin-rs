@@ -20,10 +20,16 @@ timestamp, and claim-toleration behavior.
 For partitionable devices, override `ResourcePool::snapshot()` to return
 coherent `PoolInventory` devices and shared `CounterSet`s. Each
 `InventoryDevice::with_consumes_counters(...)` references a set through
-`DeviceCounterConsumption`, using the existing integer `Quantity` type.
+`DeviceCounterConsumption`, using the same exact `Quantity` type as capacities.
 The default snapshot delegates to existing inventory implementations. See
 the [shared-counter guide](../docs/dra-shared-counters.md) for card/pair
 allocation, validation limits, and publication behavior.
+
+`Quantity` accepts exact fractions and Kubernetes units through `FromStr`,
+for example `"0.5".parse::<Quantity>()?` and `"1.5Gi".parse()?`. Construct
+integers with `Quantity::from(2)`. This replaces the old public `i64` tuple
+field and `Copy` API; see the [migration guide](../docs/plans/kubernetes-quantities.md)
+for source changes, dependency assessment and wire compatibility.
 
 Paths carried by device allocations use `camino::Utf8PathBuf`; path-taking
 helpers use `camino::Utf8Path`. This encodes kubelet/CDI's UTF-8 requirement in

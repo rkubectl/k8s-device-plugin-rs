@@ -18,12 +18,12 @@ impl ResourcePool for SnapshotPool {
 }
 
 fn counter_set(name: &str, value: i64) -> CounterSet {
-    CounterSet::new(name).counter("cards", Quantity(value))
+    CounterSet::new(name).counter("cards", Quantity::from(value))
 }
 
 fn consuming_device(name: &str, set: &str, value: i64) -> InventoryDevice {
     InventoryDevice::new(PoolDevice::new(name)).with_consumes_counters(
-        DeviceCounterConsumption::new(set).counter("cards", Quantity(value)),
+        DeviceCounterConsumption::new(set).counter("cards", Quantity::from(value)),
     )
 }
 
@@ -133,6 +133,63 @@ async fn counters_and_devices_publish_separately_and_second_poll_is_unchanged() 
 }
 
 #[tokio::test]
+async fn fractional_capacity_and_counters_converge_across_server_notation() {
+    let inventory = PoolInventory::new(vec![
+        InventoryDevice::new(
+            PoolDevice::new("card-0").capacity("memory", "1.5Gi".parse().unwrap()),
+        )
+        .with_consumes_counters(
+            DeviceCounterConsumption::new("pair-a").counter("cards", "0.125".parse().unwrap()),
+        ),
+    ])
+    .with_counter_set(CounterSet::new("pair-a").counter("cards", "0.5".parse().unwrap()));
+    let (publisher, mut handle) = snapshot_publisher(inventory);
+    let script = async {
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &resource_slice_list(vec![])).await;
+        let mut devices = reply_to_write(&mut handle, http::Method::POST).await;
+        let mut counters = reply_to_write(&mut handle, http::Method::POST).await;
+        let device = &mut devices.spec.devices.as_mut().unwrap()[0];
+        let capacity = &mut device
+            .capacity
+            .as_mut()
+            .unwrap()
+            .get_mut("memory")
+            .unwrap()
+            .value;
+        assert_eq!(capacity.0, "1536Mi");
+        capacity.0 = "1610612736".into();
+        let consumption = &mut device.consumes_counters.as_mut().unwrap()[0]
+            .counters
+            .get_mut("cards")
+            .unwrap()
+            .value;
+        assert_eq!(consumption.0, "125m");
+        consumption.0 = "0.125".into();
+        let shared = &mut counters.spec.shared_counters.as_mut().unwrap()[0]
+            .counters
+            .get_mut("cards")
+            .unwrap()
+            .value;
+        assert_eq!(shared.0, "500m");
+        shared.0 = "5e-1".into();
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
+        respond(
+            &mut handle,
+            200,
+            &resource_slice_list(vec![devices, counters]),
+        )
+        .await;
+        assert_no_writes(&mut handle).await;
+    };
+    let publish = async {
+        publisher.publish_once().await.unwrap();
+        publisher.publish_once().await.unwrap();
+    };
+    tokio::join!(script, publish);
+}
+
+#[tokio::test]
 async fn counter_and_consumption_changes_advance_every_slice_once() {
     for change_counter in [true, false] {
         let initial = paired_cards();
@@ -140,11 +197,11 @@ async fn counter_and_consumption_changes_advance_every_slice_once() {
         if change_counter {
             changed.shared_counters[0]
                 .counters
-                .insert("cards".into(), Quantity(3));
+                .insert("cards".into(), Quantity::from(3));
         } else {
             changed.devices[0].consumes_counters[0]
                 .counters
-                .insert("cards".into(), Quantity(2));
+                .insert("cards".into(), Quantity::from(2));
         }
         let (old, mut old_handle) = snapshot_publisher(initial);
         let script = async {
@@ -217,7 +274,7 @@ async fn reordered_sets_consumptions_and_devices_keep_generation() {
     let mut inventory = paired_cards().with_counter_set(counter_set("pair-b", 1000));
     inventory.devices[0]
         .consumes_counters
-        .push(DeviceCounterConsumption::new("pair-b").counter("cards", Quantity(1000)));
+        .push(DeviceCounterConsumption::new("pair-b").counter("cards", Quantity::from(1000)));
     let (publisher, mut handle) = snapshot_publisher(inventory);
     let script = async {
         respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
@@ -257,18 +314,19 @@ async fn invalid_counter_pools_fail_before_any_write() {
     let mut unknown_counter = paired_cards();
     unknown_counter.devices[0].consumes_counters[0]
         .counters
-        .insert("unknown".into(), Quantity(1));
+        .insert("unknown".into(), Quantity::from(1));
     cases.push(unknown_counter);
     cases.push(paired_cards().with_counter_set(counter_set("pair-a", 2)));
     cases.push(paired_cards().with_counter_set(counter_set("bad.name", 2)));
     cases.push(paired_cards().with_counter_set(CounterSet::new("empty")));
     let mut too_many_counters = CounterSet::new("large");
     for i in 0..33 {
-        too_many_counters = too_many_counters.counter(format!("c-{i}"), Quantity(1));
+        too_many_counters = too_many_counters.counter(format!("c-{i}"), Quantity::from(1));
     }
     cases.push(paired_cards().with_counter_set(too_many_counters));
     cases.push(
-        paired_cards().with_counter_set(CounterSet::new("invalid-key").counter("Bad", Quantity(1))),
+        paired_cards()
+            .with_counter_set(CounterSet::new("invalid-key").counter("Bad", Quantity::from(1))),
     );
     let mut duplicate_consumption = paired_cards();
     let consumption = duplicate_consumption.devices[0].consumes_counters[0].clone();
@@ -278,7 +336,9 @@ async fn invalid_counter_pools_fail_before_any_write() {
     cases.push(duplicate_consumption);
     let mut too_many_consumptions = paired_cards();
     too_many_consumptions.devices[0].consumes_counters = (0..3)
-        .map(|i| DeviceCounterConsumption::new(format!("pair-{i}")).counter("cards", Quantity(1)))
+        .map(|i| {
+            DeviceCounterConsumption::new(format!("pair-{i}")).counter("cards", Quantity::from(1))
+        })
         .collect();
     cases.push(too_many_consumptions);
     let mut empty_consumption = paired_cards();
@@ -290,8 +350,9 @@ async fn invalid_counter_pools_fail_before_any_write() {
     invalid_consumption.devices[0].consumes_counters[0].counter_set = "Bad".into();
     cases.push(invalid_consumption);
     let mut oversized_consumption = paired_cards();
-    oversized_consumption.devices[0].consumes_counters[0].counters =
-        (0..33).map(|i| (format!("c-{i}"), Quantity(1))).collect();
+    oversized_consumption.devices[0].consumes_counters[0].counters = (0..33)
+        .map(|i| (format!("c-{i}"), Quantity::from(1)))
+        .collect();
     cases.push(oversized_consumption);
     for inventory in cases {
         let (publisher, mut handle) = snapshot_publisher(inventory);

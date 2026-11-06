@@ -1,7 +1,7 @@
 use super::*;
 
 /// Shared capacity available to overlapping devices in one pool.
-/// Names are DNS labels; each set contains 1–32 integer counters.
+/// Names are DNS labels; each set contains 1–32 exact resource quantities.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct CounterSet {
@@ -306,10 +306,10 @@ mod tests {
                 "pool-0".into(),
                 PoolInventory::new(vec![
                     InventoryDevice::new(PoolDevice::new("card-0")).with_consumes_counters(
-                        DeviceCounterConsumption::new("pair-a").counter("cards", Quantity(1)),
+                        DeviceCounterConsumption::new("pair-a").counter("cards", Quantity::from(1)),
                     ),
                 ])
-                .with_counter_set(CounterSet::new("pair-a").counter("cards", Quantity(2))),
+                .with_counter_set(CounterSet::new("pair-a").counter("cards", Quantity::from(2))),
             )])
         }
     }
@@ -319,11 +319,11 @@ mod tests {
         let pool: Arc<dyn ResourcePool> = Arc::new(PartitionablePool);
         let snapshot = pool.snapshot().await;
         let pool = &snapshot["pool-0"];
-        assert_eq!(pool.shared_counters[0].counters["cards"], Quantity(2));
+        assert_eq!(pool.shared_counters[0].counters["cards"], Quantity::from(2));
         assert_eq!(pool.devices[0].consumes_counters[0].counter_set, "pair-a");
         assert_eq!(
             pool.devices[0].consumes_counters[0].counters["cards"],
-            Quantity(1)
+            Quantity::from(1)
         );
     }
 }

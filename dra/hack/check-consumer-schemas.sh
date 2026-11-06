@@ -38,10 +38,15 @@ fn main() {
     let inventory = k8s_device_plugin::PoolInventory::new(vec![
         k8s_device_plugin::InventoryDevice::new(k8s_device_plugin::PoolDevice::new("card-0"))
             .with_consumes_counters(k8s_device_plugin::DeviceCounterConsumption::new("pair-a")
-                .counter("cards", k8s_device_plugin::Quantity(1))),
+                .counter("cards", k8s_device_plugin::Quantity::from(1))),
     ]).with_counter_set(k8s_device_plugin::CounterSet::new("pair-a")
-        .counter("cards", k8s_device_plugin::Quantity(2)));
+        .counter("cards", k8s_device_plugin::Quantity::from(2)));
     assert_eq!(inventory.shared_counters.len(), 1);
+    let exact: k8s_device_plugin::Quantity = "0.5".parse().unwrap();
+    let wire: k8s_openapi::apimachinery::pkg::api::resource::Quantity = exact.into();
+    assert_eq!(wire.0, "500m");
+    assert_eq!(k8s_device_plugin::Quantity::try_from(&wire).unwrap(), "0.5".parse().unwrap());
+    assert_eq!(k8s_device_plugin::Quantity::try_from(wire).unwrap(), "0.5".parse().unwrap());
     let claim = k8s_device_plugin::ClaimRef {
         namespace: "default".into(),
         name: "claim".into(),

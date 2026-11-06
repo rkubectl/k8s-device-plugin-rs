@@ -35,21 +35,10 @@ fn counters_to_wire(
         .into_iter()
         .map(|(name, quantity)| {
             validate_counter_name(&name, pool_name)?;
-            // resource.Quantity canonicalizes DecimalSI integers (1000 -> 1k).
-            // Publish that form so API defaulting cannot cause endless updates.
-            let mut value = quantity.0;
-            let mut suffix = "";
-            for next in ["k", "M", "G", "T", "P", "E"] {
-                if value == 0 || value % 1000 != 0 {
-                    break;
-                }
-                value /= 1000;
-                suffix = next;
-            }
             Ok((
                 name,
                 resourcev1::Counter {
-                    value: apiresource::Quantity(format!("{value}{suffix}")),
+                    value: quantity.into(),
                 },
             ))
         })

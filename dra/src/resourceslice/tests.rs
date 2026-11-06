@@ -21,7 +21,7 @@ fn owned_device_conversion_preserves_typed_attributes_and_capacity() {
         .attribute("count", 7)
         .attribute("enabled", true)
         .attribute("firmware", AttributeValue::version("1.2.3"))
-        .capacity("memory", Quantity(4096));
+        .capacity("memory", Quantity::from(4096));
     let wire = pool_device_to_wire(device);
     assert_eq!(
         json::to_value(wire).unwrap(),

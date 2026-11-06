@@ -19,6 +19,7 @@ callers using standard OS paths should follow the
 |---|---|
 | `k8s-device-plugin` | Unified, feature-gated entrypoint. Re-exports the common classic and DRA APIs at the crate root and exposes the focused crates as `core`, `device_plugin`, `dra`, and `proto` modules. |
 | `core` | Backend-facing abstractions: `DeviceDiscovery`, `DeviceAllocator`, `K8sDevicePlugin`, and the `Device`/`DevicePermissions`/`AllocationError` types. No gRPC or async runtime specifics — this is what a backend implements against. |
+| [`quantity`](quantity/README.md) | Standalone `k8s-quantity` library for exact Kubernetes quantities, unit parsing, normalization and numeric equality. Core re-exports its public types. |
 | `proto` | Generated bindings for the `v1beta1` device-plugin gRPC protocol (via `tonic`/`prost`), plus the vendored `k8s.io/kubelet` proto submodule. |
 | `lib` | The framework itself: `DevicePlugin` (registration + lifecycle) and `DevicePluginService` (the gRPC service adapter that drives a `K8sDevicePlugin` backend). |
 | `test` | Shared test-only helpers (mock kubelet registration server, mock device-plugin client) used by `lib`'s integration tests. |
