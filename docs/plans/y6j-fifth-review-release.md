@@ -91,3 +91,25 @@ Tokio feature declarations, health-builder idempotence, Docker build-argument
 cleanup, slice ordering and v1.37 compatibility-group support/documentation.
 Resolve the maintainer's local default-feature edit as a separate feature
 contract decision. These items are outside this release's four-fix scope.
+
+## Publication — 2026-11-07
+
+The release version transaction is commit
+`dbc2ba3cb3d294aa3e28ea687d35c318209fb646`. Annotated tag `v0.5.0` has tag
+object `4abb4592f6ed66f1f9d7865d7f2d5ab930887f8e`; its peeled commit and
+remote `main` matched the release commit before publication. The clean
+checkout matched the tag exactly. No release-source changes were made
+after tagging.
+
+All seven public packages were verified, published with
+`release-publish.toml`, and independently retrieved from crates.io with
+`cargo info <name>@0.5.0 --registry crates-io` outside the workspace:
+`k8s-quantity`, `k8s-device-plugin-core`, `k8s-device-plugin-proto`,
+`k8s-device-plugin-test`, `k8s-device-plugin-dra`, `k8s-device-plugin-lib`,
+and `k8s-device-plugin`. The example remains unpublished. Registry metadata
+confirmed that core's resource-health feature remains opt-in.
+
+The original checkout was fast-forwarded to the release, preserving the
+maintainer's local feature edit and all private review files. This publication
+record and the final ticket closure are a separate audit commit after the
+release tag, as required by the release workflow.
