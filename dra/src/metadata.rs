@@ -97,7 +97,7 @@ impl MetadataRuntime {
         let runtime = Arc::clone(self);
         task::spawn_blocking(move || {
             let _guards = guards; // Keep ownership through I/O even if the RPC is cancelled.
-            store::persist(&runtime, &plan)?;
+            runtime.persist(&plan)?;
             Ok(plan.devices)
         })
         .await
@@ -112,7 +112,7 @@ impl MetadataRuntime {
         let runtime = Arc::clone(self);
         task::spawn_blocking(move || {
             let _guards = guards;
-            store::cleanup(&runtime, &claim)
+            runtime.cleanup_blocking(&claim)
         })
         .await
         .map_err(io::Error::other)?

@@ -63,10 +63,10 @@ fn persisted_wire_matches_version_one_golden_bytes() {
             .unwrap();
         }
         let before = fs::metadata(data(tmp.path(), "a")).unwrap().ino();
-        store::persist(&runtime, &plan).unwrap();
+        runtime.persist(&plan).unwrap();
         assert_eq!(fs::metadata(data(tmp.path(), "a")).unwrap().ino(), before);
         let restarted = new_runtime(tmp.path());
-        store::cleanup(&restarted, &plan.claim).unwrap();
+        restarted.cleanup_blocking(&plan.claim).unwrap();
         assert!(!claim_dir.exists());
     }
 }
@@ -76,7 +76,7 @@ fn malformed_journals_refuse_cleanup_before_removing_artifacts() {
     let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
-    store::persist(&runtime, &plan).unwrap();
+    runtime.persist(&plan).unwrap();
     let journal = tmp
         .path()
         .join("plugin/dra-device-metadata/claim-uid/journal.json");
@@ -100,7 +100,7 @@ fn malformed_journals_refuse_cleanup_before_removing_artifacts() {
         }
         *target = value;
         fs::write(&journal, json::to_vec(&changed).unwrap()).unwrap();
-        assert!(store::cleanup(&runtime, &plan.claim).is_err());
+        assert!(runtime.cleanup_blocking(&plan.claim).is_err());
         for request in ["a", "b"] {
             assert_eq!(
                 fs::read_to_string(data(tmp.path(), request)).unwrap(),
@@ -117,7 +117,7 @@ fn malformed_journals_refuse_cleanup_before_removing_artifacts() {
         assert!(journal.exists());
     }
     fs::write(journal, original).unwrap();
-    store::cleanup(&runtime, &plan.claim).unwrap();
+    runtime.cleanup_blocking(&plan.claim).unwrap();
 }
 
 fn new_runtime(root: &Utf8Path) -> Arc<MetadataRuntime> {
@@ -398,9 +398,9 @@ fn retries_preserve_inode_and_snapshot_and_restart_recovers() {
     let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
-    store::persist(&runtime, &plan).unwrap();
+    runtime.persist(&plan).unwrap();
     let before = fs::metadata(data(tmp.path(), "a")).unwrap();
-    store::persist(&runtime, &plan).unwrap();
+    runtime.persist(&plan).unwrap();
     let after = fs::metadata(data(tmp.path(), "a")).unwrap();
     assert_eq!(
         (before.ino(), before.mtime_nsec()),
@@ -408,18 +408,18 @@ fn retries_preserve_inode_and_snapshot_and_restart_recovers() {
     );
     assert_eq!(after.mode() & 0o777, 0o644);
     let restarted = new_runtime(tmp.path());
-    store::persist(&restarted, &plan).unwrap();
+    restarted.persist(&plan).unwrap();
     let mut changed = prepared("a", "widget-0");
     changed.attributes.insert("model".into(), "changed".into());
     let changed =
         Plan::build(&runtime, &claim(), vec![changed, prepared("b", "widget-1")]).unwrap();
-    assert!(store::persist(&runtime, &changed).is_err());
+    assert!(runtime.persist(&changed).is_err());
     assert_eq!(
         fs::metadata(data(tmp.path(), "a")).unwrap().ino(),
         before.ino()
     );
-    store::cleanup(&restarted, &plan.claim).unwrap();
-    store::cleanup(&restarted, &plan.claim).unwrap();
+    restarted.cleanup_blocking(&plan.claim).unwrap();
+    restarted.cleanup_blocking(&plan.claim).unwrap();
     assert!(!data(tmp.path(), "a").exists());
 }
 #[test]
@@ -432,12 +432,12 @@ fn partial_publication_replays_after_failure_without_replacing_data() {
         .path()
         .join("cdi/dra.example.com_metadata_claim-uid_b.json");
     fs::write(&blocked, "foreign").unwrap();
-    assert!(store::persist(&runtime, &plan).is_err());
+    assert!(runtime.persist(&plan).is_err());
     let before = fs::metadata(data(tmp.path(), "a")).unwrap().ino();
     fs::remove_file(&blocked).unwrap();
-    store::persist(&runtime, &plan).unwrap();
+    runtime.persist(&plan).unwrap();
     assert_eq!(fs::metadata(data(tmp.path(), "a")).unwrap().ino(), before);
-    store::cleanup(&runtime, &plan.claim).unwrap();
+    runtime.cleanup_blocking(&plan.claim).unwrap();
 }
 #[test]
 fn symlink_descendants_are_refused_and_outside_files_survive() {
@@ -452,16 +452,16 @@ fn symlink_descendants_are_refused_and_outside_files_survive() {
         tmp.path().join("plugin/dra-device-metadata/claim-uid"),
     )
     .unwrap();
-    assert!(store::persist(&runtime, &plan).is_err());
+    assert!(runtime.persist(&plan).is_err());
     assert!(fs::read_dir(&outside).unwrap().next().is_none());
     fs::remove_file(tmp.path().join("plugin/dra-device-metadata/claim-uid")).unwrap();
-    store::persist(&runtime, &plan).unwrap();
+    runtime.persist(&plan).unwrap();
     let protected = outside.join("protected");
     fs::write(&protected, "keep").unwrap();
     fs::remove_file(data(tmp.path(), "a")).unwrap();
     symlink(&protected, data(tmp.path(), "a")).unwrap();
-    assert!(store::persist(&runtime, &plan).is_err());
-    store::cleanup(&runtime, &plan.claim).unwrap();
+    assert!(runtime.persist(&plan).is_err());
+    runtime.cleanup_blocking(&plan.claim).unwrap();
     assert_eq!(fs::read_to_string(&protected).unwrap(), "keep");
 }
 #[test]
@@ -469,16 +469,16 @@ fn stale_uid_cleanup_preserves_replacement_and_foreign_files() {
     let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let old = plan(&runtime);
-    store::persist(&runtime, &old).unwrap();
+    runtime.persist(&old).unwrap();
     let mut replacement = claim();
     replacement.metadata.uid = Some("new-uid".into());
     let new = Plan::build(&runtime, &replacement, vec![prepared("a", "widget-0")]).unwrap();
-    store::persist(&runtime, &new).unwrap();
+    runtime.persist(&new).unwrap();
     let foreign = tmp
         .path()
         .join("plugin/dra-device-metadata/claim-uid/foreign");
     fs::write(&foreign, "keep").unwrap();
-    assert!(store::cleanup(&runtime, &old.claim).is_err());
+    assert!(runtime.cleanup_blocking(&old.claim).is_err());
     assert!(foreign.exists());
     assert!(
         tmp.path()
@@ -486,7 +486,7 @@ fn stale_uid_cleanup_preserves_replacement_and_foreign_files() {
             .exists()
     );
     fs::remove_file(&foreign).unwrap();
-    store::cleanup(&runtime, &old.claim).unwrap();
+    runtime.cleanup_blocking(&old.claim).unwrap();
     assert!(
         tmp.path()
             .join("plugin/dra-device-metadata/new-uid/a/metadata.json")
@@ -495,7 +495,7 @@ fn stale_uid_cleanup_preserves_replacement_and_foreign_files() {
     let mut stale = old.claim;
     stale.uid = "new-uid".into();
     stale.name = "wrong-name".into();
-    assert!(store::cleanup(&runtime, &stale).is_err());
+    assert!(runtime.cleanup_blocking(&stale).is_err());
 }
 #[test]
 fn cleanup_recovers_empty_directory_after_final_journal_removal() {
@@ -503,7 +503,7 @@ fn cleanup_recovers_empty_directory_after_final_journal_removal() {
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
     fs::create_dir_all(tmp.path().join("plugin/dra-device-metadata/claim-uid")).unwrap();
-    store::cleanup(&runtime, &plan.claim).unwrap();
+    runtime.cleanup_blocking(&plan.claim).unwrap();
 }
 #[tokio::test]
 async fn uid_lock_serializes_operations_and_is_shared_through_guard_ownership() {
@@ -535,11 +535,11 @@ fn foreign_shared_cdi_file_is_never_deleted_by_our_cleanup() {
         .path()
         .join("cdi/dra.example.com_metadata_claim-uid_a.json");
     fs::write(&foreign, "foreign").unwrap();
-    assert!(store::persist(&runtime, &plan).is_err());
-    assert!(store::cleanup(&runtime, &plan.claim).is_err());
+    assert!(runtime.persist(&plan).is_err());
+    assert!(runtime.cleanup_blocking(&plan.claim).is_err());
     assert_eq!(fs::read_to_string(&foreign).unwrap(), "foreign");
     fs::remove_file(foreign).unwrap();
-    store::cleanup(&runtime, &plan.claim).unwrap();
+    runtime.cleanup_blocking(&plan.claim).unwrap();
 }
 
 #[tokio::test]
@@ -844,13 +844,13 @@ fn corrupt_journal_refuses_cleanup_and_keeps_owned_data_until_repaired() {
     let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());
     let plan = plan(&runtime);
-    store::persist(&runtime, &plan).unwrap();
+    runtime.persist(&plan).unwrap();
     let journal = tmp
         .path()
         .join("plugin/dra-device-metadata/claim-uid/journal.json");
     let original = fs::read(&journal).unwrap();
     fs::write(&journal, "corrupt").unwrap();
-    assert!(store::cleanup(&runtime, &plan.claim).is_err());
+    assert!(runtime.cleanup_blocking(&plan.claim).is_err());
     assert!(data(tmp.path(), "a").exists());
     assert!(
         tmp.path()
@@ -860,10 +860,10 @@ fn corrupt_journal_refuses_cleanup_and_keeps_owned_data_until_repaired() {
     let mut future = json::from_slice::<json::Value>(&original).unwrap();
     future["journalVersion"] = json::json!(2);
     fs::write(&journal, json::to_vec(&future).unwrap()).unwrap();
-    assert!(store::cleanup(&runtime, &plan.claim).is_err());
+    assert!(runtime.cleanup_blocking(&plan.claim).is_err());
     assert!(data(tmp.path(), "a").exists());
     fs::write(journal, original).unwrap();
-    store::cleanup(&runtime, &plan.claim).unwrap();
+    runtime.cleanup_blocking(&plan.claim).unwrap();
 }
 
 #[test]
@@ -917,14 +917,14 @@ fn zero_device_allocation_has_no_container_edits_and_cleans_its_journal() {
     assert!(plan.devices.is_empty());
     assert!(plan.documents.is_empty());
     assert!(plan.specs.is_empty());
-    store::persist(&runtime, &plan).unwrap();
+    runtime.persist(&plan).unwrap();
     assert!(
         fs::read_dir(tmp.path().join("cdi"))
             .unwrap()
             .next()
             .is_none()
     );
-    store::cleanup(&runtime, &plan.claim).unwrap();
+    runtime.cleanup_blocking(&plan.claim).unwrap();
     assert!(
         !tmp.path()
             .join("plugin/dra-device-metadata/claim-uid")
@@ -975,7 +975,7 @@ fn configured_utf8_alias_can_resolve_to_a_non_utf8_filesystem_directory() {
     symlink(&target, &alias).unwrap();
     let runtime = new_runtime(&alias);
     let plan = plan(&runtime);
-    store::persist(&runtime, &plan).unwrap();
+    runtime.persist(&plan).unwrap();
     assert!(
         target
             .join("plugin/dra-device-metadata/claim-uid/a/metadata.json")

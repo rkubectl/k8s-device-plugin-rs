@@ -160,6 +160,41 @@ the future phases.
   deliberate malformed/defaulting tests. Document other schema gaps rather
   than substituting an unrelated Kubernetes type.
 
+## Function ownership and conversions
+
+- Put behavior that belongs to a local domain type in its inherent `impl`.
+  Keep validation and formatting with the type whose invariants they need.
+  Use `&self` for retained state and `self` when consuming an owned input;
+  preserve borrowed public APIs and shared snapshots.
+- Implement `From` for ordinary infallible value projections, `TryFrom` for
+  fallible conversions, and `FromStr` for parsing when their contracts fit.
+  Prefer implementing `From`/`TryFrom` over `Into`/`TryInto`. Do not add a
+  redundant `to_wire` method beside an equivalent conversion implementation.
+  Document fields that have no target representation and any wire-specific
+  normalization; keep semantic distinctions explicit.
+- Respect crate ownership and orphan rules. Put a conversion implementation
+  in a crate owning one of its types. Use a fitting optional owner-crate
+  conversion feature only when the architecture permits that coupling.
+  Core's types/traits stay independent of generated gRPC and Kubernetes API
+  dependencies, including optional ones. Keep wire adapters in runtime/API
+  layers; an optional dependency is still a version/schema coupling and needs
+  an explicit architecture decision. Preserve application-selected schemas.
+  Do not reverse a foundational dependency or add a wrapper/extension trait
+  solely to remove a free function.
+- Keep free functions for standalone algorithms, multi-object orchestration,
+  context-dependent transport policy, foreign types without a useful local
+  owner, entry points and fixtures. Do not disguise pool-scoped validation or
+  error policy as a context-free conversion. Avoid tuple-based `TryFrom`
+  implementations that hide meaningful operation/context parameters.
+- Before changing placement, trace callers, identify the invariant and
+  owning crate, and check existing constructors, traits and builders. Preserve
+  trust-boundary validation, error precedence, wire bytes, coordination
+  paths and async cancellation/guard lifetimes. Keep independent wire and
+  malformed-input assertions when updating callers.
+- Use the ownership/conversion checklist in [CONTRIBUTING.md](CONTRIBUTING.md).
+  Clippy checks conversion/naming mechanics; architectural ownership remains
+  a review decision. Do not ban free functions with a name-based check.
+
 ## Synchronization primitives
 
 - Prefer `parking_lot` over equivalent `std::sync` locks (`Mutex`, `RwLock`,

@@ -39,6 +39,18 @@ pub struct Device {
 }
 
 impl Device {
+    /// Validates the advertised ID and device paths, without filesystem access.
+    ///
+    /// # Errors
+    /// Returns a validation error for an invalid ID or path.
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        validate_device_id(&self.id)?;
+        for path in &self.paths {
+            path.validate()?;
+        }
+        Ok(())
+    }
+
     pub fn new(id: impl Into<String>) -> Self {
         let id = id.into();
         let health = Health::Healthy;
@@ -59,6 +71,15 @@ impl Device {
 }
 
 impl DevicePath {
+    /// Validates both protocol paths without checking whether they exist.
+    ///
+    /// # Errors
+    /// Returns a validation error for an empty, relative or NUL-containing path.
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        validate_absolute_path(&self.host_path)?;
+        validate_absolute_path(&self.container_path)
+    }
+
     pub fn rdwr(path: impl Into<Utf8PathBuf>) -> Self {
         let host_path = path.into();
         let container_path = host_path.clone();
@@ -68,5 +89,16 @@ impl DevicePath {
             container_path,
             permissions,
         }
+    }
+}
+
+impl HostMount {
+    /// Validates both mount paths without checking whether they exist.
+    ///
+    /// # Errors
+    /// Returns a validation error for an empty, relative or NUL-containing path.
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        validate_absolute_path(&self.host_path)?;
+        validate_absolute_path(&self.container_path)
     }
 }

@@ -44,8 +44,8 @@ description = "Test local DRA matrix orchestration and failure recovery without 
 run = "python3 dra/hack/test-validate-k8s-versions.py"
 
 [tasks.dra-check-consumer-schemas]
-description = "Check independent consumers selecting Kubernetes v1.36 and v1.37 schemas"
-run = "sh dra/hack/check-consumer-schemas.sh"
+description = "Check core independence and Kubernetes v1.36/v1.37 consumers"
+run = ["sh core/hack/check-consumer-features.sh", "sh dra/hack/check-consumer-schemas.sh"]
 
 [tasks.dra-test-profile-config]
 description = "Test isolated DRA profile configuration without VMs"

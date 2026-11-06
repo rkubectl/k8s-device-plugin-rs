@@ -8,6 +8,11 @@ Use `k8s-device-plugin-lib` to serve the classic Device Plugin API, or
 preparation. This crate is useful when a backend implementation must be shared
 between those runtimes without depending on gRPC or the Kubernetes API client.
 
+Device and allocation `validate()` methods check protocol IDs/paths without
+accessing the filesystem. Runtimes still validate at their RPC boundaries.
+Wire projection stays in the transport/API adapters so core does not depend
+on generated gRPC or Kubernetes API types, including through optional features.
+
 The repository [README](../README.md) provides the framework overview, and
 the [DRA crate guide](../dra/README.md) documents DRA-specific integration.
 

@@ -157,116 +157,118 @@ fn filename(driver: &str, uid: &str, request: &str) -> String {
     format!("{driver}_metadata_{uid}_{request}.json")
 }
 
-pub(super) fn persist(runtime: &MetadataRuntime, plan: &Plan) -> io::Result<()> {
-    let local =
-        trusted_root(&runtime.local, true)?.ok_or_else(|| invalid("missing plugin-data root"))?;
-    let root = directory(&local, "dra-device-metadata", true)?;
-    let claim = directory(&root, &plan.claim.uid, true)?;
-    let cdi = trusted_root(&runtime.cdi, true)?.ok_or_else(|| invalid("missing CDI root"))?;
-    // This immutable journal is sufficient for retry/restart replay. A mutable
-    // ready flag adds no correctness: every publication is create-only.
-    let journal = json::to_vec(&plan.journal(&runtime.driver)).map_err(io::Error::other)?;
-    ensure_file(&claim, "journal.json", &journal)?;
-    for (request, document) in &plan.documents {
-        let dir = directory(&claim, request, true)?;
-        ensure_file(&dir, "metadata.json", document.as_bytes())?;
-        remove_stages(&dir, ".stage-metadata.json-")?;
-    }
-    // All data sources exist before the first CDI reference becomes visible.
-    for (request, spec) in &plan.specs {
-        let name = filename(&runtime.driver, &plan.claim.uid, request);
-        ensure_file(&cdi, &name, spec.as_bytes())?;
-        remove_stages(&cdi, &format!(".stage-{name}-"))?;
-    }
-    remove_stages(&claim, ".stage-journal.json-")?;
-    Ok(())
-}
-
-pub(super) fn cleanup(runtime: &MetadataRuntime, identity: &ClaimRef) -> io::Result<()> {
-    if !label(&identity.uid, 64) {
-        return Err(invalid("invalid metadata claim UID"));
-    }
-    let Some(local) = trusted_root(&runtime.local, false)? else {
-        return Ok(());
-    };
-    let root = match directory(&local, "dra-device-metadata", false) {
-        Ok(fd) => fd,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e),
-    };
-    let claim = match directory(&root, &identity.uid, false) {
-        Ok(fd) => fd,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e),
-    };
-    let Some(bytes) = read(&claim, "journal.json")? else {
-        // A crash after removing the final journal can leave only an empty
-        // UID directory. rmdir never traverses or deletes unknown contents.
-        remove_stages(&claim, ".stage-journal.json-")?;
-        return remove(&root, &identity.uid, true);
-    };
-    let journal = json::from_slice::<wire::Journal>(&bytes).map_err(io::Error::other)?;
-    if journal.version != 1 {
-        return Err(invalid(
-            "unsupported metadata journal version; refusing cleanup",
-        ));
-    }
-    if journal.driver != runtime.driver || journal.claim != *identity {
-        return Err(invalid("metadata journal claim identity mismatch"));
-    }
-    let documents = journal.documents;
-    let specs = journal.specs;
-    if documents.len() != specs.len()
-        || documents
-            .keys()
-            .any(|k| !label(k, 63) || !specs.contains_key(k))
-    {
-        return Err(invalid("invalid metadata journal request names"));
-    }
-    let cdi = trusted_root(&runtime.cdi, false)?;
-    // Remove references first; retain the journal if any cleanup fails.
-    if let Some(cdi) = &cdi {
-        for request in specs.keys() {
-            let name = filename(&runtime.driver, &identity.uid, request);
-            if let Some(existing) = read(cdi, &name)? {
-                let expected = &specs[request];
-                if existing != expected.as_bytes() {
-                    return Err(invalid("foreign or changed CDI spec; refusing cleanup"));
-                }
-                remove(cdi, &name, false)?;
-            }
-            remove_stages(cdi, &format!(".stage-{name}-"))?;
+impl MetadataRuntime {
+    pub(super) fn persist(&self, plan: &Plan) -> io::Result<()> {
+        let local =
+            trusted_root(&self.local, true)?.ok_or_else(|| invalid("missing plugin-data root"))?;
+        let root = directory(&local, "dra-device-metadata", true)?;
+        let claim = directory(&root, &plan.claim.uid, true)?;
+        let cdi = trusted_root(&self.cdi, true)?.ok_or_else(|| invalid("missing CDI root"))?;
+        // This immutable journal is sufficient for retry/restart replay. A mutable
+        // ready flag adds no correctness: every publication is create-only.
+        let journal = json::to_vec(&plan.journal(&self.driver)).map_err(io::Error::other)?;
+        ensure_file(&claim, "journal.json", &journal)?;
+        for (request, document) in &plan.documents {
+            let dir = directory(&claim, request, true)?;
+            ensure_file(&dir, "metadata.json", document.as_bytes())?;
+            remove_stages(&dir, ".stage-metadata.json-")?;
         }
+        // All data sources exist before the first CDI reference becomes visible.
+        for (request, spec) in &plan.specs {
+            let name = filename(&self.driver, &plan.claim.uid, request);
+            ensure_file(&cdi, &name, spec.as_bytes())?;
+            remove_stages(&cdi, &format!(".stage-{name}-"))?;
+        }
+        remove_stages(&claim, ".stage-journal.json-")?;
+        Ok(())
     }
-    for request in documents.keys() {
-        let dir = match directory(&claim, request, false) {
-            Ok(fd) => Some(fd),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+
+    pub(super) fn cleanup_blocking(&self, identity: &ClaimRef) -> io::Result<()> {
+        if !label(&identity.uid, 64) {
+            return Err(invalid("invalid metadata claim UID"));
+        }
+        let Some(local) = trusted_root(&self.local, false)? else {
+            return Ok(());
+        };
+        let root = match directory(&local, "dra-device-metadata", false) {
+            Ok(fd) => fd,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
             Err(e) => return Err(e),
         };
-        if let Some(dir) = dir {
-            remove(&dir, "metadata.json", false)?;
-            remove_stages(&dir, ".stage-metadata.json-")?;
-            remove(&claim, request, true)?;
-        }
-    }
-    remove_stages(&claim, ".stage-journal.json-")?;
-    // A foreign file must prevent final cleanup before the journal is removed.
-    for entry in rustix::fs::Dir::read_from(&claim)? {
-        let entry = entry?;
-        let name = entry.file_name().to_bytes();
-        if ![
-            b".".as_slice(),
-            b"..".as_slice(),
-            b"journal.json".as_slice(),
-        ]
-        .contains(&name)
-        {
+        let claim = match directory(&root, &identity.uid, false) {
+            Ok(fd) => fd,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        let Some(bytes) = read(&claim, "journal.json")? else {
+            // A crash after removing the final journal can leave only an empty
+            // UID directory. rmdir never traverses or deletes unknown contents.
+            remove_stages(&claim, ".stage-journal.json-")?;
+            return remove(&root, &identity.uid, true);
+        };
+        let journal = json::from_slice::<wire::Journal>(&bytes).map_err(io::Error::other)?;
+        if journal.version != 1 {
             return Err(invalid(
-                "unknown file in metadata claim directory; journal retained",
+                "unsupported metadata journal version; refusing cleanup",
             ));
         }
+        if journal.driver != self.driver || journal.claim != *identity {
+            return Err(invalid("metadata journal claim identity mismatch"));
+        }
+        let documents = journal.documents;
+        let specs = journal.specs;
+        if documents.len() != specs.len()
+            || documents
+                .keys()
+                .any(|k| !label(k, 63) || !specs.contains_key(k))
+        {
+            return Err(invalid("invalid metadata journal request names"));
+        }
+        let cdi = trusted_root(&self.cdi, false)?;
+        // Remove references first; retain the journal if any cleanup fails.
+        if let Some(cdi) = &cdi {
+            for request in specs.keys() {
+                let name = filename(&self.driver, &identity.uid, request);
+                if let Some(existing) = read(cdi, &name)? {
+                    let expected = &specs[request];
+                    if existing != expected.as_bytes() {
+                        return Err(invalid("foreign or changed CDI spec; refusing cleanup"));
+                    }
+                    remove(cdi, &name, false)?;
+                }
+                remove_stages(cdi, &format!(".stage-{name}-"))?;
+            }
+        }
+        for request in documents.keys() {
+            let dir = match directory(&claim, request, false) {
+                Ok(fd) => Some(fd),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+                Err(e) => return Err(e),
+            };
+            if let Some(dir) = dir {
+                remove(&dir, "metadata.json", false)?;
+                remove_stages(&dir, ".stage-metadata.json-")?;
+                remove(&claim, request, true)?;
+            }
+        }
+        remove_stages(&claim, ".stage-journal.json-")?;
+        // A foreign file must prevent final cleanup before the journal is removed.
+        for entry in rustix::fs::Dir::read_from(&claim)? {
+            let entry = entry?;
+            let name = entry.file_name().to_bytes();
+            if ![
+                b".".as_slice(),
+                b"..".as_slice(),
+                b"journal.json".as_slice(),
+            ]
+            .contains(&name)
+            {
+                return Err(invalid(
+                    "unknown file in metadata claim directory; journal retained",
+                ));
+            }
+        }
+        remove(&claim, "journal.json", false)?;
+        remove(&root, &identity.uid, true)
     }
-    remove(&claim, "journal.json", false)?;
-    remove(&root, &identity.uid, true)
 }

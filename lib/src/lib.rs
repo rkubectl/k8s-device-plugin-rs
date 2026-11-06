@@ -48,17 +48,7 @@ fn device_to_proto(device: &Device) -> v1beta1::Device {
     }
 }
 
-/// Validates a single discovered device's id and paths.
-fn validate_device(device: &Device) -> Result<(), ValidationError> {
-    k8s_device_plugin_core::validate_device_id(&device.id)?;
-    for path in &device.paths {
-        k8s_device_plugin_core::validate_absolute_path(&path.host_path)?;
-        k8s_device_plugin_core::validate_absolute_path(&path.container_path)?;
-    }
-    Ok(())
-}
-
-/// Drops (and logs) any device that fails [`validate_device`] instead of
+/// Drops (and logs) any device that fails [`Device::validate`] instead of
 /// forwarding it to kubelet -- a single misbehaving device shouldn't take
 /// down health reporting for every other healthy device. Filtering happens
 /// before the `ListAndWatch` change-detection comparison, so a device that
@@ -67,7 +57,7 @@ fn validate_device(device: &Device) -> Result<(), ValidationError> {
 fn valid_devices(devices: Vec<Device>) -> Vec<Device> {
     devices
         .into_iter()
-        .filter(|device| match validate_device(device) {
+        .filter(|device| match device.validate() {
             Ok(()) => true,
             Err(err) => {
                 tracing::warn!(device_id = device.id, %err, "dropping invalid device from ListAndWatch");
@@ -75,20 +65,6 @@ fn valid_devices(devices: Vec<Device>) -> Vec<Device> {
             }
         })
         .collect()
-}
-
-/// Validates every path a [`ContainerAllocation`] would have kubelet bind-mount
-/// into a container.
-fn validate_allocation(allocation: &ContainerAllocation) -> Result<(), ValidationError> {
-    for path in &allocation.device_paths {
-        k8s_device_plugin_core::validate_absolute_path(&path.host_path)?;
-        k8s_device_plugin_core::validate_absolute_path(&path.container_path)?;
-    }
-    for mount in &allocation.mounts {
-        k8s_device_plugin_core::validate_absolute_path(&mount.host_path)?;
-        k8s_device_plugin_core::validate_absolute_path(&mount.container_path)?;
-    }
-    Ok(())
 }
 
 /// Compares two device snapshots by content, ignoring order, so a backend whose
@@ -440,7 +416,8 @@ impl v1beta1::DevicePlugin for DevicePluginService {
             let allocation = allocation
                 .inspect_err(|error| tracing::warn!(%error, "allocate failed"))
                 .map_err(allocation_error_to_status)?;
-            validate_allocation(&allocation)
+            allocation
+                .validate()
                 .inspect_err(|error| tracing::warn!(%error, "backend returned invalid allocation"))
                 .map_err(|error| tonic::Status::internal(error.to_string()))?;
             container_responses.insert(index, container_allocation_to_response(allocation));

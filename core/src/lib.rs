@@ -86,6 +86,22 @@ pub struct ContainerAllocation {
     pub cdi_devices: Vec<String>,
 }
 
+impl ContainerAllocation {
+    /// Validates the paths sent to kubelet, without accessing the filesystem.
+    ///
+    /// # Errors
+    /// Returns a validation error for an empty, relative or NUL-containing path.
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        for path in &self.device_paths {
+            path.validate()?;
+        }
+        for mount in &self.mounts {
+            mount.validate()?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum AllocationError {
     #[error("device not found: {0}")]

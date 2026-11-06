@@ -62,7 +62,31 @@ impl Quantity {
     /// different notation families, without floating-point conversion.
     #[must_use]
     pub fn canonical_decimal(&self) -> String {
-        format_decimal(&self.value, Format::DecimalSI)
+        self.format_decimal(Format::DecimalSI)
+    }
+
+    fn format_decimal(&self, format: Format) -> String {
+        if self.value.is_zero() {
+            return "0".to_string();
+        }
+        let (coefficient, scale) = self.value.normalized().as_bigint_and_exponent();
+        let exponent = -scale;
+        let group = exponent.div_euclid(3) * 3;
+        let mut digits = coefficient.to_string();
+        for _ in 0..exponent.rem_euclid(3) {
+            digits.push('0');
+        }
+        // Values beyond Exa use exponent notation. This preserves their value
+        // instead of dropping an unsupported SI suffix in older API servers.
+        if matches!(format, Format::DecimalExponent) || group > 18 {
+            if group != 0 {
+                return format!("{digits}e{group}");
+            }
+            return digits;
+        }
+        let index = usize::try_from(group / 3 + 3).expect("quantity is rounded to nano precision");
+        digits.push_str(DECIMAL_SUFFIXES[index]);
+        digits
     }
 }
 
@@ -144,32 +168,8 @@ impl fmt::Display for Quantity {
                 }
             }
         }
-        f.write_str(&format_decimal(&self.value, self.format))
+        f.write_str(&self.format_decimal(self.format))
     }
-}
-
-fn format_decimal(value: &BigDecimal, format: Format) -> String {
-    if value.is_zero() {
-        return "0".to_string();
-    }
-    let (coefficient, scale) = value.normalized().as_bigint_and_exponent();
-    let exponent = -scale;
-    let group = exponent.div_euclid(3) * 3;
-    let mut digits = coefficient.to_string();
-    for _ in 0..exponent.rem_euclid(3) {
-        digits.push('0');
-    }
-    // Values beyond Exa use exponent notation. This preserves their value
-    // instead of dropping an unsupported SI suffix in older API servers.
-    if matches!(format, Format::DecimalExponent) || group > 18 {
-        if group != 0 {
-            return format!("{digits}e{group}");
-        }
-        return digits;
-    }
-    let index = usize::try_from(group / 3 + 3).expect("quantity is rounded to nano precision");
-    digits.push_str(DECIMAL_SUFFIXES[index]);
-    digits
 }
 
 impl PartialEq for Quantity {

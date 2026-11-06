@@ -53,12 +53,34 @@ struct AcceleratorPair {
 }
 
 impl AcceleratorPair {
-    fn pool_device(&self) -> PoolDevice {
-        PoolDevice::new(self.name)
+    fn cdi_device_id(&self) -> String {
+        format!("{CDI_KIND}={}", self.name)
+    }
+}
+
+impl From<&AcceleratorPair> for PoolDevice {
+    fn from(pair: &AcceleratorPair) -> Self {
+        Self::new(pair.name)
             .attribute(ATTRIBUTE_KIND, "connected-pair")
-            .attribute(ATTRIBUTE_INTERCONNECT, self.interconnect)
-            .attribute(ATTRIBUTE_MEMBER_0, self.members[0])
-            .attribute(ATTRIBUTE_MEMBER_1, self.members[1])
+            .attribute(ATTRIBUTE_INTERCONNECT, pair.interconnect)
+            .attribute(ATTRIBUTE_MEMBER_0, pair.members[0])
+            .attribute(ATTRIBUTE_MEMBER_1, pair.members[1])
+    }
+}
+
+impl From<&AcceleratorPair> for cdi::Device {
+    fn from(pair: &AcceleratorPair) -> Self {
+        Self {
+            name: pair.name.into(),
+            container_edits: cdi::ContainerEdits {
+                env: vec![
+                    format!("ACCELERATOR_PAIR={}", pair.name),
+                    format!("ACCELERATOR_PAIR_MEMBERS={}", pair.members.join(",")),
+                    format!("ACCELERATOR_INTERCONNECT={}", pair.interconnect),
+                ],
+                ..default()
+            },
+        }
     }
 }
 
@@ -77,28 +99,11 @@ fn example_pairs() -> [AcceleratorPair; 2] {
     ]
 }
 
-fn cdi_device_id(pair_name: &str) -> String {
-    format!("{CDI_KIND}={pair_name}")
-}
-
 async fn write_cdi_spec(pairs: &[AcceleratorPair]) -> io::Result<()> {
     let spec = cdi::Spec {
         cdi_version: "0.8.0",
         kind: CDI_KIND.into(),
-        devices: pairs
-            .iter()
-            .map(|pair| cdi::Device {
-                name: pair.name.into(),
-                container_edits: cdi::ContainerEdits {
-                    env: vec![
-                        format!("ACCELERATOR_PAIR={}", pair.name),
-                        format!("ACCELERATOR_PAIR_MEMBERS={}", pair.members.join(",")),
-                        format!("ACCELERATOR_INTERCONNECT={}", pair.interconnect),
-                    ],
-                    ..default()
-                },
-            })
-            .collect(),
+        devices: pairs.iter().map(cdi::Device::from).collect(),
     };
 
     tokio::fs::create_dir_all(CDI_SPEC_DIR).await?;
@@ -141,7 +146,7 @@ impl AcceleratorPairDriver {
             request_names: device.request_name.clone().into_iter().collect(),
             pool_name: device.pool_name.clone(),
             device_name: pair.name.to_string(),
-            cdi_device_ids: vec![cdi_device_id(pair.name)],
+            cdi_device_ids: vec![pair.cdi_device_id()],
         })
     }
 }
@@ -151,10 +156,7 @@ impl ResourcePool for AcceleratorPairDriver {
     async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
         BTreeMap::from([(
             self.pool.clone(),
-            self.pairs
-                .values()
-                .map(AcceleratorPair::pool_device)
-                .collect(),
+            self.pairs.values().map(PoolDevice::from).collect(),
         )])
     }
 }
@@ -262,10 +264,7 @@ mod tests {
     #[test]
     fn inventory_advertises_only_connected_pairs() {
         let pairs = example_pairs();
-        let devices = pairs
-            .iter()
-            .map(AcceleratorPair::pool_device)
-            .collect::<Vec<_>>();
+        let devices = pairs.iter().map(PoolDevice::from).collect::<Vec<_>>();
 
         assert_eq!(
             devices
@@ -309,8 +308,25 @@ mod tests {
     #[test]
     fn cdi_device_id_uses_the_pair_kind() {
         assert_eq!(
-            cdi_device_id("pair-2-3"),
+            example_pairs()[1].cdi_device_id(),
             "accelerator.example.com/pair=pair-2-3"
+        );
+    }
+
+    #[test]
+    fn pair_conversion_preserves_the_cdi_environment_contract() {
+        assert_eq!(
+            json::to_value(cdi::Device::from(&example_pairs()[0])).unwrap(),
+            json::json!({
+                "name": "pair-0-1",
+                "containerEdits": {
+                    "env": [
+                        "ACCELERATOR_PAIR=pair-0-1",
+                        "ACCELERATOR_PAIR_MEMBERS=accelerator-0,accelerator-1",
+                        "ACCELERATOR_INTERCONNECT=nvlink"
+                    ]
+                }
+            })
         );
     }
 }

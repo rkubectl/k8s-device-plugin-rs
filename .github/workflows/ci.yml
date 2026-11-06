@@ -86,6 +86,7 @@ jobs:
           submodules: true
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - run: sh core/hack/check-consumer-features.sh
       - run: sh dra/hack/check-consumer-schemas.sh
 
   docker:
