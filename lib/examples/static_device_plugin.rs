@@ -22,9 +22,9 @@ async fn main() -> std::io::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let devices = vec![Device::rdwr("widget-0", "/dev/widget0")];
+    let devices = vec![Device::rdwr("widget-0".parse().unwrap(), "/dev/widget0")];
     let service = DevicePluginService::new(StaticDevicePlugin::new(devices));
-    let plugin = DevicePlugin::new(RESOURCE_NAME, service).expect("valid resource name");
+    let plugin = DevicePlugin::new(RESOURCE_NAME.parse().unwrap(), service);
 
     tracing::info!(
         resource_name = RESOURCE_NAME,

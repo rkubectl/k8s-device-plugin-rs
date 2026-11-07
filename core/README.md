@@ -2,7 +2,14 @@
 
 Transport-independent classic device plugin contracts and shared socket and health primitives. DRA backend contracts live in `k8s-device-plugin-dra-core`.
 
-Device and allocation `validate()` methods check protocol IDs/paths without
+Classic backends construct `DeviceId` and `ExtendedResourceName` with checked
+parsing before passing them to `Device` or `DevicePlugin`. Device IDs preserve
+bytes exactly, permit non-DNS names, and must be nonempty and at most 63 UTF-8
+bytes. Extended resource names retain the existing domain/name and reserved
+namespace checks. Allocator and optional hook APIs now take `DeviceId` values;
+`DevicePlugin::new` takes an `ExtendedResourceName` and is infallible.
+
+Device and allocation `validate()` methods check paths without
 accessing the filesystem. Runtimes still validate at their RPC boundaries.
 Wire projection stays in the transport/API adapters so core does not depend
 on generated gRPC or Kubernetes API types, including through optional features.

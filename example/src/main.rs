@@ -10,8 +10,10 @@ use std::io;
 use camino::Utf8Path;
 
 use k8s_device_plugin_lib::Device;
+use k8s_device_plugin_lib::DeviceId;
 use k8s_device_plugin_lib::DevicePlugin;
 use k8s_device_plugin_lib::DevicePluginService;
+use k8s_device_plugin_lib::ExtendedResourceName;
 use k8s_device_plugin_lib::StaticDevicePlugin;
 
 const DEFAULT_RESOURCE_NAME: &str = "example.com/widget";
@@ -22,8 +24,10 @@ async fn main() -> io::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let resource_name =
-        env::var("RESOURCE_NAME").unwrap_or_else(|_| DEFAULT_RESOURCE_NAME.to_string());
+    let resource_name: ExtendedResourceName = env::var("RESOURCE_NAME")
+        .unwrap_or_else(|_| DEFAULT_RESOURCE_NAME.to_string())
+        .parse()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
     let device_paths = env::var("DEVICE_PATHS").unwrap_or_default();
     let devices = parse_devices(&device_paths)?;
 
@@ -32,13 +36,13 @@ async fn main() -> io::Result<()> {
     }
 
     tracing::info!(
-        resource_name,
+        %resource_name,
         device_count = devices.len(),
         "starting device plugin"
     );
 
     let service = DevicePluginService::new(StaticDevicePlugin::new(devices));
-    let plugin = DevicePlugin::new(&resource_name, service).map_err(io::Error::other)?;
+    let plugin = DevicePlugin::new(resource_name, service);
     plugin.run().await
 }
 
@@ -52,6 +56,8 @@ fn parse_devices(paths: &str) -> io::Result<Vec<Device>> {
             let id = Utf8Path::new(path)
                 .file_name()
                 .map_or_else(|| path.to_string(), |name| name.to_string());
+            let id = DeviceId::try_from(id)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
             if !ids.insert(id.clone()) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -95,7 +101,7 @@ mod tests {
         let devices = parse_devices("/").expect("unique device paths");
 
         assert_eq!(devices.len(), 1);
-        assert_eq!(devices[0].id, "/");
+        assert_eq!(devices[0].id.as_str(), "/");
     }
 }
 

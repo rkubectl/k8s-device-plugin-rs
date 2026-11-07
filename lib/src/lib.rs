@@ -18,8 +18,12 @@ pub use k8s_device_plugin_core::ContainerAllocation;
 pub use k8s_device_plugin_core::Device;
 pub use k8s_device_plugin_core::DeviceAllocator;
 pub use k8s_device_plugin_core::DeviceDiscovery;
+pub use k8s_device_plugin_core::DeviceId;
+pub use k8s_device_plugin_core::DeviceIdError;
 pub use k8s_device_plugin_core::DevicePath;
 pub use k8s_device_plugin_core::DevicePermissions;
+pub use k8s_device_plugin_core::ExtendedResourceName;
+pub use k8s_device_plugin_core::ExtendedResourceNameError;
 pub use k8s_device_plugin_core::Health;
 pub use k8s_device_plugin_core::HostMount;
 pub use k8s_device_plugin_core::K8sDevicePlugin;
@@ -42,13 +46,13 @@ fn server_exit_error(result: Result<Result<(), transport::Error>, task::JoinErro
 
 fn device_to_proto(device: &Device) -> v1beta1::Device {
     v1beta1::Device {
-        id: device.id.clone(),
+        id: device.id.to_string(),
         health: device.health.to_string(),
         topology: None,
     }
 }
 
-/// Drops (and logs) any device that fails [`Device::validate`] instead of
+/// Drops (and logs) any device with invalid paths instead of
 /// forwarding it to kubelet -- a single misbehaving device shouldn't take
 /// down health reporting for every other healthy device. Filtering happens
 /// before the `ListAndWatch` change-detection comparison, so a device that
@@ -60,7 +64,7 @@ fn valid_devices(devices: Vec<Device>) -> Vec<Device> {
         .filter(|device| match device.validate() {
             Ok(()) => true,
             Err(err) => {
-                tracing::warn!(device_id = device.id, %err, "dropping invalid device from ListAndWatch");
+                tracing::warn!(device_id = %device.id, %err, "dropping invalid device from ListAndWatch");
                 false
             }
         })
@@ -136,43 +140,41 @@ fn container_allocation_to_response(
 #[derive(Clone, Debug)]
 pub struct DevicePlugin {
     endpoint: Utf8PathBuf,
-    resource_name: String,
+    resource_name: ExtendedResourceName,
     service: Arc<DevicePluginService>,
     kubelet_socket: Utf8PathBuf,
 }
 
 impl DevicePlugin {
-    pub fn new(resource_name: &str, service: DevicePluginService) -> Result<Self, ValidationError> {
-        k8s_device_plugin_core::validate_resource_name(resource_name)?;
-        let socket_name = sanitize_socket_name(resource_name);
-        let resource_name = resource_name.to_string();
+    pub fn new(resource_name: ExtendedResourceName, service: DevicePluginService) -> Self {
+        let socket_name = sanitize_socket_name(resource_name.as_str());
         let endpoint = Utf8Path::new(v1beta1::DEVICE_PLUGIN_PATH).join(socket_name);
         let service = Arc::new(service);
         let kubelet_socket = Self::kubelet_socket_path();
-        Ok(Self {
+        Self {
             endpoint,
             resource_name,
             service,
             kubelet_socket,
-        })
+        }
     }
 
     #[cfg(test)]
     fn for_test(
-        resource_name: &str,
+        resource_name: ExtendedResourceName,
         service: DevicePluginService,
         endpoint: Utf8PathBuf,
         kubelet_socket: Utf8PathBuf,
     ) -> Self {
         Self {
             endpoint,
-            resource_name: resource_name.to_string(),
+            resource_name,
             service: Arc::new(service),
             kubelet_socket,
         }
     }
 
-    #[tracing::instrument(skip(self), fields(resource_name = self.resource_name))]
+    #[tracing::instrument(skip(self), fields(resource_name = %self.resource_name))]
     /// Runs for the process lifetime. Dropping this future does not stop the
     /// serving task; terminate the process to shut down the plugin.
     pub async fn run(&self) -> io::Result<()> {
@@ -205,7 +207,7 @@ impl DevicePlugin {
             .await
     }
 
-    #[tracing::instrument(skip(self, kubelet_socket), fields(resource_name = self.resource_name))]
+    #[tracing::instrument(skip(self, kubelet_socket), fields(resource_name = %self.resource_name))]
     async fn try_register(
         &self,
         kubelet_socket: &Utf8Path,
@@ -369,18 +371,16 @@ impl v1beta1::DevicePlugin for DevicePluginService {
             let size = usize::try_from(container_request.allocation_size).map_err(|_| {
                 tonic::Status::invalid_argument("allocation_size must be non-negative")
             })?;
+            let available = parse_device_ids(container_request.available_device_i_ds)?;
+            let required = parse_device_ids(container_request.must_include_device_i_ds)?;
             let device_ids = self
                 .plugin
-                .preferred_allocation(
-                    &container_request.available_device_i_ds,
-                    &container_request.must_include_device_i_ds,
-                    size,
-                )
+                .preferred_allocation(&available, &required, size)
                 .await
                 .inspect_err(|err| tracing::warn!(%err, "preferred_allocation hook failed"))
                 .map_err(allocation_error_to_status)?;
             container_responses.push(v1beta1::ContainerPreferredAllocationResponse {
-                device_i_ds: device_ids,
+                device_i_ds: device_ids.into_iter().map(DeviceId::into_string).collect(),
             });
         }
 
@@ -394,19 +394,18 @@ impl v1beta1::DevicePlugin for DevicePluginService {
         &self,
         request: tonic::Request<v1beta1::AllocateRequest>,
     ) -> tonic::Result<tonic::Response<v1beta1::AllocateResponse>> {
-        // JoinSet owns all tasks: errors and RPC cancellation abort siblings.
-        // Record request positions because tasks may finish in any order.
-        let mut tasks = task::JoinSet::new();
-        for (index, container_request) in request
+        let containers = request
             .into_inner()
             .container_requests
             .into_iter()
-            .enumerate()
-        {
+            .map(|container| parse_device_ids(container.devices_ids))
+            .collect::<tonic::Result<Vec<_>>>()?;
+        // JoinSet owns all tasks: errors and RPC cancellation abort siblings.
+        // Record request positions because tasks may finish in any order.
+        let mut tasks = task::JoinSet::new();
+        for (index, device_ids) in containers.into_iter().enumerate() {
             let plugin = Arc::clone(&self.plugin);
-            tasks.spawn(
-                async move { (index, plugin.allocate(&container_request.devices_ids).await) },
-            );
+            tasks.spawn(async move { (index, plugin.allocate(&device_ids).await) });
         }
         let mut container_responses = std::collections::BTreeMap::new();
         while let Some(result) = tasks.join_next().await {
@@ -434,7 +433,7 @@ impl v1beta1::DevicePlugin for DevicePluginService {
         &self,
         request: tonic::Request<v1beta1::PreStartContainerRequest>,
     ) -> tonic::Result<tonic::Response<v1beta1::PreStartContainerResponse>> {
-        let device_ids = request.into_inner().devices_ids;
+        let device_ids = parse_device_ids(request.into_inner().devices_ids)?;
         self.plugin
             .pre_start_container(&device_ids)
             .await
@@ -442,6 +441,15 @@ impl v1beta1::DevicePlugin for DevicePluginService {
             .map_err(allocation_error_to_status)?;
         Ok(tonic::Response::new(v1beta1::PreStartContainerResponse {}))
     }
+}
+
+fn parse_device_ids(ids: Vec<String>) -> tonic::Result<Vec<DeviceId>> {
+    ids.into_iter()
+        .map(|id| {
+            DeviceId::try_from(id)
+                .map_err(|error| tonic::Status::invalid_argument(error.to_string()))
+        })
+        .collect()
 }
 
 /// Derives a filesystem-safe, collision-resistant socket name from a resource

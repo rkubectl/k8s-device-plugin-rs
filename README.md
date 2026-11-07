@@ -41,12 +41,13 @@ If your devices are known up front and don't need custom discovery or allocation
 use k8s_device_plugin::{Device, DevicePlugin, DevicePluginService, StaticDevicePlugin};
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
-    let devices = vec![Device::rdwr("widget-0", "/dev/widget0")];
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let devices = vec![Device::rdwr("widget-0".parse()?, "/dev/widget0")];
 
     let service = DevicePluginService::new(StaticDevicePlugin::new(devices));
-    let plugin = DevicePlugin::new("example.com/widget", service);
-    plugin.run().await
+    let plugin = DevicePlugin::new("example.com/widget".parse()?, service);
+    plugin.run().await?;
+    Ok(())
 }
 ```
 
@@ -58,7 +59,7 @@ Implement `DeviceDiscovery` and `DeviceAllocator` for your backend type, then op
 
 ```rust
 use k8s_device_plugin::{
-    AllocationError, ContainerAllocation, Device, DeviceAllocator, DeviceDiscovery,
+    AllocationError, ContainerAllocation, Device, DeviceId, DeviceAllocator, DeviceDiscovery,
     DevicePlugin, DevicePluginService, K8sDevicePlugin,
 };
 
@@ -74,7 +75,7 @@ impl DeviceDiscovery for MyBackend {
 
 #[tonic::async_trait]
 impl DeviceAllocator for MyBackend {
-    async fn allocate(&self, device_ids: &[String]) -> Result<ContainerAllocation, AllocationError> {
+    async fn allocate(&self, device_ids: &[DeviceId]) -> Result<ContainerAllocation, AllocationError> {
         // Resolve device_ids to the host/container paths + permissions to mount.
         Ok(ContainerAllocation::default())
     }
@@ -83,10 +84,11 @@ impl DeviceAllocator for MyBackend {
 impl K8sDevicePlugin for MyBackend {}
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let service = DevicePluginService::new(MyBackend { /* ... */ });
-    let plugin = DevicePlugin::new("example.com/my-device", service);
-    plugin.run().await
+    let plugin = DevicePlugin::new("example.com/my-device".parse()?, service);
+    plugin.run().await?;
+    Ok(())
 }
 ```
 
@@ -110,7 +112,7 @@ impl K8sDevicePlugin for MyBackend {
         true
     }
 
-    async fn pre_start_container(&self, device_ids: &[String]) -> Result<(), AllocationError> {
+    async fn pre_start_container(&self, device_ids: &[DeviceId]) -> Result<(), AllocationError> {
         // e.g. reset the device before kubelet starts the container.
         Ok(())
     }
@@ -121,10 +123,10 @@ impl K8sDevicePlugin for MyBackend {
 
     async fn preferred_allocation(
         &self,
-        available_device_ids: &[String],
-        must_include_device_ids: &[String],
+        available_device_ids: &[DeviceId],
+        must_include_device_ids: &[DeviceId],
         size: usize,
-    ) -> Result<Vec<String>, AllocationError> {
+    ) -> Result<Vec<DeviceId>, AllocationError> {
         // Choose `size` device IDs from `available_device_ids`, including
         // every ID in `must_include_device_ids`.
         Ok(vec![])

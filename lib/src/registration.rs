@@ -43,8 +43,12 @@ impl RegistrationClient {
         })
     }
 
-    pub async fn register(&mut self, endpoint: &str, resource_name: &str) -> tonic::Result<()> {
-        let request = v1beta1::RegisterRequest::new(endpoint, resource_name);
+    pub async fn register(
+        &mut self,
+        endpoint: &str,
+        resource_name: &ExtendedResourceName,
+    ) -> tonic::Result<()> {
+        let request = v1beta1::RegisterRequest::new(endpoint, resource_name.as_str());
         self.inner.register(request).await?;
         Ok(())
     }
@@ -66,7 +70,7 @@ mod tests {
             .await
             .expect("connect registration client");
         client
-            .register("plugin.sock", "example.com/device")
+            .register("plugin.sock", &"example.com/device".parse().unwrap())
             .await
             .expect("register call over unix socket");
 
@@ -110,7 +114,7 @@ mod tests {
             .expect("connect registration client");
 
         let status = client
-            .register("plugin.sock", "example.com/device")
+            .register("plugin.sock", &"example.com/device".parse().unwrap())
             .await
             .expect_err("register should fail when server rejects");
 
@@ -160,7 +164,7 @@ mod timeout_tests {
         );
         let service = DevicePluginService::new(StaticDevicePlugin::new(vec![]));
         let plugin = DevicePlugin::for_test(
-            "example.com/device",
+            "example.com/device".parse().unwrap(),
             service,
             "unused.sock".into(),
             path.clone(),
@@ -223,7 +227,9 @@ mod timeout_tests {
         });
         let registration = task::spawn(async move {
             let mut client = RegistrationClient::new(&path).await?;
-            client.register("plugin.sock", "example.com/device").await
+            client
+                .register("plugin.sock", &"example.com/device".parse().unwrap())
+                .await
         });
         time::timeout(REGISTRATION_TIMEOUT, preface_received)
             .await

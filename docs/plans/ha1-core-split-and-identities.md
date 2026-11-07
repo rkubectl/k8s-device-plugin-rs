@@ -1,9 +1,9 @@
 # Separate classic and DRA contracts; validate identities at construction
 
 Tracking: `k8s-device-plugin-rs-ha1` and phases `ha1.1`–`ha1.5`.
-Status: **review approved; ha1.2 and ha1.3 complete**. The user approved
-the plan review and authorized ha1.3 after the completed ha1.2 pilot. Later
-phases are not started; release and publication remain separate decisions.
+Status: **review approved; ha1.2, ha1.3, and ha1.4 complete**.
+The user authorized the classic identity phase after ha1.3. ha1.5 has not
+started; release and publication remain separate decisions.
 
 Baseline: v0.5.0 plus ownership audit, commit
 `51774a29a86dbbf47eb20bcbaca65481854ab9ec`, assessed 2026-11-07.

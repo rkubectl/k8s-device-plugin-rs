@@ -12,7 +12,7 @@ use super::*;
 ///
 /// ```no_run
 /// # use k8s_device_plugin_lib::{Device, StaticDevicePlugin};
-/// let devices = vec![Device::rdwr("widget-0", "/dev/widget0")];
+/// let devices = vec![Device::rdwr("widget-0".parse().unwrap(), "/dev/widget0")];
 /// let plugin = StaticDevicePlugin::new(devices);
 /// ```
 #[derive(Clone, Debug)]
@@ -37,7 +37,7 @@ impl DeviceDiscovery for StaticDevicePlugin {
 impl DeviceAllocator for StaticDevicePlugin {
     async fn allocate(
         &self,
-        device_ids: &[String],
+        device_ids: &[DeviceId],
     ) -> Result<ContainerAllocation, AllocationError> {
         let mut device_paths = Vec::new();
         for id in device_ids {
@@ -75,7 +75,7 @@ mod tests {
 
     #[tokio::test]
     async fn discover_returns_the_static_list_unchanged() {
-        let devices = vec![Device::rdwr("dev-0", "/dev/null")];
+        let devices = vec![Device::rdwr("dev-0".parse().unwrap(), "/dev/null")];
         let plugin = StaticDevicePlugin::new(devices.clone());
 
         let discovered = plugin.discover().await;
@@ -86,21 +86,26 @@ mod tests {
     #[tokio::test]
     async fn allocate_succeeds_when_host_path_exists() {
         let temp_file = camino_tempfile::NamedUtf8TempFile::new().expect("create temp file");
-        let plugin =
-            StaticDevicePlugin::new(vec![Device::rdwr("dev-0", temp_file.path().to_path_buf())]);
+        let plugin = StaticDevicePlugin::new(vec![Device::rdwr(
+            "dev-0".parse().unwrap(),
+            temp_file.path().to_path_buf(),
+        )]);
 
-        let allocation = plugin.allocate(&["dev-0".to_string()]).await.unwrap();
+        let allocation = plugin.allocate(&["dev-0".parse().unwrap()]).await.unwrap();
         assert_eq!(allocation.device_paths.len(), 1);
     }
 
     #[tokio::test]
     async fn allocate_fails_when_host_path_is_missing() {
         let plugin = StaticDevicePlugin::new(vec![Device::rdwr(
-            "dev-0",
+            "dev-0".parse().unwrap(),
             Utf8PathBuf::from("/nonexistent/path/for/testing"),
         )]);
 
-        let err = plugin.allocate(&["dev-0".to_string()]).await.unwrap_err();
+        let err = plugin
+            .allocate(&["dev-0".parse().unwrap()])
+            .await
+            .unwrap_err();
         assert!(matches!(err, AllocationError::DeviceUnavailable(_)));
     }
 
@@ -109,7 +114,7 @@ mod tests {
         let plugin = StaticDevicePlugin::new(vec![]);
 
         let err = plugin
-            .allocate(&["does-not-exist".to_string()])
+            .allocate(&["does-not-exist".parse().unwrap()])
             .await
             .unwrap_err();
         assert!(matches!(err, AllocationError::DeviceNotFound(_)));

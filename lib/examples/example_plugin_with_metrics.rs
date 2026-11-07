@@ -35,6 +35,7 @@ use k8s_device_plugin_lib::ContainerAllocation;
 use k8s_device_plugin_lib::Device;
 use k8s_device_plugin_lib::DeviceAllocator;
 use k8s_device_plugin_lib::DeviceDiscovery;
+use k8s_device_plugin_lib::DeviceId;
 use k8s_device_plugin_lib::DevicePlugin;
 use k8s_device_plugin_lib::DevicePluginService;
 use k8s_device_plugin_lib::K8sDevicePlugin;
@@ -128,7 +129,7 @@ struct ExampleWidgetPlugin {
 
 impl ExampleWidgetPlugin {
     fn new() -> Self {
-        let device = Device::rdwr("widget-0", "/dev/widget-0");
+        let device = Device::rdwr("widget-0".parse().unwrap(), "/dev/widget-0");
         let devices = Mutex::new(vec![device]);
         Self { devices }
     }
@@ -145,7 +146,7 @@ impl DeviceDiscovery for ExampleWidgetPlugin {
 impl DeviceAllocator for ExampleWidgetPlugin {
     async fn allocate(
         &self,
-        device_ids: &[String],
+        device_ids: &[DeviceId],
     ) -> Result<ContainerAllocation, AllocationError> {
         let devices = self.devices.lock();
         let mut device_paths = Vec::new();
@@ -179,7 +180,7 @@ async fn main() -> std::io::Result<()> {
     tracing::info!("Prometheus metrics available at http://127.0.0.1:9184/metrics");
 
     let service = DevicePluginService::new(ExampleWidgetPlugin::new());
-    let plugin = DevicePlugin::new(RESOURCE_NAME, service).expect("valid resource name");
+    let plugin = DevicePlugin::new(RESOURCE_NAME.parse().unwrap(), service);
     plugin.run().await
 }
 

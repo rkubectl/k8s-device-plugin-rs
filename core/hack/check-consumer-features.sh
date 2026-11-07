@@ -26,7 +26,9 @@ cat > "$check_dir/src/main.rs" <<'EOF'
 use k8s_device_plugin_core::Device;
 
 fn main() {
-    Device::rdwr("widget", "/dev/widget").validate().unwrap();
+    let id: k8s_device_plugin_core::DeviceId = "GPU/0".parse().unwrap();
+    let _: k8s_device_plugin_core::ExtendedResourceName = "example.com/widget".parse().unwrap();
+    Device::rdwr(id, "/dev/widget").validate().unwrap();
 }
 EOF
 
@@ -71,7 +73,11 @@ edition = "2024"
 k8s-device-plugin = { path = $facade_path, default-features = false, features = ["device-plugin"] }
 EOF
 cat > src/main.rs <<'EOF'
-fn main() { k8s_device_plugin::Device::rdwr("widget", "/dev/widget").validate().unwrap(); }
+fn main() {
+    let id: k8s_device_plugin::DeviceId = "GPU/0".parse().unwrap();
+    let _: k8s_device_plugin::ExtendedResourceName = "example.com/widget".parse().unwrap();
+    k8s_device_plugin::Device::rdwr(id, "/dev/widget").validate().unwrap();
+}
 EOF
 cargo check
 cargo tree --edges normal --prefix none --format '{p}' > "$check_dir/tree"

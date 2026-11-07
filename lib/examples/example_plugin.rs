@@ -21,6 +21,7 @@ use k8s_device_plugin_lib::ContainerAllocation;
 use k8s_device_plugin_lib::Device;
 use k8s_device_plugin_lib::DeviceAllocator;
 use k8s_device_plugin_lib::DeviceDiscovery;
+use k8s_device_plugin_lib::DeviceId;
 use k8s_device_plugin_lib::DevicePlugin;
 use k8s_device_plugin_lib::DevicePluginService;
 use k8s_device_plugin_lib::Health;
@@ -46,7 +47,7 @@ impl ExampleWidgetPlugin {
 }
 
 fn make_device(id: &str, health: Health) -> Device {
-    Device::rdwr(id, format!("/dev/{id}")).health(health)
+    Device::rdwr(id.parse().unwrap(), format!("/dev/{id}")).health(health)
 }
 
 #[tonic::async_trait]
@@ -60,7 +61,7 @@ impl DeviceDiscovery for ExampleWidgetPlugin {
 impl DeviceAllocator for ExampleWidgetPlugin {
     async fn allocate(
         &self,
-        device_ids: &[String],
+        device_ids: &[DeviceId],
     ) -> Result<ContainerAllocation, AllocationError> {
         let devices = self.devices.lock();
         let mut device_paths = Vec::new();
@@ -73,7 +74,14 @@ impl DeviceAllocator for ExampleWidgetPlugin {
         }
         // Real devices often need more than a /dev node -- e.g. an env var
         // pointing the workload at which devices it was given.
-        let envs = BTreeMap::from([("EXAMPLE_WIDGET_DEVICES".to_string(), device_ids.join(","))]);
+        let envs = BTreeMap::from([(
+            "EXAMPLE_WIDGET_DEVICES".to_string(),
+            device_ids
+                .iter()
+                .map(DeviceId::as_str)
+                .collect::<Vec<_>>()
+                .join(","),
+        )]);
         Ok(ContainerAllocation {
             device_paths,
             envs,
@@ -88,7 +96,7 @@ impl K8sDevicePlugin for ExampleWidgetPlugin {
         true
     }
 
-    async fn pre_start_container(&self, device_ids: &[String]) -> Result<(), AllocationError> {
+    async fn pre_start_container(&self, device_ids: &[DeviceId]) -> Result<(), AllocationError> {
         tracing::info!(?device_ids, "pre-start hook: resetting devices");
         Ok(())
     }
@@ -99,10 +107,10 @@ impl K8sDevicePlugin for ExampleWidgetPlugin {
 
     async fn preferred_allocation(
         &self,
-        available_device_ids: &[String],
-        must_include_device_ids: &[String],
+        available_device_ids: &[DeviceId],
+        must_include_device_ids: &[DeviceId],
         size: usize,
-    ) -> Result<Vec<String>, AllocationError> {
+    ) -> Result<Vec<DeviceId>, AllocationError> {
         let mut chosen = must_include_device_ids
             .iter()
             .take(size)
@@ -127,7 +135,7 @@ async fn main() -> std::io::Result<()> {
         .init();
 
     let service = DevicePluginService::new(ExampleWidgetPlugin::new());
-    let plugin = DevicePlugin::new(RESOURCE_NAME, service).expect("valid resource name");
+    let plugin = DevicePlugin::new(RESOURCE_NAME.parse().unwrap(), service);
 
     tracing::info!(
         resource_name = RESOURCE_NAME,

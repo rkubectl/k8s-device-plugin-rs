@@ -33,33 +33,30 @@ pub struct HostMount {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device {
-    pub id: String,
+    pub id: DeviceId,
     pub health: Health,
     pub paths: Vec<DevicePath>,
 }
 
 impl Device {
-    /// Validates the advertised ID and device paths, without filesystem access.
+    /// Validates the device paths, without filesystem access.
     ///
     /// # Errors
-    /// Returns a validation error for an invalid ID or path.
+    /// Returns a validation error for an invalid path.
     pub fn validate(&self) -> Result<(), ValidationError> {
-        validate_device_id(&self.id)?;
         for path in &self.paths {
             path.validate()?;
         }
         Ok(())
     }
 
-    pub fn new(id: impl Into<String>) -> Self {
-        let id = id.into();
+    pub fn new(id: DeviceId) -> Self {
         let health = Health::Healthy;
         let paths = vec![];
         Self { id, health, paths }
     }
 
-    pub fn rdwr(id: impl Into<String>, path: impl Into<Utf8PathBuf>) -> Self {
-        let id = id.into();
+    pub fn rdwr(id: DeviceId, path: impl Into<Utf8PathBuf>) -> Self {
         let health = Health::Healthy;
         let paths = vec![DevicePath::rdwr(path)];
         Self { id, health, paths }

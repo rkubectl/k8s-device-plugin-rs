@@ -14,8 +14,7 @@ fn kubelet_socket_path() {
 
 #[test]
 fn register_uses_socket_filename_as_endpoint() {
-    let plugin =
-        DevicePlugin::new("example.com/device", make_service()).expect("valid resource name");
+    let plugin = DevicePlugin::new("example.com/device".parse().unwrap(), make_service());
 
     let expected_prefix = "/var/lib/kubelet/device-plugins/example_com_device-";
     assert!(
@@ -32,10 +31,10 @@ fn register_uses_socket_filename_as_endpoint() {
 
 #[test]
 fn new_rejects_malformed_resource_name() {
-    let err = DevicePlugin::new("widget", make_service()).expect_err("no domain in name");
+    let err = ExtendedResourceName::try_from("widget").expect_err("no domain in name");
     assert_eq!(
         err,
-        ValidationError::MalformedResourceName("widget".to_string())
+        ExtendedResourceNameError::Malformed("widget".to_string())
     );
 }
 
@@ -44,13 +43,13 @@ async fn setup_listener_refuses_an_active_endpoint() {
     let socket_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
     let endpoint = socket_dir.path().join("plugin.sock");
     let active = DevicePlugin::for_test(
-        "example.com/device",
+        "example.com/device".parse().unwrap(),
         make_service(),
         endpoint.clone(),
         "unused".into(),
     );
     let contender = DevicePlugin::for_test(
-        "example.com/device",
+        "example.com/device".parse().unwrap(),
         make_service(),
         endpoint,
         "unused".into(),
@@ -156,7 +155,7 @@ async fn list_and_watch_does_not_repeat_reordered_but_unchanged_devices() {
 
 #[test]
 fn converts_device_to_proto() {
-    let device = Device::new("dev-0");
+    let device = Device::new("dev-0".parse().unwrap());
     let proto = device_to_proto(&device);
     assert_eq!(proto.id, "dev-0");
     assert_eq!(proto.health, v1beta1::HEALTHY);
@@ -172,7 +171,7 @@ fn converts_device_path_to_spec() {
 }
 
 fn make_service() -> DevicePluginService {
-    let device = Device::rdwr("dev-0", "/dev/null");
+    let device = Device::rdwr("dev-0".parse().unwrap(), "/dev/null");
     DevicePluginService::new(StaticDevicePlugin::new(vec![device]))
 }
 
@@ -208,14 +207,14 @@ impl DeviceDiscovery for DynamicDevicePlugin {
 impl DeviceAllocator for DynamicDevicePlugin {
     async fn allocate(
         &self,
-        _device_ids: &[String],
+        _device_ids: &[DeviceId],
     ) -> Result<ContainerAllocation, AllocationError> {
         Ok(ContainerAllocation::default())
     }
 }
 
 fn make_device(id: &str, health: Health) -> Device {
-    Device::new(id).health(health)
+    Device::new(id.parse().unwrap()).health(health)
 }
 
 #[tokio::test]
@@ -268,9 +267,10 @@ async fn list_and_watch_does_not_repeat_unchanged_devices() {
 async fn list_and_watch_drops_invalid_device_but_keeps_valid_sibling() {
     use v1beta1::DevicePlugin as _;
 
+    assert!(DeviceId::try_from("").is_err());
     let devices = Arc::new(Mutex::new(vec![
         make_device("dev-0", Health::Healthy),
-        make_device("", Health::Healthy),
+        Device::rdwr("bad-path".parse().unwrap(), "relative"),
     ]));
     let service = DevicePluginService::new(DynamicDevicePlugin(Arc::clone(&devices)));
 
@@ -352,7 +352,7 @@ impl DeviceDiscovery for AllocationPlugin {
 impl DeviceAllocator for AllocationPlugin {
     async fn allocate(
         &self,
-        _device_ids: &[String],
+        _device_ids: &[DeviceId],
     ) -> Result<ContainerAllocation, AllocationError> {
         Ok(self.0.clone())
     }
@@ -391,11 +391,18 @@ impl DeviceDiscovery for SlowPlugin {
 impl DeviceAllocator for SlowPlugin {
     async fn allocate(
         &self,
-        device_ids: &[String],
+        device_ids: &[DeviceId],
     ) -> Result<ContainerAllocation, AllocationError> {
         tokio::time::sleep(Duration::from_millis(20)).await;
         Ok(ContainerAllocation {
-            envs: BTreeMap::from([("DEVICE_IDS".to_string(), device_ids.join(","))]),
+            envs: BTreeMap::from([(
+                "DEVICE_IDS".to_string(),
+                device_ids
+                    .iter()
+                    .map(DeviceId::as_str)
+                    .collect::<Vec<_>>()
+                    .join(","),
+            )]),
             ..default()
         })
     }
@@ -451,10 +458,12 @@ impl DeviceDiscovery for AbortAwarePlugin {
 impl DeviceAllocator for AbortAwarePlugin {
     async fn allocate(
         &self,
-        device_ids: &[String],
+        device_ids: &[DeviceId],
     ) -> Result<ContainerAllocation, AllocationError> {
-        if device_ids.first().map(String::as_str) == Some(self.fail_on.as_str()) {
-            return Err(AllocationError::DeviceNotFound(self.fail_on.clone()));
+        if device_ids.first().map(DeviceId::as_str) == Some(self.fail_on.as_str()) {
+            return Err(AllocationError::DeviceNotFound(
+                self.fail_on.parse().unwrap(),
+            ));
         }
         // Simulate slow work; if the task is aborted (as it should be once
         // a sibling container fails), this sleep is cut short and
@@ -467,6 +476,51 @@ impl DeviceAllocator for AbortAwarePlugin {
 }
 
 impl K8sDevicePlugin for AbortAwarePlugin {}
+
+struct CountingPlugin(Arc<std::sync::atomic::AtomicUsize>);
+
+#[tonic::async_trait]
+impl DeviceDiscovery for CountingPlugin {
+    async fn discover(&self) -> Vec<Device> {
+        vec![]
+    }
+}
+
+#[tonic::async_trait]
+impl DeviceAllocator for CountingPlugin {
+    async fn allocate(&self, _: &[DeviceId]) -> Result<ContainerAllocation, AllocationError> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(ContainerAllocation::default())
+    }
+}
+
+impl K8sDevicePlugin for CountingPlugin {}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn allocate_rejects_invalid_later_container_before_starting_backend() {
+    use v1beta1::DevicePlugin as _;
+
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let service = DevicePluginService::new(CountingPlugin(Arc::clone(&calls)));
+    let mut container_requests = vec![
+        v1beta1::ContainerAllocateRequest {
+            devices_ids: vec!["valid".into()],
+        };
+        1024
+    ];
+    container_requests.push(v1beta1::ContainerAllocateRequest {
+        devices_ids: vec![String::new()],
+    });
+    let error = service
+        .allocate(tonic::Request::new(v1beta1::AllocateRequest {
+            container_requests,
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
+    task::yield_now().await;
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
 
 #[tokio::test]
 async fn allocate_aborts_in_flight_tasks_when_one_container_fails() {
@@ -529,7 +583,7 @@ impl DeviceDiscovery for FullFeaturedPlugin {
 impl DeviceAllocator for FullFeaturedPlugin {
     async fn allocate(
         &self,
-        _device_ids: &[String],
+        _device_ids: &[DeviceId],
     ) -> Result<ContainerAllocation, AllocationError> {
         Ok(ContainerAllocation {
             mounts: vec![HostMount {
@@ -551,8 +605,8 @@ impl K8sDevicePlugin for FullFeaturedPlugin {
         true
     }
 
-    async fn pre_start_container(&self, device_ids: &[String]) -> Result<(), AllocationError> {
-        if device_ids.iter().any(|id| id == "broken") {
+    async fn pre_start_container(&self, device_ids: &[DeviceId]) -> Result<(), AllocationError> {
+        if device_ids.iter().any(|id| id.as_str() == "broken") {
             return Err(AllocationError::HookFailed("device reset failed".into()));
         }
         Ok(())
@@ -564,10 +618,10 @@ impl K8sDevicePlugin for FullFeaturedPlugin {
 
     async fn preferred_allocation(
         &self,
-        available_device_ids: &[String],
-        _must_include_device_ids: &[String],
+        available_device_ids: &[DeviceId],
+        _must_include_device_ids: &[DeviceId],
         size: usize,
-    ) -> Result<Vec<String>, AllocationError> {
+    ) -> Result<Vec<DeviceId>, AllocationError> {
         Ok(available_device_ids.iter().take(size).cloned().collect())
     }
 }
@@ -672,8 +726,7 @@ async fn try_register_succeeds_on_first_attempt() {
     use k8s_device_plugin_test::registration::start_mock_registration_server;
 
     let server = start_mock_registration_server(None);
-    let plugin =
-        DevicePlugin::new("example.com/device", make_service()).expect("valid resource name");
+    let plugin = DevicePlugin::new("example.com/device".parse().unwrap(), make_service());
 
     plugin
         .try_register(server.socket_path(), 3, Duration::from_millis(1))
@@ -690,8 +743,7 @@ async fn try_register_gives_up_after_max_attempts() {
     use k8s_device_plugin_test::registration::start_mock_registration_server;
 
     let server = start_mock_registration_server(Some((tonic::Code::Unavailable, "kubelet down")));
-    let plugin =
-        DevicePlugin::new("example.com/device", make_service()).expect("valid resource name");
+    let plugin = DevicePlugin::new("example.com/device".parse().unwrap(), make_service());
 
     let err = plugin
         .try_register(server.socket_path(), 3, Duration::from_millis(1))
@@ -707,8 +759,7 @@ async fn try_register_retries_until_success() {
     use k8s_device_plugin_test::registration::start_mock_registration_server_with_failures;
 
     let server = start_mock_registration_server_with_failures(2);
-    let plugin =
-        DevicePlugin::new("example.com/device", make_service()).expect("valid resource name");
+    let plugin = DevicePlugin::new("example.com/device".parse().unwrap(), make_service());
 
     plugin
         .try_register(server.socket_path(), 3, Duration::from_millis(1))
@@ -733,7 +784,7 @@ async fn run_reregisters_after_kubelet_disconnects() {
     let endpoint = plugin_dir.path().join("plugin.sock");
 
     let plugin = DevicePlugin::for_test(
-        "example.com/device",
+        "example.com/device".parse().unwrap(),
         make_service(),
         endpoint.clone(),
         registration_server.socket_path().to_owned(),
@@ -770,7 +821,7 @@ async fn run_reaps_server_before_returning_registration_failure() {
     let dir = Utf8TempDir::new().unwrap();
     let endpoint = dir.path().join("plugin.sock");
     let plugin = DevicePlugin::for_test(
-        "example.com/device",
+        "example.com/device".parse().unwrap(),
         make_service(),
         endpoint.clone(),
         dir.path().join("missing-kubelet.sock"),
@@ -827,7 +878,7 @@ impl DeviceDiscovery for CancellationPlugin {
 
 #[tonic::async_trait]
 impl DeviceAllocator for CancellationPlugin {
-    async fn allocate(&self, _: &[String]) -> Result<ContainerAllocation, AllocationError> {
+    async fn allocate(&self, _: &[DeviceId]) -> Result<ContainerAllocation, AllocationError> {
         struct OnDrop(Arc<tokio::sync::Notify>);
         impl Drop for OnDrop {
             fn drop(&mut self) {
@@ -896,4 +947,100 @@ async fn allocate_preserves_unicode_device_and_mount_paths_on_the_wire() {
     assert_eq!(container.devices[0].container_path, "/dev/装置");
     assert_eq!(container.mounts[0].host_path, "/srv/данные");
     assert_eq!(container.mounts[0].container_path, "/work/Δ");
+}
+
+#[tokio::test]
+async fn malformed_ids_are_rejected_at_each_rpc_boundary() {
+    use v1beta1::DevicePlugin as _;
+    let service = DevicePluginService::new(FullFeaturedPlugin);
+    for invalid in [String::new(), "x".repeat(64)] {
+        let allocate = service
+            .allocate(tonic::Request::new(v1beta1::AllocateRequest {
+                container_requests: vec![v1beta1::ContainerAllocateRequest {
+                    devices_ids: vec![invalid.clone()],
+                }],
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(allocate.code(), tonic::Code::InvalidArgument);
+        let pre_start = service
+            .pre_start_container(tonic::Request::new(v1beta1::PreStartContainerRequest {
+                devices_ids: vec![invalid.clone()],
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(pre_start.code(), tonic::Code::InvalidArgument);
+        for required in [false, true] {
+            let preferred = service
+                .get_preferred_allocation(tonic::Request::new(
+                    v1beta1::PreferredAllocationRequest {
+                        container_requests: vec![v1beta1::ContainerPreferredAllocationRequest {
+                            available_device_i_ds: if required {
+                                vec![]
+                            } else {
+                                vec![invalid.clone()]
+                            },
+                            must_include_device_i_ds: if required {
+                                vec![invalid.clone()]
+                            } else {
+                                vec![]
+                            },
+                            allocation_size: 1,
+                        }],
+                    },
+                ))
+                .await
+                .unwrap_err();
+            assert_eq!(preferred.code(), tonic::Code::InvalidArgument);
+        }
+    }
+}
+
+#[tokio::test]
+async fn non_dns_ids_survive_preferred_allocation_wire_round_trip() {
+    use v1beta1::DevicePlugin as _;
+    let service = DevicePluginService::new(FullFeaturedPlugin);
+    service
+        .allocate(tonic::Request::new(v1beta1::AllocateRequest {
+            container_requests: vec![v1beta1::ContainerAllocateRequest {
+                devices_ids: vec!["GPU/0:é".into()],
+            }],
+        }))
+        .await
+        .unwrap();
+    service
+        .pre_start_container(tonic::Request::new(v1beta1::PreStartContainerRequest {
+            devices_ids: vec!["GPU/0:é".into()],
+        }))
+        .await
+        .unwrap();
+    let request = tonic::Request::new(v1beta1::PreferredAllocationRequest {
+        container_requests: vec![v1beta1::ContainerPreferredAllocationRequest {
+            available_device_i_ds: vec!["GPU/0:é".into()],
+            must_include_device_i_ds: vec![],
+            allocation_size: 1,
+        }],
+    });
+    let response = service
+        .get_preferred_allocation(request)
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(response.container_responses[0].device_i_ds, ["GPU/0:é"]);
+}
+
+#[tokio::test]
+async fn preferred_allocation_checks_size_before_device_ids() {
+    use v1beta1::DevicePlugin as _;
+    let service = DevicePluginService::new(FullFeaturedPlugin);
+    let request = tonic::Request::new(v1beta1::PreferredAllocationRequest {
+        container_requests: vec![v1beta1::ContainerPreferredAllocationRequest {
+            available_device_i_ds: vec![String::new()],
+            must_include_device_i_ds: vec![],
+            allocation_size: -1,
+        }],
+    });
+    let error = service.get_preferred_allocation(request).await.unwrap_err();
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
+    assert!(error.message().contains("allocation_size"));
 }

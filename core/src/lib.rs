@@ -9,17 +9,20 @@ pub use device::Device;
 pub use device::DevicePath;
 pub use device::HostMount;
 pub use health::Health;
+pub use identity::DeviceId;
+pub use identity::DeviceIdError;
+pub use identity::ExtendedResourceName;
+pub use identity::ExtendedResourceNameError;
 pub use permissions::DevicePermissions;
 pub use socket_name::MAX_SOCKET_PATH_LEN;
 pub use socket_name::sanitize_socket_name;
 pub use unix_socket::bind_unix_listener;
 pub use validation::ValidationError;
 pub use validation::validate_absolute_path;
-pub use validation::validate_device_id;
-pub use validation::validate_resource_name;
 
 mod device;
 mod health;
+mod identity;
 mod permissions;
 mod socket_name;
 mod unix_socket;
@@ -35,8 +38,10 @@ pub trait DeviceDiscovery: Send + Sync {
 /// Resolves container allocation artifacts for a set of requested device IDs.
 #[async_trait]
 pub trait DeviceAllocator: Send + Sync {
-    async fn allocate(&self, device_ids: &[String])
-    -> Result<ContainerAllocation, AllocationError>;
+    async fn allocate(
+        &self,
+        device_ids: &[DeviceId],
+    ) -> Result<ContainerAllocation, AllocationError>;
 }
 
 /// Artifacts to attach to a container as a result of an `Allocate` call.
@@ -69,7 +74,7 @@ impl ContainerAllocation {
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum AllocationError {
     #[error("device not found: {0}")]
-    DeviceNotFound(String),
+    DeviceNotFound(DeviceId),
     #[error("preferred allocation is not available for this plugin")]
     PreferredAllocationUnavailable,
     #[error("hook failed: {0}")]
@@ -95,7 +100,7 @@ pub trait K8sDevicePlugin: DeviceDiscovery + DeviceAllocator {
 
     /// Runs before kubelet starts a container using the given device IDs.
     /// The default implementation does nothing.
-    async fn pre_start_container(&self, _device_ids: &[String]) -> Result<(), AllocationError> {
+    async fn pre_start_container(&self, _device_ids: &[DeviceId]) -> Result<(), AllocationError> {
         Ok(())
     }
 
@@ -109,10 +114,10 @@ pub trait K8sDevicePlugin: DeviceDiscovery + DeviceAllocator {
     /// Only called when `preferred_allocation_available` returns `true`.
     async fn preferred_allocation(
         &self,
-        _available_device_ids: &[String],
-        _must_include_device_ids: &[String],
+        _available_device_ids: &[DeviceId],
+        _must_include_device_ids: &[DeviceId],
         _size: usize,
-    ) -> Result<Vec<String>, AllocationError> {
+    ) -> Result<Vec<DeviceId>, AllocationError> {
         Err(AllocationError::PreferredAllocationUnavailable)
     }
 }
@@ -141,7 +146,7 @@ mod tests {
     impl DeviceAllocator for StaticPlugin {
         async fn allocate(
             &self,
-            device_ids: &[String],
+            device_ids: &[DeviceId],
         ) -> Result<ContainerAllocation, AllocationError> {
             let mut device_paths = Vec::new();
             for id in device_ids {
@@ -160,7 +165,7 @@ mod tests {
     }
 
     fn make_plugin() -> StaticPlugin {
-        let dev = Device::rdwr("dev-0", "/dev/dev0");
+        let dev = Device::rdwr("dev-0".parse().unwrap(), "/dev/dev0");
         StaticPlugin(vec![dev])
     }
 
@@ -173,14 +178,14 @@ mod tests {
         let plugin = make_plugin();
         let devices = use_backend(&plugin).await;
         assert_eq!(devices.len(), 1);
-        assert_eq!(devices[0].id, "dev-0");
+        assert_eq!(devices[0].id.as_str(), "dev-0");
     }
 
     #[tokio::test]
     async fn allocate_resolves_known_device() {
         let plugin = make_plugin();
         let allocation = plugin
-            .allocate(&["dev-0".to_string()])
+            .allocate(&["dev-0".parse().unwrap()])
             .await
             .expect("device is known");
         assert_eq!(allocation.device_paths.len(), 1);
@@ -190,10 +195,13 @@ mod tests {
     async fn allocate_reports_unknown_device() {
         let plugin = make_plugin();
         let err = plugin
-            .allocate(&["missing".to_string()])
+            .allocate(&["missing".parse().unwrap()])
             .await
             .expect_err("device is unknown");
-        assert_eq!(err, AllocationError::DeviceNotFound("missing".to_string()));
+        assert_eq!(
+            err,
+            AllocationError::DeviceNotFound("missing".parse().unwrap())
+        );
         assert_eq!(err.to_string(), "device not found: missing");
     }
 }
