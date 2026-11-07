@@ -138,6 +138,30 @@ async fn run_spawns_all_three_components_and_they_work() {
         vec![dra::DRA_PLUGIN_SERVICE.to_string()]
     );
 
+    // An ordinary plugin serves the health endpoint but explicitly declines
+    // watches and never starts the backend reporter.
+    let health_path = plugin_socket_path.clone();
+    let channel = transport::Endpoint::from_static("http://[::]:50051")
+        .connect_with_connector(tower::service_fn(move |_| {
+            let path = health_path.clone();
+            async move {
+                net::UnixStream::connect(path)
+                    .await
+                    .map(hyper_util::rt::TokioIo::new)
+            }
+        }))
+        .await
+        .expect("connect to plugin health endpoint");
+    let mut health = dra::health::v1alpha1::DraResourceHealthClient::new(channel);
+    assert_eq!(
+        health
+            .node_watch_resources(dra::health::v1alpha1::NodeWatchResourcesRequest {})
+            .await
+            .expect_err("ordinary plugin declines health watches")
+            .code(),
+        tonic::Code::Unimplemented
+    );
+
     // DRAPlugin gRPC service came up and can resolve+prepare a claim
     // through to a real response, driving the resolver's kube request
     // concurrently with the client call.
@@ -453,18 +477,16 @@ async fn liveness_rejects_wrong_driver_or_missing_dra_service() {
     }
 }
 
-#[cfg(feature = "resource-health")]
 #[tonic::async_trait]
 impl ResourceHealthReporter for StaticDraDriver {
     async fn watch_resource_health(
         &self,
-        _: tokio::sync::mpsc::Sender<k8s_device_plugin_core::ResourceHealthReport>,
-    ) -> Result<(), k8s_device_plugin_core::ResourceHealthError> {
+        _: tokio::sync::mpsc::Sender<k8s_device_plugin_dra_core::ResourceHealthReport>,
+    ) -> Result<(), k8s_device_plugin_dra_core::ResourceHealthError> {
         Ok(())
     }
 }
 
-#[cfg(feature = "resource-health")]
 #[tokio::test]
 async fn opted_in_health_is_advertised_by_the_plugin_registration_rpc() {
     let (client, _) = mock_kube_client();

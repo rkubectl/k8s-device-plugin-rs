@@ -31,6 +31,16 @@ deployment template. See the
 [the extended-resource guide](../docs/dra-extended-resources.md) for a complete
 driver-author and workload-consumer walkthrough.
 
+## Backend contract migration
+
+DRA contract imports previously provided by `k8s-device-plugin-core` now
+come from `k8s-device-plugin-dra-core`. The DRA-enabled facade re-exports
+them at its root and as `dra_core`; its `DraValidationError` names the DRA
+validation error separately from the classic `ValidationError`. Existing
+string identities, wire representations and runtime validation are unchanged.
+Health support no longer needs a Cargo feature; activation still requires
+`DraPlugin::with_resource_health`.
+
 ## Kubernetes schema selection
 
 Applications choose exactly one schema in their own manifest:
@@ -53,8 +63,7 @@ Repository `mise` tasks explicitly select schema 1.37 for development. For
 direct Cargo commands, including the examples below, set
 `K8S_OPENAPI_ENABLED_VERSION=1.37` (or `1.36`) in the command's environment.
 `mise run dra-check-consumer-schemas` checks independent applications choosing
-both schemas without that environment variable, with and without resource
-health. CI tests and lints both schemas. DRA Dockerfiles explicitly default to
+both schemas without that environment variable, including the health APIs. CI tests and lints both schemas. DRA Dockerfiles explicitly default to
 1.37; pass `--build-arg K8S_OPENAPI_VERSION=1.36` to build against 1.36.
 
 ## Compatibility and dependency override
@@ -187,8 +196,7 @@ asserts that value after the consumer starts.
 
 ### Optional resource-health reporting
 
-Enable the `resource-health` feature to compile the kubelet
-`dra-health/v1alpha1` protocol. A backend can then implement
+The kubelet `dra-health/v1alpha1` protocol is compiled into the DRA runtime. A backend can implement
 `ResourceHealthReporter` and use `DraPlugin::with_resource_health(...)`
 instead of `DraPlugin::new(...)`. The health service shares the normal DRA
 plugin socket; it streams snapshots to kubelet through
@@ -300,7 +308,7 @@ contract example. It demonstrates source-scoped snapshots and clean shutdown
 when kubelet closes the report channel:
 
 ```bash
-cargo run -p k8s-device-plugin-dra --example resource_health_reporter --features resource-health
+cargo run -p k8s-device-plugin-dra --example resource_health_reporter
 ```
 
 `DraPlugin::run()` creates and serves sockets below
@@ -485,14 +493,12 @@ The serial matrix also runs `hack/e2e-first-available.sh` on both native
 profiles. It selects a top-level request in the consumer, requires metadata to
 be disabled, and checks the physical CDI marker. To include negotiated health
 watches, set `DRA_E2E_RESOURCE_HEALTH=1` when running
-`hack/validate-k8s-versions.sh`; the image then compiles `resource-health` while
-backend reporting remains disabled by default. The health fixture temporarily
+`hack/validate-k8s-versions.sh`; backend reporting remains disabled by default. The health fixture temporarily
 enables the backend, checks a real kubelet watch and `Healthy` Pod resource
 status, then removes its override and waits for the default backend again.
 Existing metadata/health overrides are refused rather than overwritten.
 
-For a manual image build, use `--build-arg CARGO_FEATURES=resource-health` with
-`dra/Dockerfile`. `DRA_EXAMPLE_RESOURCE_HEALTH=1` is a validation-backend option;
+`DRA_EXAMPLE_RESOURCE_HEALTH=1` is a validation-backend option;
 a real driver must implement its own hardware monitor. The matrix's
 `DRA_E2E_IMAGE` selects the exact image loaded and deployed on each profile.
 

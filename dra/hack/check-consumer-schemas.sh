@@ -9,6 +9,7 @@ trap 'rm -rf "$check_dir"' EXIT
 trap 'exit 1' HUP INT TERM
 
 facade_path=$(printf '%s' "$repo_root/k8s-device-plugin" | jq -Rs .)
+dra_core_path=$(printf '%s' "$repo_root/dra-core" | jq -Rs .)
 dra_path=$(printf '%s' "$repo_root/dra" | jq -Rs .)
 test_path=$(printf '%s' "$repo_root/test" | jq -Rs .)
 mkdir "$check_dir/src"
@@ -21,14 +22,12 @@ publish = false
 
 [workspace]
 
-[features]
-resource-health = ["k8s-device-plugin/resource-health", "k8s-device-plugin-dra/resource-health"]
-
 [dependencies]
 k8s-openapi = "0.29"
 kube = "5.0"
 k8s-device-plugin = { path = $facade_path }
 k8s-device-plugin-dra = { path = $dra_path }
+k8s-device-plugin-dra-core = { path = $dra_core_path }
 k8s-device-plugin-test = { path = $test_path, features = ["dra"] }
 EOF
 cat > "$check_dir/src/main.rs" <<'EOF'
@@ -57,8 +56,9 @@ fn main() {
         <kube::Client as k8s_device_plugin::dra::KubeClientExt>::resource_claims(&client, &claim);
     let _: kube::Api<resourcev1::ResourceClaim> =
         <kube::Client as k8s_device_plugin_dra::KubeClientExt>::resource_claims(&client, &claim);
-    #[cfg(feature = "resource-health")]
     let _ = std::mem::size_of::<k8s_device_plugin::DraResourceHealthService>();
+    let _ = std::mem::size_of::<k8s_device_plugin_dra_core::ResourceHealthReport>();
+    let _ = std::mem::size_of::<k8s_device_plugin_dra::DraResourceHealthService>();
 }
 EOF
 
@@ -69,6 +69,39 @@ export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-"$repo_root/target"}
 cd "$check_dir"
 for schema in v1_36 v1_37; do
     cargo check --manifest-path Cargo.toml --features "k8s-openapi/$schema"
-    cargo check --manifest-path Cargo.toml --features "k8s-openapi/$schema,resource-health"
-    printf 'consumer-selected %s passed, with and without resource-health\n' "$schema"
+    printf 'consumer-selected %s passed with DRA health APIs\n' "$schema"
+done
+
+# Isolated graphs ensure the combined facade consumer above cannot hide a
+# missing direct dependency or a feature selected by another library.
+for schema in v1_36 v1_37; do
+    for mode in core runtime facade-dra; do
+        case "$mode" in
+            core)
+                dependency="k8s-device-plugin-dra-core = { path = $dra_core_path }"
+                source='let _ = std::mem::size_of::<k8s_device_plugin_dra_core::ResourceHealthReport>();'
+                ;;
+            runtime)
+                dependency="k8s-device-plugin-dra = { path = $dra_path }"
+                source='let _ = std::mem::size_of::<k8s_device_plugin_dra::DraResourceHealthService>();'
+                ;;
+            facade-dra)
+                dependency="k8s-device-plugin = { path = $facade_path, default-features = false, features = [\"dra\"] }"
+                source='let _ = std::mem::size_of::<k8s_device_plugin::DraResourceHealthService>(); let _ = std::mem::size_of::<k8s_device_plugin::ResourceHealthReport>(); let _ = k8s_device_plugin::validate_driver_name("example.com"); let _ = k8s_device_plugin::validate_node_name("node"); let _ = k8s_device_plugin::validate_pool_name("pool"); let _ = k8s_device_plugin::is_valid_counter_name("counter");'
+                ;;
+        esac
+        cat > Cargo.toml <<MANIFEST
+[package]
+name = "isolated-dra-consumer"
+version = "0.0.0"
+edition = "2024"
+[workspace]
+[dependencies]
+k8s-openapi = { version = "0.29", features = ["$schema"] }
+$dependency
+MANIFEST
+        printf 'fn main() { %s }\n' "$source" > src/main.rs
+        cargo check
+        printf '%s consumer passed with %s\n' "$mode" "$schema"
+    done
 done

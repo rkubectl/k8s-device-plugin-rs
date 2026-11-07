@@ -1,6 +1,5 @@
 use super::*;
 
-#[cfg(feature = "resource-health")]
 use tokio::sync::mpsc;
 
 pub use k8s_quantity::Quantity;
@@ -20,7 +19,7 @@ mod inventory;
 
 /// A device this driver can offer, with the attributes and capacity DRA's
 /// device selectors match against — richer than the classic plugin's
-/// [`crate::Device`], which is just an id, health, and host paths.
+/// [`k8s_device_plugin_core::Device`], which is just an id, health, and host paths.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PoolDevice {
     pub name: String,
@@ -59,7 +58,7 @@ impl PoolDevice {
 }
 
 /// Enumerates the devices a DRA driver backend currently offers, grouped by
-/// pool name. The DRA analog of [`crate::DeviceDiscovery`].
+/// pool name. The DRA analog of [`k8s_device_plugin_core::DeviceDiscovery`].
 #[async_trait]
 pub trait ResourcePool: Send + Sync {
     /// Devices this driver currently offers, keyed by pool name.
@@ -128,7 +127,7 @@ pub struct ResolvedClaim {
 }
 
 /// Artifacts to attach to a container as a result of preparing one device
-/// for a claim. The DRA analog of [`crate::ContainerAllocation`].
+/// for a claim. The DRA analog of [`k8s_device_plugin_core::ContainerAllocation`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PreparedDevice {
     /// Request references satisfied by this device. The runtime strips
@@ -192,7 +191,7 @@ pub enum PrepareError {
 }
 
 /// Prepares and unprepares the devices a scheduler has allocated to
-/// `ResourceClaim`s. The DRA analog of [`crate::DeviceAllocator`].
+/// `ResourceClaim`s. The DRA analog of [`k8s_device_plugin_core::DeviceAllocator`].
 #[async_trait]
 pub trait ClaimPreparer: Send + Sync {
     /// Prepares every claim needed by a pod in one batch, matching the
@@ -279,7 +278,7 @@ impl<T: ClaimPreparer + ?Sized> ClaimPreparer for Arc<T> {
 }
 
 /// Full framework abstraction a DRA driver backend implements. The DRA
-/// analog of [`crate::K8sDevicePlugin`].
+/// analog of [`k8s_device_plugin_core::K8sDevicePlugin`].
 pub trait DraDriver: ResourcePool + ClaimPreparer {
     fn driver_name(&self) -> &str;
 }
@@ -289,7 +288,6 @@ pub trait DraDriver: ResourcePool + ClaimPreparer {
 /// Resource health describes already-allocated devices to kubelet. It must
 /// therefore be driven by the backend's health monitor, rather than inferred
 /// from the inventory snapshot used to publish `ResourceSlice`s.
-#[cfg(feature = "resource-health")]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ResourceHealthStatus {
     /// The backend cannot determine the device's health.
@@ -302,7 +300,6 @@ pub enum ResourceHealthStatus {
 }
 
 /// The health status of one DRA device.
-#[cfg(feature = "resource-health")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DraDeviceHealth {
     pub pool_name: String,
@@ -321,14 +318,12 @@ pub struct DraDeviceHealth {
 /// Reports may cover a subset of the driver's devices. A source must resend
 /// reports before its device leases expire; otherwise kubelet treats those
 /// devices as having unknown health.
-#[cfg(feature = "resource-health")]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ResourceHealthReport {
     pub devices: Vec<DraDeviceHealth>,
 }
 
 /// A backend failure while producing resource-health reports.
-#[cfg(feature = "resource-health")]
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ResourceHealthError {
     #[error("resource health monitor failed: {0}")]
@@ -340,12 +335,11 @@ pub enum ResourceHealthError {
 /// `DraPlugin` calls this once for each kubelet `NodeWatchResources` stream.
 /// Send reports through `reports` until it closes, then return. Returning
 /// `Ok(())` or an error ends that RPC with `Unavailable`, allowing kubelet to
-/// reconnect and start a new watch. This trait is available only with the
-/// `resource-health` feature.
+/// reconnect and start a new watch. Health reporting starts only with
+/// explicit health-enabled runtime construction.
 /// The runtime cancels this future when kubelet disconnects, including while
 /// idle. Implement cancellation-safe cleanup with owned guards; do not leave
 /// detached work running after this future is dropped.
-#[cfg(feature = "resource-health")]
 #[async_trait]
 pub trait ResourceHealthReporter: Send + Sync {
     async fn watch_resource_health(
@@ -354,7 +348,6 @@ pub trait ResourceHealthReporter: Send + Sync {
     ) -> Result<(), ResourceHealthError>;
 }
 
-#[cfg(feature = "resource-health")]
 #[async_trait]
 impl<T: ResourceHealthReporter + ?Sized> ResourceHealthReporter for Arc<T> {
     async fn watch_resource_health(

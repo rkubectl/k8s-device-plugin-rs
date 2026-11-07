@@ -15,16 +15,16 @@ use std::io;
 use async_trait::async_trait;
 use serde_json as json;
 
-use k8s_device_plugin_core::AllocatedDevice;
-use k8s_device_plugin_core::ClaimPreparer;
-use k8s_device_plugin_core::ClaimRef;
-use k8s_device_plugin_core::DraDriver;
-use k8s_device_plugin_core::PoolDevice;
-use k8s_device_plugin_core::PrepareError;
-use k8s_device_plugin_core::PreparedDevice;
-use k8s_device_plugin_core::ResolvedClaim;
-use k8s_device_plugin_core::ResourcePool;
 use k8s_device_plugin_dra::DraPlugin;
+use k8s_device_plugin_dra_core::AllocatedDevice;
+use k8s_device_plugin_dra_core::ClaimPreparer;
+use k8s_device_plugin_dra_core::ClaimRef;
+use k8s_device_plugin_dra_core::DraDriver;
+use k8s_device_plugin_dra_core::PoolDevice;
+use k8s_device_plugin_dra_core::PrepareError;
+use k8s_device_plugin_dra_core::PreparedDevice;
+use k8s_device_plugin_dra_core::ResolvedClaim;
+use k8s_device_plugin_dra_core::ResourcePool;
 
 // Share the runtime's private CDI projection without publishing a partial API.
 #[path = "../src/cdi.rs"]
@@ -241,7 +241,7 @@ fn env_or_default(name: &str, default: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use k8s_device_plugin_core::AttributeValue;
+    use k8s_device_plugin_dra_core::AttributeValue;
 
     use super::*;
 

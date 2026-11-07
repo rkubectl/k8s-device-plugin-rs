@@ -20,7 +20,7 @@ Attach metadata options to the runtime:
 
 ```rust,no_run
 use k8s_device_plugin_dra::{DeviceMetadataOptions, DraPlugin};
-# async fn start<D: k8s_device_plugin_core::DraDriver + 'static>(client: kube::Client, driver: D) -> std::io::Result<()> {
+# async fn start<D: k8s_device_plugin_dra_core::DraDriver + 'static>(client: kube::Client, driver: D) -> std::io::Result<()> {
 let plugin = DraPlugin::new(client, "gpu.example.com", "worker-1", driver)
     .map_err(std::io::Error::other)?
     .with_device_metadata(DeviceMetadataOptions::v1beta1())?;
@@ -45,9 +45,9 @@ Override `prepare_with_metadata` to return `PreparedDeviceWithMetadata`
 values from the backend's coherent preparation result:
 
 ```rust
-use k8s_device_plugin_core::AttributeValue;
-use k8s_device_plugin_core::PreparedDevice;
-use k8s_device_plugin_core::PreparedDeviceWithMetadata;
+use k8s_device_plugin_dra_core::AttributeValue;
+use k8s_device_plugin_dra_core::PreparedDevice;
+use k8s_device_plugin_dra_core::PreparedDeviceWithMetadata;
 
 let device = PreparedDeviceWithMetadata::new(PreparedDevice {
     request_names: vec!["gpu".into()],

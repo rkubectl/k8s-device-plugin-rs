@@ -219,11 +219,7 @@ assert_native_cluster "$V137_CLUSTER"
 trap restore_baseline EXIT
 
 if [[ ${DRA_E2E_SKIP_BUILD:-0} != 1 ]]; then
-    if [[ ${DRA_E2E_RESOURCE_HEALTH:-0} == 1 ]]; then
-        "$CONTAINER" build --platform linux/arm64 --build-arg CARGO_FEATURES=resource-health -f dra/Dockerfile -t "$IMAGE" .
-    else
-        "$CONTAINER" build --platform linux/arm64 -f dra/Dockerfile -t "$IMAGE" .
-    fi
+    "$CONTAINER" build --platform linux/arm64 -f dra/Dockerfile -t "$IMAGE" .
 fi
 
 run_profile v1.36.1 "$V136_CLUSTER" "$V137_CLUSTER"

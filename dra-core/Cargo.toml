@@ -1,0 +1,22 @@
+[package]
+name = "k8s-device-plugin-dra-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core contracts for Kubernetes DRA drivers"
+readme = "README.md"
+
+[dependencies]
+async-trait.workspace = true
+k8s-device-plugin-core.workspace = true
+k8s-quantity.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt"] }
+
+[lints]
+workspace = true

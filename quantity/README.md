@@ -71,8 +71,9 @@ value instead of reproducing older Go canonicalization's missing suffix.
 See the [design, candidate review and migration guide](../docs/plans/kubernetes-quantities.md)
 for the exact boundary and validation evidence.
 
-`k8s-device-plugin-core` and the facade re-export `Quantity` and
-`QuantityParseError`, so driver code can keep its existing import path while
-migrating integer construction from `Quantity(2)` to `Quantity::from(2)`.
+`k8s-device-plugin-dra-core` and the DRA-enabled facade re-export `Quantity` and
+`QuantityParseError`. Driver code importing them from classic core must switch
+to DRA core or the DRA-enabled facade. Integer construction uses
+`Quantity::from(2)` rather than `Quantity(2)`.
 The crate participates in the workspace's shared-version, tag-first release
 process. This change does not publish a release.

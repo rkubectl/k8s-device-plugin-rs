@@ -5,14 +5,14 @@ use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 
-use k8s_device_plugin_core::AttributeValue;
-use k8s_device_plugin_core::ClaimPreparer;
-use k8s_device_plugin_core::ClaimRef;
-use k8s_device_plugin_core::PoolDevice;
-use k8s_device_plugin_core::PrepareError;
-use k8s_device_plugin_core::PreparedDevice;
-use k8s_device_plugin_core::PreparedDeviceWithMetadata;
-use k8s_device_plugin_core::ResolvedClaim;
+use k8s_device_plugin_dra_core::AttributeValue;
+use k8s_device_plugin_dra_core::ClaimPreparer;
+use k8s_device_plugin_dra_core::ClaimRef;
+use k8s_device_plugin_dra_core::PoolDevice;
+use k8s_device_plugin_dra_core::PrepareError;
+use k8s_device_plugin_dra_core::PreparedDevice;
+use k8s_device_plugin_dra_core::PreparedDeviceWithMetadata;
+use k8s_device_plugin_dra_core::ResolvedClaim;
 
 #[test]
 fn attribute_builders_preserve_scalar_types_and_explicit_versions() {

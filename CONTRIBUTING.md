@@ -20,7 +20,7 @@ distinct constructors such as version attributes, and document intentional
 wire projections/normalization rather than implying a reversible conversion.
 
 Rust orphan rules apply across workspace crates. DRA cannot implement
-`From<core::PoolDevice>` for an OpenAPI device because both types are foreign.
+`From<dra_core::PoolDevice>` for an OpenAPI device because both types are foreign.
 Core's pure types/traits intentionally stay independent of generated gRPC and
 Kubernetes API types, including optional dependencies. Keep such projections
 in the adapter layer as functions when neither type has a useful local owner.

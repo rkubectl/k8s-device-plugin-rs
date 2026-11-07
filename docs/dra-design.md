@@ -95,7 +95,7 @@ one registration call. DRA pulls in a materially different subsystem:
 | Main service | `DevicePlugin` (`ListAndWatch`, `Allocate`, ...) served on `/var/lib/kubelet/device-plugins/` | `DRAPlugin` (`NodePrepareResources`/`NodeUnprepareResources`) served on `/var/lib/kubelet/plugins/<driver-name>/`, endpoint advertised via `GetInfo` |
 | Inventory publishing | Pushed to kubelet directly over the socket (`ListAndWatch` stream) | Published as `ResourceSlice` objects on the **API server** — requires a real Kubernetes client, not just a kubelet socket |
 | Allocation decision | Made by the plugin itself (`allocate`/`preferred_allocation`), called synchronously by kubelet | Made by the **scheduler**, written into `ResourceClaim.status.allocation`. The plugin's `NodePrepareResources` only receives a claim reference (namespace/uid/name) and must read the claim back from the API server to see what was allocated |
-| Health | Polled via `ListAndWatch` diffing (already built) | Optional `DRAResourceHealth.NodeWatchResources` stream, implemented behind the `resource-health` Cargo feature |
+| Health | Polled via `ListAndWatch` diffing (already built) | Optional `DRAResourceHealth.NodeWatchResources` stream, compiled in DRA and activated explicitly by the backend |
 
 So DRA needs a Kubernetes API client (list/watch `ResourceClaim`, create/
 update/delete `ResourceSlice`) in addition to the kubelet-facing gRPC
@@ -107,11 +107,16 @@ plumbing — a different dependency footprint than `lib` has today (`tonic`/
 - Supporting DRA API versions other than `v1` (no `v1beta1` compatibility
   shim for pre-1.34 clusters).
 - Enabling Kubernetes resource-health feature gates on older clusters; the
-  optional runtime protocol itself is implemented behind a Cargo feature.
+  runtime protocol is compiled in DRA and activated explicitly by a backend.
 
 These are explicitly future phases, not rejected — see [Phasing](#phasing).
 
 ## Proposed crate shape
+
+This original proposal is superseded by the split: DRA contracts now live in
+`dra-core`, while classic core retains shared health and socket primitives.
+The runtime compiles protocol health support and activates it per backend.
+The following layout and protocol notes record the initial design.
 
 Keep the existing `core`/`proto`/`lib` separation intact for classic
 device-plugin users; don't force `kube`/`k8s-openapi` onto them. Add a new
@@ -243,9 +248,8 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
   serializes contending plugin instances, refuses to replace an active socket,
   and recovers a stale socket only after a refused connection proves it is no
   longer serving.
-- **`DraResourceHealthService` (optional)** — when the `resource-health`
-  Cargo feature is enabled, the shared plugin socket also serves
-  `DRAResourceHealth.NodeWatchResources`. A backend opts in by implementing
+- **`DraResourceHealthService`** — the shared plugin socket serves
+  `DRAResourceHealth.NodeWatchResources` and declines watches by default. A backend opts in by implementing
   `ResourceHealthReporter` and constructing with
   `DraPlugin::with_resource_health`; it sends bounded, source-scoped snapshots
   through a channel. The service forwards every buffered final report, then

@@ -5,21 +5,14 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Core traits and types for Rust Kubernetes device-plugin and DRA drivers"
+description = "Core traits and types for Rust Kubernetes device plugins"
 readme = "README.md"
-
-
-[features]
-resource-health = ["dep:tokio"]
 
 
 [dependencies]
 async-trait.workspace = true
 camino.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["sync"], optional = true }
-
-k8s-quantity.workspace = true
 
 
 [dev-dependencies]

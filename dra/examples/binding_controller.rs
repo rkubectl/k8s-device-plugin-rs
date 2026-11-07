@@ -12,10 +12,10 @@ use k8s_openapi::api::resource::v1 as resourcev1;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1 as metav1;
 use k8s_openapi::jiff;
 
-use k8s_device_plugin_core::ClaimRef;
 use k8s_device_plugin_dra::ClaimDeviceStatus;
 use k8s_device_plugin_dra::ClaimDeviceStatusPublisher;
 use k8s_device_plugin_dra::KubeClientExt as _;
+use k8s_device_plugin_dra_core::ClaimRef;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BindingState {

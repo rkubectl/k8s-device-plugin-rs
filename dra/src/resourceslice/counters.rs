@@ -1,9 +1,9 @@
 //! Shared-counter conversion and pool-local reference validation.
 
-use k8s_device_plugin_core::CounterSet;
-use k8s_device_plugin_core::DeviceCounterConsumption;
-use k8s_device_plugin_core::Quantity;
-use k8s_device_plugin_core::is_valid_counter_name;
+use k8s_device_plugin_dra_core::CounterSet;
+use k8s_device_plugin_dra_core::DeviceCounterConsumption;
+use k8s_device_plugin_dra_core::Quantity;
+use k8s_device_plugin_dra_core::is_valid_counter_name;
 
 use super::*;
 

@@ -76,7 +76,6 @@ pub struct DraPluginService {
     resolver: ClaimResolver,
     preparer: Arc<dyn ClaimPreparer>,
     metadata: Option<Arc<metadata::MetadataRuntime>>,
-    #[cfg(feature = "resource-health")]
     health: DraResourceHealthService,
 }
 
@@ -92,7 +91,6 @@ impl DraPluginService {
             resolver,
             preparer: Arc::new(preparer),
             metadata: None,
-            #[cfg(feature = "resource-health")]
             health: DraResourceHealthService::unsupported(),
         }
     }
@@ -159,7 +157,6 @@ impl DraPluginService {
         results
     }
 
-    #[cfg(feature = "resource-health")]
     /// Adds the optional `DRAResourceHealth` service to this plugin socket.
     pub fn with_resource_health<R: ResourceHealthReporter + 'static>(
         mut self,
@@ -193,7 +190,6 @@ impl DraPluginService {
     ) -> io::Result<task::JoinHandle<Result<(), transport::Error>>> {
         let incoming = setup_listener(socket_path).await?;
         let mut router = transport::Server::builder();
-        #[cfg(feature = "resource-health")]
         let router = router.add_service(dra::health::v1alpha1::DraResourceHealthServer::new(
             self.health.clone(),
         ));

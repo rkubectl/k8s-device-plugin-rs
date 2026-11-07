@@ -21,27 +21,27 @@ use std::io;
 use async_trait::async_trait;
 use serde_json as json;
 
-use k8s_device_plugin_core::ClaimPreparer;
-use k8s_device_plugin_core::ClaimRef;
-use k8s_device_plugin_core::CounterSet;
-use k8s_device_plugin_core::DeviceBinding;
-use k8s_device_plugin_core::DeviceCounterConsumption;
-use k8s_device_plugin_core::DeviceTaint;
-use k8s_device_plugin_core::DeviceTaintEffect;
-use k8s_device_plugin_core::DraDriver;
-use k8s_device_plugin_core::InventoryDevice;
-use k8s_device_plugin_core::PoolDevice;
-use k8s_device_plugin_core::PoolInventory;
-use k8s_device_plugin_core::PrepareError;
-use k8s_device_plugin_core::PreparedDevice;
-use k8s_device_plugin_core::PreparedDeviceWithMetadata;
-use k8s_device_plugin_core::Quantity;
-use k8s_device_plugin_core::ResolvedClaim;
-use k8s_device_plugin_core::ResourcePool;
 use k8s_device_plugin_dra::ClaimDeviceStatus;
 use k8s_device_plugin_dra::ClaimDeviceStatusPublisher;
 use k8s_device_plugin_dra::DeviceMetadataOptions;
 use k8s_device_plugin_dra::DraPlugin;
+use k8s_device_plugin_dra_core::ClaimPreparer;
+use k8s_device_plugin_dra_core::ClaimRef;
+use k8s_device_plugin_dra_core::CounterSet;
+use k8s_device_plugin_dra_core::DeviceBinding;
+use k8s_device_plugin_dra_core::DeviceCounterConsumption;
+use k8s_device_plugin_dra_core::DeviceTaint;
+use k8s_device_plugin_dra_core::DeviceTaintEffect;
+use k8s_device_plugin_dra_core::DraDriver;
+use k8s_device_plugin_dra_core::InventoryDevice;
+use k8s_device_plugin_dra_core::PoolDevice;
+use k8s_device_plugin_dra_core::PoolInventory;
+use k8s_device_plugin_dra_core::PrepareError;
+use k8s_device_plugin_dra_core::PreparedDevice;
+use k8s_device_plugin_dra_core::PreparedDeviceWithMetadata;
+use k8s_device_plugin_dra_core::Quantity;
+use k8s_device_plugin_dra_core::ResolvedClaim;
+use k8s_device_plugin_dra_core::ResourcePool;
 
 // Share the runtime's private CDI projection without publishing a partial API.
 #[path = "../src/cdi.rs"]
@@ -419,19 +419,7 @@ async fn main() -> io::Result<()> {
     let driver = driver.with_status_publisher(status_publisher);
     let plugin = match env_or_default("DRA_EXAMPLE_RESOURCE_HEALTH", "0").as_str() {
         "0" => DraPlugin::new(client, driver_name.clone(), node_name, driver),
-        "1" => {
-            #[cfg(feature = "resource-health")]
-            {
-                DraPlugin::with_resource_health(client, driver_name.clone(), node_name, driver)
-            }
-            #[cfg(not(feature = "resource-health"))]
-            {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "resource health requires the resource-health Cargo feature",
-                ));
-            }
-        }
+        "1" => DraPlugin::with_resource_health(client, driver_name.clone(), node_name, driver),
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -517,7 +505,6 @@ mod tests {
     }
 }
 
-#[cfg(feature = "resource-health")]
 mod resource_health {
     use std::time::Duration;
     use std::time::SystemTime;
@@ -525,11 +512,11 @@ mod resource_health {
 
     use tokio::sync::mpsc;
 
-    use k8s_device_plugin_core::DraDeviceHealth;
-    use k8s_device_plugin_core::ResourceHealthError;
-    use k8s_device_plugin_core::ResourceHealthReport;
-    use k8s_device_plugin_core::ResourceHealthReporter;
-    use k8s_device_plugin_core::ResourceHealthStatus;
+    use k8s_device_plugin_dra_core::DraDeviceHealth;
+    use k8s_device_plugin_dra_core::ResourceHealthError;
+    use k8s_device_plugin_dra_core::ResourceHealthReport;
+    use k8s_device_plugin_dra_core::ResourceHealthReporter;
+    use k8s_device_plugin_dra_core::ResourceHealthStatus;
 
     use super::*;
 

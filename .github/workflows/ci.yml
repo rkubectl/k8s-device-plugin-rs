@@ -96,11 +96,7 @@ jobs:
       matrix:
         include:
           - dockerfile: example/Dockerfile
-            features: ""
           - dockerfile: dra/Dockerfile
-            features: ""
-          - dockerfile: dra/Dockerfile
-            features: resource-health
     steps:
       - uses: actions/checkout@v5
         with:
@@ -110,5 +106,4 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          build-args: CARGO_FEATURES=${{ matrix.features }}
           push: false

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["core", "dra", "example", "k8s-device-plugin", "lib", "proto", "quantity", "test"]
+members = ["core", "dra-core", "dra", "example", "k8s-device-plugin", "lib", "proto", "quantity", "test"]
 
 
 [workspace.package]
@@ -42,6 +42,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 k8s-device-plugin-core = { path = "core", version = "0.5.0" }
+k8s-device-plugin-dra-core = { path = "dra-core", version = "0.5.0" }
 k8s-device-plugin-dra = { path = "dra", version = "0.5.0" }
 k8s-device-plugin-lib = { path = "lib", version = "0.5.0" }
 k8s-device-plugin-proto = { path = "proto", version = "0.5.0" }

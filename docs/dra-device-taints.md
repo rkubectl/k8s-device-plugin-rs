@@ -23,7 +23,7 @@ The publisher calls `inventory()` once per reconciliation.
 
 ```rust
 use std::collections::BTreeMap;
-use k8s_device_plugin_core::{DeviceTaint, DeviceTaintEffect, InventoryDevice, PoolDevice};
+use k8s_device_plugin_dra_core::{DeviceTaint, DeviceTaintEffect, InventoryDevice, PoolDevice};
 
 let device = InventoryDevice::new(PoolDevice::new("widget-0")).with_taint(
     DeviceTaint::new("example.com/maintenance", DeviceTaintEffect::NoSchedule)

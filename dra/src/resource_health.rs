@@ -3,10 +3,10 @@
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use k8s_device_plugin_core::DraDeviceHealth;
-use k8s_device_plugin_core::ResourceHealthError;
-use k8s_device_plugin_core::ResourceHealthReport;
-use k8s_device_plugin_core::ResourceHealthStatus;
+use k8s_device_plugin_dra_core::DraDeviceHealth;
+use k8s_device_plugin_dra_core::ResourceHealthError;
+use k8s_device_plugin_dra_core::ResourceHealthReport;
+use k8s_device_plugin_dra_core::ResourceHealthStatus;
 
 use super::*;
 

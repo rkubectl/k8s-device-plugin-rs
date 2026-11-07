@@ -5,7 +5,9 @@ for its version transaction. All public crates share one workspace version and
 are released under one annotated `vX.Y.Z` tag.
 
 The standalone `k8s-quantity` crate participates in that shared version and
-must be published before `k8s-device-plugin-core`, which depends on it.
+must be published before `k8s-device-plugin-dra-core`, which depends on it.
+Classic core is independent of Quantity. The DRA core crate must precede the
+DRA runtime and facade.
 `cargo-release` derives that order from the dependency graph. The v0.5.0
 Quantity API migration replaces the public integer tuple field and `Copy`;
 use a minor release for such breaking changes instead of using the default

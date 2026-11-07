@@ -152,7 +152,7 @@ class MatrixTests(unittest.TestCase):
     def test_health_build_and_both_profile_watches(self):
         result, calls, state = self.run_matrix(env_overrides={'DRA_E2E_RESOURCE_HEALTH': '1', 'DRA_E2E_SKIP_BUILD': '0'})
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(any(c[:2] == ['container', 'build'] and 'CARGO_FEATURES=resource-health' in c for c in calls))
+        self.assertTrue(any(c[:2] == ['container', 'build'] and '-f' in c and 'dra/Dockerfile' in c for c in calls))
         self.assertEqual([c for c in calls if c[0] == 'e2e-resource-health.sh'], [
             ['e2e-resource-health.sh', 'dra-validation'], ['e2e-resource-health.sh', 'dra-validation-137']])
         self.assert_baseline(state)

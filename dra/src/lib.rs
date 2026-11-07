@@ -29,24 +29,23 @@ use k8s_openapi::apimachinery::pkg::api::resource as apiresource;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1 as metav1;
 use kube::api;
 
-use k8s_device_plugin_core::AllocatedDevice;
-use k8s_device_plugin_core::AttributeValue;
-use k8s_device_plugin_core::ClaimPreparer;
-use k8s_device_plugin_core::ClaimRef;
-use k8s_device_plugin_core::DraDriver;
-use k8s_device_plugin_core::InventoryDevice;
-use k8s_device_plugin_core::PoolDevice;
-use k8s_device_plugin_core::PoolInventory;
-use k8s_device_plugin_core::PrepareError;
-use k8s_device_plugin_core::PreparedDevice;
-use k8s_device_plugin_core::ResolvedClaim;
-#[cfg(feature = "resource-health")]
-use k8s_device_plugin_core::ResourceHealthReporter;
-use k8s_device_plugin_core::ResourcePool;
-use k8s_device_plugin_core::ValidationError;
-use k8s_device_plugin_core::validate_driver_name;
-use k8s_device_plugin_core::validate_node_name;
-use k8s_device_plugin_core::validate_pool_name;
+use k8s_device_plugin_dra_core::AllocatedDevice;
+use k8s_device_plugin_dra_core::AttributeValue;
+use k8s_device_plugin_dra_core::ClaimPreparer;
+use k8s_device_plugin_dra_core::ClaimRef;
+use k8s_device_plugin_dra_core::DraDriver;
+use k8s_device_plugin_dra_core::InventoryDevice;
+use k8s_device_plugin_dra_core::PoolDevice;
+use k8s_device_plugin_dra_core::PoolInventory;
+use k8s_device_plugin_dra_core::PrepareError;
+use k8s_device_plugin_dra_core::PreparedDevice;
+use k8s_device_plugin_dra_core::ResolvedClaim;
+use k8s_device_plugin_dra_core::ResourceHealthReporter;
+use k8s_device_plugin_dra_core::ResourcePool;
+use k8s_device_plugin_dra_core::ValidationError;
+use k8s_device_plugin_dra_core::validate_driver_name;
+use k8s_device_plugin_dra_core::validate_node_name;
+use k8s_device_plugin_dra_core::validate_pool_name;
 use k8s_device_plugin_proto::dra;
 
 pub use claim::ClaimResolver;
@@ -62,7 +61,6 @@ pub use pool_status::PoolStatusClient;
 pub use pool_status::PoolStatusError;
 pub use pool_status::PoolStatusQuery;
 pub use registration::DraRegistrationServer;
-#[cfg(feature = "resource-health")]
 pub use resource_health::DraResourceHealthService;
 pub use resourceslice::ResourceSlicePublisher;
 pub use service::DraPluginService;
@@ -75,7 +73,6 @@ mod health;
 mod metadata;
 mod pool_status;
 mod registration;
-#[cfg(feature = "resource-health")]
 mod resource_health;
 mod resourceslice;
 mod service;
@@ -207,7 +204,6 @@ impl DraPlugin {
     /// # Errors
     ///
     /// Returns the same identity validation errors as [`Self::new`].
-    #[cfg(feature = "resource-health")]
     pub fn with_resource_health<D: DraDriver + ResourceHealthReporter + 'static>(
         client: kube::Client,
         driver_name: impl Into<String>,

@@ -30,7 +30,6 @@ impl DraRegistrationServer {
 
     /// Advertises health reporting. The caller must serve the health handler
     /// at this registration's plugin endpoint.
-    #[cfg(feature = "resource-health")]
     #[must_use]
     pub fn with_resource_health(mut self) -> Self {
         self.plugin_info

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # A real kubelet must negotiate health, open a watch and publish device health.
-# Requires the validation image built with CARGO_FEATURES=resource-health.
+# Requires explicit health activation in the validation backend.
 set -euo pipefail
 KUBECTL=${KUBECTL:-kubectl}
 KUBE_CONTEXT=${KUBE_CONTEXT:?select a native validation context}

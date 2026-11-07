@@ -161,7 +161,7 @@ Enable it in the umbrella crate and use the runnable
 example as the trait-level starting point:
 
 ```toml
-k8s-device-plugin = { version = "0.5.0", default-features = false, features = ["dra", "resource-health"] }
+k8s-device-plugin = { version = "0.5.0", default-features = false, features = ["dra"] }
 ```
 
 Implement `ResourceHealthReporter` on the same backend as `DraDriver`, then

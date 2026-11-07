@@ -23,21 +23,13 @@ run = "cargo clippy --workspace --all-targets -- -D warnings"
 
 [tasks.ci]
 description = "Run the full CI checklist locally: fmt, clippy, test"
-depends = ["fmt", "clippy", "test", "dra-ci-resource-health", "dra-test-matrix", "dra-test-profile-config", "dra-test-multi-node", "dra-check-consumer-schemas"]
+depends = ["fmt", "clippy", "test", "dra-test-matrix", "dra-test-profile-config", "dra-test-multi-node", "dra-check-consumer-schemas"]
 
 [tasks.release-preflight]
 description = "Run CI and preview the next patch release without changing Git or crates.io"
 env = { K8S_OPENAPI_ENABLED_VERSION = "1.37" }
 depends = ["ci"]
 run = "cargo release patch --workspace --exclude k8s-device-plugin-example --no-confirm"
-
-[tasks.dra-ci-resource-health]
-description = "Lint and test the opt-in DRA resource-health feature and examples"
-env = { K8S_OPENAPI_ENABLED_VERSION = "1.37" }
-run = [
-    "cargo clippy --locked -p k8s-device-plugin-dra --all-targets --features resource-health -- -D warnings",
-    "cargo test --locked -p k8s-device-plugin-dra --all-targets --features resource-health",
-]
 
 [tasks.dra-test-matrix]
 description = "Test local DRA matrix orchestration and failure recovery without VMs"

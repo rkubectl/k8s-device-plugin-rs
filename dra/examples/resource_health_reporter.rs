@@ -9,7 +9,7 @@
 //! Run it with:
 //!
 //! ```bash
-//! cargo run -p k8s-device-plugin-dra --example resource_health_reporter --features resource-health
+//! cargo run -p k8s-device-plugin-dra --example resource_health_reporter
 //! ```
 
 use std::time::SystemTime;
@@ -18,11 +18,11 @@ use std::time::UNIX_EPOCH;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use k8s_device_plugin_core::DraDeviceHealth;
-use k8s_device_plugin_core::ResourceHealthError;
-use k8s_device_plugin_core::ResourceHealthReport;
-use k8s_device_plugin_core::ResourceHealthReporter;
-use k8s_device_plugin_core::ResourceHealthStatus;
+use k8s_device_plugin_dra_core::DraDeviceHealth;
+use k8s_device_plugin_dra_core::ResourceHealthError;
+use k8s_device_plugin_dra_core::ResourceHealthReport;
+use k8s_device_plugin_dra_core::ResourceHealthReporter;
+use k8s_device_plugin_dra_core::ResourceHealthStatus;
 
 #[derive(Debug)]
 struct WidgetHealthReporter;

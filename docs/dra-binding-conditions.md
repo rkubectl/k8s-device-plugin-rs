@@ -6,7 +6,7 @@ to each affected `InventoryDevice`. Existing backends retain their default
 inventory and declare no binding policy.
 
 ```rust
-use k8s_device_plugin_core::{DeviceBinding, InventoryDevice, PoolDevice};
+use k8s_device_plugin_dra_core::{DeviceBinding, InventoryDevice, PoolDevice};
 
 let device = InventoryDevice::new(PoolDevice::new("widget-0")).with_binding(
     DeviceBinding::new()

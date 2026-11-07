@@ -23,16 +23,16 @@ use k8s_device_plugin::{DevicePlugin, DevicePluginService, StaticDevicePlugin};
 
 The common DRA runtime types are also available at the crate root, including
 `DraPlugin`, `ClaimDeviceStatusPublisher`, and `DraPluginLivenessProbe`. The
-full focused APIs remain available as modules: `core`, `device_plugin`, `dra`,
+full focused APIs remain available as modules: `core`, `dra_core`, `device_plugin`, `dra`,
 and `proto`. The individual `k8s-device-plugin-*` crates remain supported for
 applications that prefer explicit, minimal dependencies.
 
-Enable the optional DRA resource-health protocol explicitly; it is additive to
-the DRA runtime:
+DRA health support is compiled with the runtime. Backends explicitly activate reporting with `DraPlugin::with_resource_health`:
+
 
 ```toml
 [dependencies]
-k8s-device-plugin = { version = "0.5.0", default-features = false, features = ["dra", "resource-health"] }
+k8s-device-plugin = { version = "0.5.0", default-features = false, features = ["dra"] }
 k8s-openapi = { version = "0.29", features = ["v1_37"] }
 ```
 
@@ -43,3 +43,13 @@ guide for the v0.4 migration requirements and dependency override.
 
 Start with the workspace [getting-started guide](../docs/getting-started.md)
 to choose between the classic and DRA runtimes and find runnable examples.
+
+## DRA contract migration
+
+DRA backend contracts moved from `k8s-device-plugin-core` to
+`k8s-device-plugin-dra-core`. With the facade's `dra` feature, they remain
+available at its root and through `dra_core`; DRA validation errors are
+exposed as `DraValidationError`, while `ValidationError` remains classic.
+The former `resource-health` Cargo feature has been removed. Construct with
+`DraPlugin::with_resource_health` to activate reporting. Domain strings and
+wire values are unchanged.

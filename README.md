@@ -17,12 +17,13 @@ callers using standard OS paths should follow the
 
 | Crate | Role |
 |---|---|
-| `k8s-device-plugin` | Unified, feature-gated entrypoint. Re-exports the common classic and DRA APIs at the crate root and exposes the focused crates as `core`, `device_plugin`, `dra`, and `proto` modules. |
+| `k8s-device-plugin` | Unified, feature-gated entrypoint. Re-exports the common classic and DRA APIs at the crate root and exposes the focused crates as `core`, `dra_core`, `device_plugin`, `dra`, and `proto` modules. |
 | `core` | Backend-facing abstractions: `DeviceDiscovery`, `DeviceAllocator`, `K8sDevicePlugin`, and the `Device`/`DevicePermissions`/`AllocationError` types. No gRPC or async runtime specifics — this is what a backend implements against. |
-| [`quantity`](quantity/README.md) | Standalone `k8s-quantity` library for exact Kubernetes quantities, unit parsing, normalization and numeric equality. Core re-exports its public types. |
+| [`quantity`](quantity/README.md) | Standalone `k8s-quantity` library for exact Kubernetes quantities, unit parsing, normalization and numeric equality. DRA core re-exports its public types. |
 | `proto` | Generated bindings for the `v1beta1` device-plugin gRPC protocol (via `tonic`/`prost`), plus the vendored `k8s.io/kubelet` proto submodule. |
 | `lib` | The framework itself: `DevicePlugin` (registration + lifecycle) and `DevicePluginService` (the gRPC service adapter that drives a `K8sDevicePlugin` backend). |
 | `test` | Shared test-only helpers (mock kubelet registration server, mock device-plugin client) used by `lib`'s integration tests. |
+| `dra-core` | Transport-independent DRA backend contracts, inventory, quantities, validation and resource-health reporting. |
 | `dra` | Dynamic Resource Allocation (DRA) driver runtime: implements resource-pool publication and kubelet claim preparation. See the [crate guide](dra/README.md) and [Phase 1 design](docs/dra-design.md). |
 | `example` | A complete, deployable plugin built on `StaticDevicePlugin`, with a `Dockerfile` and K8s manifests — see [Deploying a real plugin](#deploying-a-real-plugin). |
 
@@ -207,8 +208,9 @@ These development tasks explicitly select Kubernetes schema 1.37. Direct
 Cargo commands that build DRA need `K8S_OPENAPI_ENABLED_VERSION=1.37` (or
 `1.36`). Application dependencies select their schema through `k8s-openapi`
 features instead; see the [DRA schema contract](dra/README.md#kubernetes-schema-selection).
-`mise run dra-check-consumer-schemas` verifies both consumer selections,
-including the optional resource-health feature.
+`mise run dra-check-consumer-schemas` compiles independent consumers under both
+schemas, including the health APIs. Runtime tests exercise explicit health
+activation, ordinary-plugin behavior and watch cancellation.
 
 Protocol bindings are compiled with the Rust `protox` compiler; no external
 `protoc` installation is required. Git checkouts still need the

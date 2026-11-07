@@ -14,7 +14,7 @@ mod counters;
 
 #[test]
 fn owned_device_conversion_preserves_typed_attributes_and_capacity() {
-    use k8s_device_plugin_core::Quantity;
+    use k8s_device_plugin_dra_core::Quantity;
 
     let device = PoolDevice::new("widget-0")
         .attribute("model", "widget")
@@ -454,8 +454,8 @@ impl ResourcePool for TaintedInventory {
 }
 
 fn tainted_widget() -> InventoryDevice {
-    use k8s_device_plugin_core::DeviceTaint;
-    use k8s_device_plugin_core::DeviceTaintEffect;
+    use k8s_device_plugin_dra_core::DeviceTaint;
+    use k8s_device_plugin_dra_core::DeviceTaintEffect;
     InventoryDevice::new(PoolDevice::new("widget-0")).with_taint(DeviceTaint::new(
         "example.com/maintenance",
         DeviceTaintEffect::NoSchedule,
@@ -491,8 +491,8 @@ fn tainted_slice(effect: &str) -> resourcev1::ResourceSlice {
 
 #[test]
 fn taint_conversion_preserves_effects_values_and_explicit_times() {
-    use k8s_device_plugin_core::DeviceTaint;
-    use k8s_device_plugin_core::DeviceTaintEffect;
+    use k8s_device_plugin_dra_core::DeviceTaint;
+    use k8s_device_plugin_dra_core::DeviceTaintEffect;
     for effect in [
         DeviceTaintEffect::None,
         DeviceTaintEffect::NoSchedule,
@@ -513,8 +513,8 @@ fn taint_conversion_preserves_effects_values_and_explicit_times() {
 
 #[test]
 fn invalid_taints_are_rejected_before_publication() {
-    use k8s_device_plugin_core::DeviceTaint;
-    use k8s_device_plugin_core::DeviceTaintEffect;
+    use k8s_device_plugin_dra_core::DeviceTaint;
+    use k8s_device_plugin_dra_core::DeviceTaintEffect;
     let duplicate = tainted_widget().with_taint(DeviceTaint::new(
         "example.com/maintenance",
         DeviceTaintEffect::NoSchedule,
@@ -597,8 +597,8 @@ async fn defaulted_taint_time_and_empty_value_do_not_republish() {
 
 #[tokio::test]
 async fn changing_a_taint_effect_gets_a_new_time_and_generation() {
-    use k8s_device_plugin_core::DeviceTaint;
-    use k8s_device_plugin_core::DeviceTaintEffect;
+    use k8s_device_plugin_dra_core::DeviceTaint;
+    use k8s_device_plugin_dra_core::DeviceTaintEffect;
     let desired = InventoryDevice::new(PoolDevice::new("widget-0")).with_taint(DeviceTaint::new(
         "example.com/maintenance",
         DeviceTaintEffect::NoExecute,
@@ -658,8 +658,8 @@ async fn removing_a_taint_is_published_with_next_generation() {
 
 #[tokio::test]
 async fn taint_reordering_does_not_advance_generation() {
-    use k8s_device_plugin_core::DeviceTaint;
-    use k8s_device_plugin_core::DeviceTaintEffect;
+    use k8s_device_plugin_dra_core::DeviceTaint;
+    use k8s_device_plugin_dra_core::DeviceTaintEffect;
     let desired = tainted_widget().with_taint(DeviceTaint::new(
         "example.com/diagnostic",
         DeviceTaintEffect::None,
@@ -760,7 +760,7 @@ async fn backend_can_explicitly_change_a_taint_timestamp() {
 
 #[test]
 fn binding_metadata_is_optional_and_maps_to_the_device() {
-    use k8s_device_plugin_core::DeviceBinding;
+    use k8s_device_plugin_dra_core::DeviceBinding;
     let inventory = InventoryDevice::new(PoolDevice::new("widget-0")).with_binding(
         DeviceBinding::new()
             .with_condition("example.com/Attached")
@@ -785,7 +785,7 @@ fn binding_metadata_is_optional_and_maps_to_the_device() {
 
 #[test]
 fn binding_condition_limits_and_duplicates_are_rejected() {
-    use k8s_device_plugin_core::DeviceBinding;
+    use k8s_device_plugin_dra_core::DeviceBinding;
     let duplicate = DeviceBinding::new()
         .with_condition("example.com/Ready")
         .with_condition("example.com/Ready");
@@ -809,7 +809,7 @@ fn binding_condition_limits_and_duplicates_are_rejected() {
 
 #[tokio::test]
 async fn binding_condition_order_and_default_false_do_not_advance_generation() {
-    use k8s_device_plugin_core::DeviceBinding;
+    use k8s_device_plugin_dra_core::DeviceBinding;
     let desired = InventoryDevice::new(PoolDevice::new("widget-0")).with_binding(
         DeviceBinding::new()
             .with_condition("example.com/ZReady")
@@ -845,7 +845,7 @@ async fn binding_condition_order_and_default_false_do_not_advance_generation() {
 
 #[tokio::test]
 async fn adding_binding_conditions_advances_generation_and_preserves_taints() {
-    use k8s_device_plugin_core::DeviceBinding;
+    use k8s_device_plugin_dra_core::DeviceBinding;
     let desired = tainted_widget().with_binding(
         DeviceBinding::new()
             .with_condition("example.com/Attached")

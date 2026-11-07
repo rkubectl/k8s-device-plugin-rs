@@ -1,6 +1,6 @@
-use k8s_device_plugin_core::CounterSet;
-use k8s_device_plugin_core::DeviceCounterConsumption;
-use k8s_device_plugin_core::Quantity;
+use k8s_device_plugin_dra_core::CounterSet;
+use k8s_device_plugin_dra_core::DeviceCounterConsumption;
+use k8s_device_plugin_dra_core::Quantity;
 
 use super::*;
 

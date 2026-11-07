@@ -673,16 +673,15 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
     assert!(result.claims.values().all(|r| r.error.is_empty()));
 }
 
-#[cfg(feature = "resource-health")]
 #[tokio::test]
 async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations() {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
-    use k8s_device_plugin_core::DraDeviceHealth;
-    use k8s_device_plugin_core::ResourceHealthError;
-    use k8s_device_plugin_core::ResourceHealthReport;
-    use k8s_device_plugin_core::ResourceHealthStatus;
+    use k8s_device_plugin_dra_core::DraDeviceHealth;
+    use k8s_device_plugin_dra_core::ResourceHealthError;
+    use k8s_device_plugin_dra_core::ResourceHealthReport;
+    use k8s_device_plugin_dra_core::ResourceHealthStatus;
     use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
     use k8s_device_plugin_test::kube_mock::mock_kube_client;
     use k8s_device_plugin_test::kube_mock::respond;

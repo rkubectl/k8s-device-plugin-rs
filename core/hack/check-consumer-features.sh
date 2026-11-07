@@ -37,7 +37,8 @@ check_boundary() {
     cargo check "$@"
     cargo tree --edges normal --prefix none --format '{p}' "$@" > "$check_dir/tree"
     jq -Rse '(contains("k8s-openapi v") or contains("kube v") or
-        contains("k8s-device-plugin-proto v") or contains("tonic v")) | not' \
+        contains("k8s-device-plugin-proto v") or contains("tonic v") or contains("k8s-device-plugin-dra") or
+        contains("k8s-quantity v") or contains("bigdecimal v")) | not' \
         < "$check_dir/tree" >/dev/null
 }
 
@@ -52,5 +53,45 @@ core_features=$(cargo metadata --format-version 1 | jq -r '
     .packages[] | select(.name == "k8s-device-plugin-core") |
     .features | keys | map("k8s-device-plugin-core/" + .) | join(",")
 ')
-check_boundary --features "$core_features"
+if [ -n "$core_features" ]; then
+    check_boundary --features "$core_features"
+else
+    check_boundary --all-features
+fi
 printf 'all core features passed without transport or Kubernetes schema\n'
+
+facade_path=$(printf '%s' "$repo_root/k8s-device-plugin" | jq -Rs .)
+cat > Cargo.toml <<EOF
+[package]
+name = "classic-facade-consumer"
+version = "0.0.0"
+edition = "2024"
+[workspace]
+[dependencies]
+k8s-device-plugin = { path = $facade_path, default-features = false, features = ["device-plugin"] }
+EOF
+cat > src/main.rs <<'EOF'
+fn main() { k8s_device_plugin::Device::rdwr("widget", "/dev/widget").validate().unwrap(); }
+EOF
+cargo check
+cargo tree --edges normal --prefix none --format '{p}' > "$check_dir/tree"
+jq -Rse '(contains("k8s-openapi v") or contains("kube v") or contains("k8s-device-plugin-dra") or contains("k8s-quantity v") or contains("bigdecimal v")) | not' < "$check_dir/tree" >/dev/null
+printf 'classic facade consumer passed without DRA or schema\n'
+
+quantity_path=$(printf '%s' "$repo_root/quantity" | jq -Rs .)
+cat > Cargo.toml <<EOF2
+[package]
+name = "quantity-boundary-consumer"
+version = "0.0.0"
+edition = "2024"
+[workspace]
+[dependencies]
+k8s-quantity = { path = $quantity_path, default-features = false }
+EOF2
+cat > src/main.rs <<'EOF2'
+fn main() { assert_eq!("0.5".parse::<k8s_quantity::Quantity>().unwrap().to_string(), "500m"); }
+EOF2
+cargo check
+cargo tree --edges normal --prefix none --format '{p}' > "$check_dir/tree"
+jq -Rse '(contains("k8s-openapi v") or contains("kube v") or contains("tonic v")) | not' < "$check_dir/tree" >/dev/null
+printf 'quantity consumer passed without Kubernetes schema\n'

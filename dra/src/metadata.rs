@@ -4,7 +4,7 @@ use std::sync::Weak;
 use camino::Utf8Component;
 use parking_lot::Mutex;
 
-use k8s_device_plugin_core::PreparedDeviceWithMetadata;
+use k8s_device_plugin_dra_core::PreparedDeviceWithMetadata;
 
 use super::*;
 
