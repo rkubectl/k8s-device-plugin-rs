@@ -14,7 +14,7 @@ const DEFAULT_RETRY_DELAY: Duration = Duration::from_millis(50);
 /// real `ResourceClaim` object's `status.allocation` from the API server.
 #[derive(Clone)]
 pub struct ClaimResolver {
-    driver_name: String,
+    driver_name: DriverName,
     client: kube::Client,
     max_concurrent_resolves: usize,
     max_attempts: usize,
@@ -35,11 +35,13 @@ pub(crate) struct ResolvedClaimContext {
 }
 
 impl ClaimResolver {
-    pub(crate) fn validate_identity(&self, driver_name: &str) -> Result<(), ValidationError> {
-        validate_driver_name(driver_name)?;
-        if driver_name != self.driver_name {
-            return Err(ValidationError::DriverNameMismatch {
-                runtime: driver_name.to_string(),
+    pub(crate) fn validate_identity(
+        &self,
+        driver_name: &DriverName,
+    ) -> Result<(), DriverIdentityMismatch> {
+        if driver_name != &self.driver_name {
+            return Err(DriverIdentityMismatch {
+                runtime: driver_name.clone(),
                 backend: self.driver_name.clone(),
             });
         }
@@ -47,24 +49,14 @@ impl ClaimResolver {
     }
 
     /// Creates a resolver scoped to one DRA driver.
-    ///
-    /// # Errors
-    ///
-    /// Returns a validation error if the driver name is not a DNS subdomain
-    /// of at most 63 bytes.
-    pub fn new(
-        client: kube::Client,
-        driver_name: impl Into<String>,
-    ) -> Result<Self, ValidationError> {
-        let driver_name = driver_name.into();
-        validate_driver_name(&driver_name)?;
-        Ok(Self {
+    pub fn new(client: kube::Client, driver_name: DriverName) -> Self {
+        Self {
             driver_name,
             client,
             max_concurrent_resolves: DEFAULT_MAX_CONCURRENT_RESOLVES,
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             retry_delay: DEFAULT_RETRY_DELAY,
-        })
+        }
     }
 
     /// Caps the number of concurrent API reads made for one kubelet request.
@@ -144,7 +136,7 @@ impl ClaimResolver {
             .and_then(|devices| devices.results.as_ref())
             .into_iter()
             .flatten()
-            .filter(|result| result.driver == self.driver_name)
+            .filter(|result| result.driver == self.driver_name.as_str())
             .collect::<Vec<_>>();
         if local.iter().any(|result| result.share_id.is_some()) {
             return Err(PrepareError::ResolutionFailed(
@@ -153,12 +145,18 @@ impl ClaimResolver {
         }
         let devices = local
             .into_iter()
-            .map(|result| AllocatedDevice {
-                pool_name: result.pool.clone(),
-                device_name: result.device.clone(),
-                request_name: (!result.request.is_empty()).then(|| result.request.clone()),
+            .map(|result| {
+                let pool_name = PoolName::try_from(result.pool.as_str())
+                    .map_err(PrepareError::InvalidAllocatedPool)?;
+                let device_name = DeviceName::try_from(result.device.as_str())
+                    .map_err(PrepareError::InvalidAllocatedDevice)?;
+                Ok(AllocatedDevice {
+                    pool_name,
+                    device_name,
+                    request_name: (!result.request.is_empty()).then(|| result.request.clone()),
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>, PrepareError>>()?;
 
         Ok(ResolvedClaimContext {
             resolved: ResolvedClaim {

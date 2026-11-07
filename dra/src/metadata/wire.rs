@@ -68,8 +68,8 @@ impl From<&PreparedDevice> for JournalDevice {
     fn from(device: &PreparedDevice) -> Self {
         Self {
             cdi: device.cdi_device_ids.clone(),
-            device: device.device_name.clone(),
-            pool: device.pool_name.clone(),
+            device: device.device_name.to_string(),
+            pool: device.pool_name.to_string(),
             requests: device.request_names.clone(),
         }
     }

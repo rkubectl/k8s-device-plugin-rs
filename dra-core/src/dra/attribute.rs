@@ -41,3 +41,30 @@ impl AttributeValue {
         Self::Version(version.into())
     }
 }
+
+use k8s_openapi::api::resource::v1 as resourcev1;
+
+use super::super::default;
+
+impl From<AttributeValue> for resourcev1::DeviceAttribute {
+    fn from(value: AttributeValue) -> Self {
+        match value {
+            AttributeValue::String(value) => Self {
+                string: Some(value),
+                ..default()
+            },
+            AttributeValue::Int(value) => Self {
+                int: Some(value),
+                ..default()
+            },
+            AttributeValue::Bool(value) => Self {
+                bool: Some(value),
+                ..default()
+            },
+            AttributeValue::Version(value) => Self {
+                version: Some(value),
+                ..default()
+            },
+        }
+    }
+}

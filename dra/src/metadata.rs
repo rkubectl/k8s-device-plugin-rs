@@ -51,7 +51,7 @@ impl DeviceMetadataOptions {
 
 #[derive(Debug)]
 pub(crate) struct MetadataRuntime {
-    driver: String,
+    driver: DriverName,
     local: Utf8PathBuf,
     host: Utf8PathBuf,
     cdi: Utf8PathBuf,
@@ -60,9 +60,8 @@ pub(crate) struct MetadataRuntime {
 }
 
 impl MetadataRuntime {
-    pub fn new(driver: String, options: DeviceMetadataOptions) -> io::Result<Self> {
-        validate_driver_name(&driver).map_err(|error| invalid(error.to_string()))?;
-        let default = Utf8Path::new(dra::KUBELET_PLUGINS_PATH).join(&driver);
+    pub fn new(driver: DriverName, options: DeviceMetadataOptions) -> io::Result<Self> {
+        let default = Utf8Path::new(dra::KUBELET_PLUGINS_PATH).join(driver.as_str());
         let (local, host) = options
             .plugin_directories
             .unwrap_or_else(|| (default.clone(), default));
@@ -245,7 +244,7 @@ impl Plan {
             .unwrap_or_default();
         let local = allocations
             .iter()
-            .filter(|a| a.driver == runtime.driver)
+            .filter(|a| a.driver == runtime.driver.as_str())
             .collect::<Vec<_>>();
         for allocation in &local {
             let base = request_ref(&allocation.request)?;
@@ -271,18 +270,12 @@ impl Plan {
         }
         let mut by_request: BTreeMap<
             String,
-            BTreeMap<(String, String), wire::DeviceMetadataEntry>,
+            BTreeMap<(PoolName, DeviceName), wire::DeviceMetadataEntry>,
         > = BTreeMap::new();
         let mut full_names: BTreeMap<String, String> = BTreeMap::new();
         let mut wire = Vec::with_capacity(prepared.len());
         for entry in prepared {
             let device = entry.device;
-            if !label(&device.device_name, 63)
-                || device.pool_name.len() > 253
-                || !device.pool_name.split('/').all(|p| dns_subdomain(p, 253))
-            {
-                return Err(invalid("invalid prepared metadata device identity"));
-            }
             if entry.attributes.len() > 32
                 || entry
                     .attributes
@@ -296,7 +289,7 @@ impl Plan {
             let attributes = entry
                 .attributes
                 .into_iter()
-                .map(|(k, v)| (k, resourceslice::attribute_value_to_wire(v)))
+                .map(|(k, v)| (k, v.into()))
                 .collect::<BTreeMap<_, _>>();
             let requested = if device.request_names.is_empty() {
                 declared.iter().map(|r| (*r).to_string()).collect()
@@ -312,8 +305,8 @@ impl Plan {
                 let matching = local
                     .iter()
                     .filter(|a| {
-                        a.pool == device.pool_name
-                            && a.device == device.device_name
+                        a.pool == device.pool_name.as_str()
+                            && a.device == device.device_name.as_str()
                             && (a.request == requested
                                 || (requested == base
                                     && a.request.starts_with(&format!("{base}/"))))
@@ -342,9 +335,9 @@ impl Plan {
                     full_names.insert(base.to_string(), allocation.request.clone());
                     let content = wire::DeviceMetadataEntry {
                         attributes: attributes.clone(),
-                        driver: runtime.driver.clone(),
-                        name: device.device_name.clone(),
-                        pool: device.pool_name.clone(),
+                        driver: runtime.driver.to_string(),
+                        name: device.device_name.to_string(),
+                        pool: device.pool_name.to_string(),
                     };
                     let key = (device.pool_name.clone(), device.device_name.clone());
                     let devices = by_request.entry(base.to_string()).or_default();

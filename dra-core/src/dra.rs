@@ -22,7 +22,7 @@ mod inventory;
 /// [`k8s_device_plugin_core::Device`], which is just an id, health, and host paths.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PoolDevice {
-    pub name: String,
+    pub name: DeviceName,
     pub attributes: BTreeMap<String, AttributeValue>,
     pub capacity: BTreeMap<String, Quantity>,
     /// Informational backend state. The DRA publisher does not read this field
@@ -33,9 +33,9 @@ pub struct PoolDevice {
 }
 
 impl PoolDevice {
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: DeviceName) -> Self {
         Self {
-            name: name.into(),
+            name,
             attributes: BTreeMap::new(),
             capacity: BTreeMap::new(),
             health: Health::Healthy,
@@ -62,7 +62,7 @@ impl PoolDevice {
 #[async_trait]
 pub trait ResourcePool: Send + Sync {
     /// Devices this driver currently offers, keyed by pool name.
-    async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>>;
+    async fn devices(&self) -> BTreeMap<PoolName, Vec<PoolDevice>>;
 
     /// All devices in one snapshot, including optional device policies.
     ///
@@ -70,7 +70,7 @@ pub trait ResourcePool: Send + Sync {
     /// publishing taints so devices and their policies come from the same
     /// backend snapshot. The default [`Self::snapshot`] calls this once per
     /// reconciliation.
-    async fn inventory(&self) -> BTreeMap<String, Vec<InventoryDevice>> {
+    async fn inventory(&self) -> BTreeMap<PoolName, Vec<InventoryDevice>> {
         self.devices()
             .await
             .into_iter()
@@ -88,7 +88,7 @@ pub trait ResourcePool: Send + Sync {
     /// Override this for partitionable devices, reading counters and devices
     /// from the same backend state. The runtime calls this once per reconciliation.
     /// The default preserves existing `devices` and `inventory` implementations.
-    async fn snapshot(&self) -> BTreeMap<String, PoolInventory> {
+    async fn snapshot(&self) -> BTreeMap<PoolName, PoolInventory> {
         self.inventory()
             .await
             .into_iter()
@@ -110,8 +110,8 @@ pub struct ClaimRef {
 /// `ResourceClaim.status.allocation.devices`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AllocatedDevice {
-    pub pool_name: String,
-    pub device_name: String,
+    pub pool_name: PoolName,
+    pub device_name: DeviceName,
     /// The allocation request reference, including any `/subrequest` suffix.
     /// `None` if the device is
     /// associated with every request in the claim.
@@ -128,7 +128,7 @@ pub struct ResolvedClaim {
 
 /// Artifacts to attach to a container as a result of preparing one device
 /// for a claim. The DRA analog of [`k8s_device_plugin_core::ContainerAllocation`].
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PreparedDevice {
     /// Request references satisfied by this device. The runtime strips
     /// `/subrequest` suffixes and deduplicates them for kubelet. An empty list
@@ -139,14 +139,25 @@ pub struct PreparedDevice {
     /// from the input `AllocatedDevice`s a backend was given, since
     /// `prepare` doesn't guarantee a positional 1:1 correspondence between
     /// its input and output devices.
-    pub pool_name: String,
-    pub device_name: String,
+    pub pool_name: PoolName,
+    pub device_name: DeviceName,
     /// Fully qualified CDI device names, e.g. `"vendor.com/gpu=gpudevice1"`.
     pub cdi_device_ids: Vec<String>,
 }
 
-/// One preparation result with explicitly selected, public container metadata.
-/// Existing [`PreparedDevice`] literals remain source-compatible.
+impl PreparedDevice {
+    #[must_use]
+    pub fn new(pool_name: PoolName, device_name: DeviceName) -> Self {
+        Self {
+            request_names: Vec::new(),
+            pool_name,
+            device_name,
+            cdi_device_ids: Vec::new(),
+        }
+    }
+}
+
+/// One preparation result with explicitly selected public container metadata.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct PreparedDeviceWithMetadata {
@@ -176,6 +187,10 @@ impl PreparedDeviceWithMetadata {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PrepareError {
+    #[error("invalid allocated pool: {0}")]
+    InvalidAllocatedPool(#[source] PoolNameError),
+    #[error("invalid allocated device: {0}")]
+    InvalidAllocatedDevice(#[source] DeviceNameError),
     #[error("claim is not allocated: {0:?}")]
     ClaimNotAllocated(ClaimRef),
     #[error("device unavailable: {0}")]
@@ -243,15 +258,15 @@ pub trait ClaimPreparer: Send + Sync {
 // either bound just because `D` does.
 #[async_trait]
 impl<T: ResourcePool + ?Sized> ResourcePool for Arc<T> {
-    async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
+    async fn devices(&self) -> BTreeMap<PoolName, Vec<PoolDevice>> {
         (**self).devices().await
     }
 
-    async fn inventory(&self) -> BTreeMap<String, Vec<InventoryDevice>> {
+    async fn inventory(&self) -> BTreeMap<PoolName, Vec<InventoryDevice>> {
         (**self).inventory().await
     }
 
-    async fn snapshot(&self) -> BTreeMap<String, PoolInventory> {
+    async fn snapshot(&self) -> BTreeMap<PoolName, PoolInventory> {
         (**self).snapshot().await
     }
 }
@@ -280,7 +295,7 @@ impl<T: ClaimPreparer + ?Sized> ClaimPreparer for Arc<T> {
 /// Full framework abstraction a DRA driver backend implements. The DRA
 /// analog of [`k8s_device_plugin_core::K8sDevicePlugin`].
 pub trait DraDriver: ResourcePool + ClaimPreparer {
-    fn driver_name(&self) -> &str;
+    fn driver_name(&self) -> &DriverName;
 }
 
 /// A health state reported independently from [`PoolDevice::health`].
@@ -302,8 +317,8 @@ pub enum ResourceHealthStatus {
 /// The health status of one DRA device.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DraDeviceHealth {
-    pub pool_name: String,
-    pub device_name: String,
+    pub pool_name: PoolName,
+    pub device_name: DeviceName,
     pub health: ResourceHealthStatus,
     /// Unix time in seconds when the backend determined this status.
     pub last_updated_time: i64,
@@ -358,19 +373,55 @@ impl<T: ResourceHealthReporter + ?Sized> ResourceHealthReporter for Arc<T> {
     }
 }
 
+/// Projects a device for inventory publication. Informational `health` has no
+/// representation here; it does not control publication or allocated health.
+impl From<PoolDevice> for k8s_openapi::api::resource::v1::Device {
+    fn from(device: PoolDevice) -> Self {
+        use k8s_openapi::api::resource::v1 as resourcev1;
+        let attributes = (!device.attributes.is_empty()).then(|| {
+            device
+                .attributes
+                .into_iter()
+                .map(|(name, value)| (name, value.into()))
+                .collect()
+        });
+        let capacity = (!device.capacity.is_empty()).then(|| {
+            device
+                .capacity
+                .into_iter()
+                .map(|(name, value)| {
+                    (
+                        name,
+                        resourcev1::DeviceCapacity {
+                            request_policy: None,
+                            value: value.into(),
+                        },
+                    )
+                })
+                .collect()
+        });
+        Self {
+            name: device.name.into_string(),
+            attributes,
+            capacity,
+            ..default()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     struct StaticDriver {
-        name: String,
-        pool: String,
+        name: DriverName,
+        pool: PoolName,
         devices: Vec<PoolDevice>,
     }
 
     #[async_trait]
     impl ResourcePool for StaticDriver {
-        async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
+        async fn devices(&self) -> BTreeMap<PoolName, Vec<PoolDevice>> {
             BTreeMap::from([(self.pool.clone(), self.devices.clone())])
         }
     }
@@ -408,16 +459,16 @@ mod tests {
     }
 
     impl DraDriver for StaticDriver {
-        fn driver_name(&self) -> &str {
+        fn driver_name(&self) -> &DriverName {
             &self.name
         }
     }
 
     fn make_driver() -> StaticDriver {
         StaticDriver {
-            name: "example.com/widget".to_string(),
-            pool: "node-0".to_string(),
-            devices: vec![PoolDevice::new("widget-0").attribute("model", "x1")],
+            name: "example.com".parse().unwrap(),
+            pool: "node-0".parse().unwrap(),
+            devices: vec![PoolDevice::new("widget-0".parse().unwrap()).attribute("model", "x1")],
         }
     }
 
@@ -429,8 +480,8 @@ mod tests {
                 name: name.to_string(),
             },
             devices: vec![AllocatedDevice {
-                pool_name: "node-0".to_string(),
-                device_name: device_name.to_string(),
+                pool_name: "node-0".parse().unwrap(),
+                device_name: device_name.parse().unwrap(),
                 request_name: Some("req-0".to_string()),
             }],
         }
@@ -442,7 +493,7 @@ mod tests {
         let devices = driver.devices().await;
         assert_eq!(devices.len(), 1);
         assert_eq!(devices["node-0"].len(), 1);
-        assert_eq!(devices["node-0"][0].name, "widget-0");
+        assert_eq!(devices["node-0"][0].name.as_str(), "widget-0");
     }
 
     #[tokio::test]
@@ -482,7 +533,7 @@ mod tests {
     #[test]
     fn driver_name_is_exposed() {
         let driver = make_driver();
-        assert_eq!(driver.driver_name(), "example.com/widget");
+        assert_eq!(driver.driver_name().as_str(), "example.com");
     }
 
     #[test]

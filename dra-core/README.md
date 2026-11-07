@@ -1,7 +1,9 @@
 # k8s-device-plugin-dra-core
 
-Transport-independent DRA backend contracts, inventory, quantities and health
-reporting types. Implement `ResourcePool` and `ClaimPreparer` to provide a
+DRA backend contracts, inventory, quantities and health reporting types.
+Direct consumers select one supported `k8s-openapi` schema (`v1_36` or
+`v1_37`); the crate selects neither. Classic core and the standalone Quantity
+crate remain usable without a Kubernetes schema. Implement `ResourcePool` and `ClaimPreparer` to provide a
 `DraDriver`; use the DRA runtime to publish inventory and serve kubelet claims.
 
 Override `ResourcePool::inventory()` to publish one coherent snapshot with

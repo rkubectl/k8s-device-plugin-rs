@@ -20,7 +20,10 @@ use k8s_device_plugin_dra_core::AllocatedDevice;
 use k8s_device_plugin_dra_core::ClaimPreparer;
 use k8s_device_plugin_dra_core::ClaimRef;
 use k8s_device_plugin_dra_core::DraDriver;
+use k8s_device_plugin_dra_core::DriverName;
+use k8s_device_plugin_dra_core::NodeName;
 use k8s_device_plugin_dra_core::PoolDevice;
+use k8s_device_plugin_dra_core::PoolName;
 use k8s_device_plugin_dra_core::PrepareError;
 use k8s_device_plugin_dra_core::PreparedDevice;
 use k8s_device_plugin_dra_core::ResolvedClaim;
@@ -60,7 +63,7 @@ impl AcceleratorPair {
 
 impl From<&AcceleratorPair> for PoolDevice {
     fn from(pair: &AcceleratorPair) -> Self {
-        Self::new(pair.name)
+        Self::new(pair.name.parse().expect("valid pair name"))
             .attribute(ATTRIBUTE_KIND, "connected-pair")
             .attribute(ATTRIBUTE_INTERCONNECT, pair.interconnect)
             .attribute(ATTRIBUTE_MEMBER_0, pair.members[0])
@@ -113,13 +116,17 @@ async fn write_cdi_spec(pairs: &[AcceleratorPair]) -> io::Result<()> {
 
 #[derive(Debug)]
 struct AcceleratorPairDriver {
-    name: String,
-    pool: String,
+    name: DriverName,
+    pool: PoolName,
     pairs: BTreeMap<&'static str, AcceleratorPair>,
 }
 
 impl AcceleratorPairDriver {
-    fn new(name: String, pool: String, pairs: impl IntoIterator<Item = AcceleratorPair>) -> Self {
+    fn new(
+        name: DriverName,
+        pool: PoolName,
+        pairs: impl IntoIterator<Item = AcceleratorPair>,
+    ) -> Self {
         Self {
             name,
             pool,
@@ -145,7 +152,7 @@ impl AcceleratorPairDriver {
         Ok(PreparedDevice {
             request_names: device.request_name.clone().into_iter().collect(),
             pool_name: device.pool_name.clone(),
-            device_name: pair.name.to_string(),
+            device_name: device.device_name.clone(),
             cdi_device_ids: vec![pair.cdi_device_id()],
         })
     }
@@ -153,7 +160,7 @@ impl AcceleratorPairDriver {
 
 #[async_trait]
 impl ResourcePool for AcceleratorPairDriver {
-    async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
+    async fn devices(&self) -> BTreeMap<PoolName, Vec<PoolDevice>> {
         BTreeMap::from([(
             self.pool.clone(),
             self.pairs.values().map(PoolDevice::from).collect(),
@@ -199,7 +206,7 @@ impl ClaimPreparer for AcceleratorPairDriver {
 }
 
 impl DraDriver for AcceleratorPairDriver {
-    fn driver_name(&self) -> &str {
+    fn driver_name(&self) -> &DriverName {
         &self.name
     }
 }
@@ -210,17 +217,23 @@ async fn main() -> io::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let driver_name = env_or_default("DRIVER_NAME", DEFAULT_DRIVER_NAME);
-    let pool_name = env_or_default("POOL_NAME", DEFAULT_POOL_NAME);
-    let node_name = env::var("NODE_NAME")
-        .map_err(|error| io::Error::other(format!("NODE_NAME must be set: {error}")))?;
+    let driver_name: DriverName = env_or_default("DRIVER_NAME", DEFAULT_DRIVER_NAME)
+        .parse()
+        .map_err(io::Error::other)?;
+    let pool_name: PoolName = env_or_default("POOL_NAME", DEFAULT_POOL_NAME)
+        .parse()
+        .map_err(io::Error::other)?;
+    let node_name: NodeName = env::var("NODE_NAME")
+        .map_err(|error| io::Error::other(format!("NODE_NAME must be set: {error}")))?
+        .parse()
+        .map_err(io::Error::other)?;
     let pairs = example_pairs();
 
     write_cdi_spec(&pairs).await?;
     tracing::info!(
-        driver_name,
-        pool_name,
-        node_name,
+        %driver_name,
+        %pool_name,
+        %node_name,
         pair_count = pairs.len(),
         "starting topology-aware accelerator-pair DRA driver"
     );
@@ -247,16 +260,16 @@ mod tests {
 
     fn driver() -> AcceleratorPairDriver {
         AcceleratorPairDriver::new(
-            DEFAULT_DRIVER_NAME.to_string(),
-            DEFAULT_POOL_NAME.to_string(),
+            DEFAULT_DRIVER_NAME.parse().unwrap(),
+            DEFAULT_POOL_NAME.parse().unwrap(),
             example_pairs(),
         )
     }
 
     fn allocated_device(name: &str) -> AllocatedDevice {
         AllocatedDevice {
-            pool_name: DEFAULT_POOL_NAME.to_string(),
-            device_name: name.to_string(),
+            pool_name: DEFAULT_POOL_NAME.parse().unwrap(),
+            device_name: name.parse().unwrap(),
             request_name: Some("accelerator-pair".to_string()),
         }
     }
@@ -289,7 +302,7 @@ mod tests {
             .prepare_device(&allocated_device("pair-0-1"))
             .expect("advertised pair must be prepared");
 
-        assert_eq!(prepared.device_name, "pair-0-1");
+        assert_eq!(prepared.device_name.as_str(), "pair-0-1");
         assert_eq!(
             prepared.cdi_device_ids,
             ["accelerator.example.com/pair=pair-0-1"]

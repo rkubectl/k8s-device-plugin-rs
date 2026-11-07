@@ -126,8 +126,8 @@ fn device_to_wire(device: DraDeviceHealth) -> dra::health::v1alpha1::DeviceHealt
     };
     dra::health::v1alpha1::DeviceHealth {
         device: Some(dra::health::v1alpha1::DeviceIdentifier {
-            pool_name: device.pool_name,
-            device_name: device.device_name,
+            pool_name: device.pool_name.into_string(),
+            device_name: device.device_name.into_string(),
         }),
         health: health.into(),
         last_updated_time: device.last_updated_time,
@@ -253,8 +253,8 @@ mod tests {
             reports
                 .send(ResourceHealthReport {
                     devices: vec![DraDeviceHealth {
-                        pool_name: "pool-0".to_string(),
-                        device_name: "widget-0".to_string(),
+                        pool_name: "pool-0".parse().unwrap(),
+                        device_name: "widget-0".parse().unwrap(),
                         health,
                         last_updated_time: 1_700_000_000,
                         health_check_timeout_seconds: 30,

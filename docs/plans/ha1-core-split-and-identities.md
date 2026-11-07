@@ -1,9 +1,9 @@
 # Separate classic and DRA contracts; validate identities at construction
 
 Tracking: `k8s-device-plugin-rs-ha1` and phases `ha1.1`–`ha1.5`.
-Status: **proposed; awaiting maintainer review**. This document authorizes no
-implementation or release. Close the review gate `ha1.1` only after explicit
-maintainer approval, then start the dependent phases in order.
+Status: **review approved; ha1.2 and ha1.3 complete**. The user approved
+the plan review and authorized ha1.3 after the completed ha1.2 pilot. Later
+phases are not started; release and publication remain separate decisions.
 
 Baseline: v0.5.0 plus ownership audit, commit
 `51774a29a86dbbf47eb20bcbaca65481854ab9ec`, assessed 2026-11-07.
@@ -269,7 +269,7 @@ decisions with a link rather than rewriting their original findings.
 | `ha1.2` | Extract DRA contracts, split mixed error ownership, remove public health feature gates, migrate imports/facade/docs and consumer/release plumbing; retain current domain string representations | Pure core/Quantity schema-free checks, both-schema DRA consumer builds, always-available health APIs and ordinary/health-enabled plugin tests; existing activation and wire semantics preserved |
 | `ha1.3` | Introduce DRA identities, typed fields/maps/traits, construction errors and fitting type-owned OpenAPI projections | Invariant/boundary tests, both-schema conversions, per-claim failures and journal/metadata regressions |
 | `ha1.4` | Introduce classic identities and migrate configuration/device/allocation/hook APIs and examples | Schema-free classic consumers, malformed RPC IDs, allocation/pre-start/preferred-allocation and path regressions |
-| `ha1.5` | Complete migration documentation and comprehensive validation on the combined result | Matrix and acceptance record below, package dry runs and reviewed API/dependency diff |
+| `ha1.5` | Complete migration documentation and comprehensive validation on the combined result | Matrix and acceptance record below, local package-content listings and reviewed API/dependency diff |
 
 Keep these as separate focused commits. Run the smallest useful checks during
 each change phase, then comprehensive validation in `ha1.5` after the changes
@@ -307,8 +307,8 @@ rerun affected checks; do not repeatedly run broad matrices without a reason.
    locked workspace all-target tests, strict Clippy, doctests and strict
    rustdoc under both schemas and default/all features, sequentially or with
    isolated target directories. Run focused pure-core minimal tests and verify
-   package contents/normalized manifests and release dry-run inclusion of the
-   new public crate. No registry writes or version/tag changes.
+   package contents and manifest/dependency ordering by non-mutating inspection.
+   No release/preview, publication, registry writes, version, tag, push or merge commands.
 6. Because identity parsing changes kubelet-facing entry paths, build the
    native ARM64 fixture and use the existing guarded Kubernetes version
    matrix for registration/liveness, prepare/unprepare/CDI, FirstAvailable,

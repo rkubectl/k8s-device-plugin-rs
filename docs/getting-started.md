@@ -141,9 +141,9 @@ The full DRA example publishes `{"phase":"prepared"}` in
 has configuration or diagnostics worth exposing:
 
 ```rust
-let publisher = ClaimDeviceStatusPublisher::new(client.clone(), driver_name.clone())?;
+let publisher = ClaimDeviceStatusPublisher::new(client.clone(), driver_name.clone());
 
-let mut status = ClaimDeviceStatus::new(&device.pool_name, &device.device_name);
+let mut status = ClaimDeviceStatus::new(device.pool_name.clone(), device.device_name.clone());
 status.data = Some(serde_json::json!({ "phase": "prepared" }));
 publisher.publish(&resolved.claim, [status]).await?;
 ```

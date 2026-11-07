@@ -30,12 +30,16 @@ use k8s_device_plugin_dra_core::ClaimRef;
 use k8s_device_plugin_dra_core::CounterSet;
 use k8s_device_plugin_dra_core::DeviceBinding;
 use k8s_device_plugin_dra_core::DeviceCounterConsumption;
+use k8s_device_plugin_dra_core::DeviceName;
 use k8s_device_plugin_dra_core::DeviceTaint;
 use k8s_device_plugin_dra_core::DeviceTaintEffect;
 use k8s_device_plugin_dra_core::DraDriver;
+use k8s_device_plugin_dra_core::DriverName;
 use k8s_device_plugin_dra_core::InventoryDevice;
+use k8s_device_plugin_dra_core::NodeName;
 use k8s_device_plugin_dra_core::PoolDevice;
 use k8s_device_plugin_dra_core::PoolInventory;
+use k8s_device_plugin_dra_core::PoolName;
 use k8s_device_plugin_dra_core::PrepareError;
 use k8s_device_plugin_dra_core::PreparedDevice;
 use k8s_device_plugin_dra_core::PreparedDeviceWithMetadata;
@@ -69,14 +73,14 @@ async fn write_cdi_spec(devices: &[PoolDevice], metadata: bool) -> io::Result<()
         devices: devices
             .iter()
             .map(|device| cdi::Device {
-                name: device.name.clone(),
+                name: device.name.to_string(),
                 container_edits: cdi::ContainerEdits {
                     env: if metadata {
                         vec![
                             format!("DRA_E2E_DEVICE={}", device.name),
                             format!(
                                 "DRA_METADATA_PHYSICAL_{}=present",
-                                device.name.replace('-', "_")
+                                device.name.as_str().replace('-', "_")
                             ),
                         ]
                     } else {
@@ -95,8 +99,8 @@ async fn write_cdi_spec(devices: &[PoolDevice], metadata: bool) -> io::Result<()
 
 #[derive(Debug)]
 struct StaticDraDriver {
-    name: String,
-    pool: String,
+    name: DriverName,
+    pool: PoolName,
     devices: Vec<PoolDevice>,
     status_publisher: Option<ClaimDeviceStatusPublisher>,
     taint: Option<DeviceTaint>,
@@ -105,7 +109,7 @@ struct StaticDraDriver {
 }
 
 impl StaticDraDriver {
-    fn new(name: String, pool: String, devices: Vec<PoolDevice>) -> Self {
+    fn new(name: DriverName, pool: PoolName, devices: Vec<PoolDevice>) -> Self {
         Self {
             name,
             pool,
@@ -123,7 +127,11 @@ impl StaticDraDriver {
     }
 
     fn has_device(&self, pool_name: &str, device_name: &str) -> bool {
-        pool_name == self.pool && self.devices.iter().any(|device| device.name == device_name)
+        pool_name == self.pool.as_str()
+            && self
+                .devices
+                .iter()
+                .any(|device| device.name.as_str() == device_name)
     }
 
     fn with_taint(mut self, taint: Option<DeviceTaint>) -> Self {
@@ -149,11 +157,11 @@ impl StaticDraDriver {
 
 #[async_trait]
 impl ResourcePool for StaticDraDriver {
-    async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
+    async fn devices(&self) -> BTreeMap<PoolName, Vec<PoolDevice>> {
         BTreeMap::from([(self.pool.clone(), self.devices.clone())])
     }
 
-    async fn inventory(&self) -> BTreeMap<String, Vec<InventoryDevice>> {
+    async fn inventory(&self) -> BTreeMap<PoolName, Vec<InventoryDevice>> {
         let inventory = self.pool_inventory.as_ref().map_or_else(
             || {
                 self.devices
@@ -180,7 +188,7 @@ impl ResourcePool for StaticDraDriver {
         BTreeMap::from([(self.pool.clone(), devices)])
     }
 
-    async fn snapshot(&self) -> BTreeMap<String, PoolInventory> {
+    async fn snapshot(&self) -> BTreeMap<PoolName, PoolInventory> {
         self.inventory()
             .await
             .into_iter()
@@ -200,26 +208,31 @@ fn partitionable_inventory() -> PoolInventory {
     let mut inventory = PoolInventory::default();
     for pair in ["a", "b"] {
         let set = format!("pair-{pair}");
-        inventory
-            .shared_counters
-            .push(CounterSet::new(&set).counter("cards", Quantity::from(1)));
+        inventory.shared_counters.push(
+            CounterSet::new(set.as_str().try_into().expect("valid set"))
+                .counter("cards".parse().unwrap(), Quantity::from(1)),
+        );
         for (suffix, kind, consumption) in [
             ("0", "card", "0.5"),
             ("1", "card", "0.5"),
             ("bridge", "pair", "1"),
         ] {
-            let device = PoolDevice::new(format!("{pair}-{suffix}"))
-                .attribute("type", kind)
-                .attribute("pair", pair)
-                .capacity("fractional", "0.5".parse().expect("valid fixture quantity"));
+            let device =
+                PoolDevice::new(format!("{pair}-{suffix}").try_into().expect("valid device"))
+                    .attribute("type", kind)
+                    .attribute("pair", pair)
+                    .capacity("fractional", "0.5".parse().expect("valid fixture quantity"));
             inventory
                 .devices
-                .push(InventoryDevice::new(device).with_consumes_counters(
-                    DeviceCounterConsumption::new(&set).counter(
-                        "cards",
-                        consumption.parse().expect("valid fixture quantity"),
+                .push(
+                    InventoryDevice::new(device).with_consumes_counters(
+                        DeviceCounterConsumption::new(set.as_str().try_into().expect("valid set"))
+                            .counter(
+                                "cards".parse().unwrap(),
+                                consumption.parse().expect("valid fixture quantity"),
+                            ),
                     ),
-                ));
+                );
         }
     }
     inventory
@@ -244,7 +257,7 @@ impl ClaimPreparer for StaticDraDriver {
                 .devices
                 .iter()
                 .map(|device| {
-                    if !self.has_device(&device.pool_name, &device.device_name) {
+                    if !self.has_device(device.pool_name.as_str(), device.device_name.as_str()) {
                         return Err(PrepareError::DeviceUnavailable(format!(
                             "{}/{}",
                             device.pool_name, device.device_name
@@ -254,7 +267,7 @@ impl ClaimPreparer for StaticDraDriver {
                         request_names: device.request_name.clone().into_iter().collect(),
                         pool_name: device.pool_name.clone(),
                         device_name: device.device_name.clone(),
-                        cdi_device_ids: vec![cdi_device_id(&device.device_name)],
+                        cdi_device_ids: vec![cdi_device_id(device.device_name.as_str())],
                     })
                 })
                 .collect::<Result<Vec<_>, _>>();
@@ -268,7 +281,10 @@ impl ClaimPreparer for StaticDraDriver {
             };
             if let Some(status_publisher) = &self.status_publisher {
                 let statuses = prepared.iter().map(|device| {
-                    let mut status = ClaimDeviceStatus::new(&device.pool_name, &device.device_name);
+                    let mut status = ClaimDeviceStatus::new(
+                        device.pool_name.clone(),
+                        device.device_name.clone(),
+                    );
                     status.data = Some(json::json!({"phase": "prepared"}));
                     status
                 });
@@ -332,7 +348,7 @@ impl ClaimPreparer for StaticDraDriver {
 }
 
 impl DraDriver for StaticDraDriver {
-    fn driver_name(&self) -> &str {
+    fn driver_name(&self) -> &DriverName {
         &self.name
     }
 }
@@ -343,8 +359,12 @@ async fn main() -> io::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let driver_name = env_or_default("DRIVER_NAME", DEFAULT_DRIVER_NAME);
-    let pool_name = env_or_default("POOL_NAME", DEFAULT_POOL_NAME);
+    let driver_name: DriverName = env_or_default("DRIVER_NAME", DEFAULT_DRIVER_NAME)
+        .parse()
+        .map_err(io::Error::other)?;
+    let pool_name: PoolName = env_or_default("POOL_NAME", DEFAULT_POOL_NAME)
+        .parse()
+        .map_err(io::Error::other)?;
     let metadata_enabled = match env_or_default("DRA_EXAMPLE_DEVICE_METADATA", "0").as_str() {
         "0" => false,
         "1" => true,
@@ -355,7 +375,7 @@ async fn main() -> io::Result<()> {
             ));
         }
     };
-    let mut devices = parse_device_names(&env_or_default("DEVICE_NAMES", DEFAULT_DEVICE_NAMES));
+    let mut devices = parse_device_names(&env_or_default("DEVICE_NAMES", DEFAULT_DEVICE_NAMES))?;
     if metadata_enabled {
         for device in &mut devices {
             device
@@ -383,8 +403,10 @@ async fn main() -> io::Result<()> {
             ));
         }
     };
-    let node_name = env::var("NODE_NAME")
-        .map_err(|error| io::Error::other(format!("NODE_NAME must be set: {error}")))?;
+    let node_name: NodeName = env::var("NODE_NAME")
+        .map_err(|error| io::Error::other(format!("NODE_NAME must be set: {error}")))?
+        .parse()
+        .map_err(io::Error::other)?;
 
     let mut driver = StaticDraDriver::new(driver_name.clone(), pool_name.clone(), devices)
         .with_taint(taint)
@@ -404,9 +426,9 @@ async fn main() -> io::Result<()> {
     }
     write_cdi_spec(&driver.devices, metadata_enabled).await?;
     tracing::info!(
-        driver_name,
-        pool_name,
-        node_name,
+        %driver_name,
+        %pool_name,
+        %node_name,
         device_count = driver.devices.len(),
         "starting validation-only DRA driver"
     );
@@ -414,8 +436,7 @@ async fn main() -> io::Result<()> {
     let client = kube::Client::try_default()
         .await
         .map_err(io::Error::other)?;
-    let status_publisher = ClaimDeviceStatusPublisher::new(client.clone(), driver_name.clone())
-        .map_err(io::Error::other)?;
+    let status_publisher = ClaimDeviceStatusPublisher::new(client.clone(), driver_name.clone());
     let driver = driver.with_status_publisher(status_publisher);
     let plugin = match env_or_default("DRA_EXAMPLE_RESOURCE_HEALTH", "0").as_str() {
         "0" => DraPlugin::new(client, driver_name.clone(), node_name, driver),
@@ -440,12 +461,15 @@ fn env_or_default(name: &str, default: &str) -> String {
     env::var(name).unwrap_or_else(|_| default.to_string())
 }
 
-fn parse_device_names(names: &str) -> Vec<PoolDevice> {
+fn parse_device_names(names: &str) -> io::Result<Vec<PoolDevice>> {
     names
         .split(',')
-        .map(str::trim)
         .filter(|name| !name.is_empty())
-        .map(PoolDevice::new)
+        .map(|name| {
+            DeviceName::try_from(name)
+                .map(PoolDevice::new)
+                .map_err(io::Error::other)
+        })
         .collect()
 }
 
@@ -476,8 +500,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_device_names_splits_trims_and_drops_empty_values() {
-        let devices = parse_device_names(" widget-0, ,widget-1 ,, ");
+    fn parse_device_names_rejects_whitespace_and_drops_empty_values() {
+        let devices = parse_device_names("widget-0,,widget-1,").unwrap();
+        assert!(parse_device_names(" widget-0").is_err());
 
         let names = devices
             .iter()
@@ -489,9 +514,9 @@ mod tests {
     #[test]
     fn static_driver_accepts_devices_from_its_pool_only() {
         let driver = StaticDraDriver::new(
-            DEFAULT_DRIVER_NAME.to_string(),
-            DEFAULT_POOL_NAME.to_string(),
-            parse_device_names(DEFAULT_DEVICE_NAMES),
+            DEFAULT_DRIVER_NAME.parse().unwrap(),
+            DEFAULT_POOL_NAME.parse().unwrap(),
+            parse_device_names(DEFAULT_DEVICE_NAMES).unwrap(),
         );
 
         assert!(driver.has_device(DEFAULT_POOL_NAME, "widget-0"));

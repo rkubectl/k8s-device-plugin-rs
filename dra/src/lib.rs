@@ -33,19 +33,21 @@ use k8s_device_plugin_dra_core::AllocatedDevice;
 use k8s_device_plugin_dra_core::AttributeValue;
 use k8s_device_plugin_dra_core::ClaimPreparer;
 use k8s_device_plugin_dra_core::ClaimRef;
+use k8s_device_plugin_dra_core::DeviceName;
 use k8s_device_plugin_dra_core::DraDriver;
+use k8s_device_plugin_dra_core::DriverName;
 use k8s_device_plugin_dra_core::InventoryDevice;
+use k8s_device_plugin_dra_core::NodeName;
+#[cfg(test)]
 use k8s_device_plugin_dra_core::PoolDevice;
 use k8s_device_plugin_dra_core::PoolInventory;
+use k8s_device_plugin_dra_core::PoolName;
 use k8s_device_plugin_dra_core::PrepareError;
 use k8s_device_plugin_dra_core::PreparedDevice;
 use k8s_device_plugin_dra_core::ResolvedClaim;
 use k8s_device_plugin_dra_core::ResourceHealthReporter;
 use k8s_device_plugin_dra_core::ResourcePool;
-use k8s_device_plugin_dra_core::ValidationError;
-use k8s_device_plugin_dra_core::validate_driver_name;
-use k8s_device_plugin_dra_core::validate_node_name;
-use k8s_device_plugin_dra_core::validate_pool_name;
+
 use k8s_device_plugin_proto::dra;
 
 pub use claim::ClaimResolver;
@@ -76,6 +78,14 @@ mod registration;
 mod resource_health;
 mod resourceslice;
 mod service;
+
+/// A mismatch between the configured and backend driver identities.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("runtime driver name {runtime:?} differs from backend driver name {backend:?}")]
+pub struct DriverIdentityMismatch {
+    pub runtime: DriverName,
+    pub backend: DriverName,
+}
 
 fn component_error(
     component: &str,
@@ -133,7 +143,7 @@ async fn wait_for_component_exit(
 /// orientation, not a dependency of this crate.
 #[derive(Debug)]
 pub struct DraPlugin {
-    driver_name: String,
+    driver_name: DriverName,
     registration: DraRegistrationServer,
     service: DraPluginService,
     publisher: ResourceSlicePublisher,
@@ -145,41 +155,33 @@ impl DraPlugin {
     ///
     /// # Errors
     ///
-    /// Returns a validation error for invalid driver/node names or a backend
-    /// whose driver identity differs from the supplied name.
+    /// Returns an error when the backend driver identity differs from the supplied name.
     pub fn new<D: DraDriver + 'static>(
         client: kube::Client,
-        driver_name: impl Into<String>,
-        node_name: impl Into<String>,
+        driver_name: DriverName,
+        node_name: NodeName,
         driver: D,
-    ) -> Result<Self, ValidationError> {
-        Self::from_driver(
-            client,
-            driver_name.into(),
-            node_name.into(),
-            Arc::new(driver),
-        )
+    ) -> Result<Self, DriverIdentityMismatch> {
+        Self::from_driver(client, driver_name, node_name, Arc::new(driver))
     }
 
     fn from_driver<D: DraDriver + 'static>(
         client: kube::Client,
-        driver_name: String,
-        node_name: String,
+        driver_name: DriverName,
+        node_name: NodeName,
         driver: Arc<D>,
-    ) -> Result<Self, ValidationError> {
-        validate_driver_name(&driver_name)?;
-        if driver.driver_name() != driver_name {
-            return Err(ValidationError::DriverNameMismatch {
+    ) -> Result<Self, DriverIdentityMismatch> {
+        if driver.driver_name() != &driver_name {
+            return Err(DriverIdentityMismatch {
                 runtime: driver_name,
-                backend: driver.driver_name().to_string(),
+                backend: driver.driver_name().clone(),
             });
         }
-        let plugin_endpoint = service::plugin_socket_path(&driver_name);
-        let registration = DraRegistrationServer::new(&driver_name, &plugin_endpoint)?;
-        let resolver = ClaimResolver::new(client.clone(), driver_name.clone())?;
+        let plugin_endpoint = service::plugin_socket_path(driver_name.as_str());
+        let registration = DraRegistrationServer::new(&driver_name, &plugin_endpoint);
+        let resolver = ClaimResolver::new(client.clone(), driver_name.clone());
         let service = DraPluginService::new(resolver, Arc::clone(&driver));
-        let publisher =
-            ResourceSlicePublisher::new(client, driver_name.clone(), node_name, driver)?;
+        let publisher = ResourceSlicePublisher::new(client, driver_name.clone(), node_name, driver);
         Ok(Self {
             driver_name,
             registration,
@@ -206,17 +208,12 @@ impl DraPlugin {
     /// Returns the same identity validation errors as [`Self::new`].
     pub fn with_resource_health<D: DraDriver + ResourceHealthReporter + 'static>(
         client: kube::Client,
-        driver_name: impl Into<String>,
-        node_name: impl Into<String>,
+        driver_name: DriverName,
+        node_name: NodeName,
         driver: D,
-    ) -> Result<Self, ValidationError> {
+    ) -> Result<Self, DriverIdentityMismatch> {
         let driver = Arc::new(driver);
-        let mut plugin = Self::from_driver(
-            client,
-            driver_name.into(),
-            node_name.into(),
-            Arc::clone(&driver),
-        )?;
+        let mut plugin = Self::from_driver(client, driver_name, node_name, Arc::clone(&driver))?;
         plugin.service = plugin.service.with_resource_health(driver);
         plugin.registration = plugin.registration.with_resource_health();
         Ok(plugin)
@@ -225,8 +222,8 @@ impl DraPlugin {
     #[cfg(test)]
     fn for_test<D: DraDriver + 'static>(
         client: kube::Client,
-        driver_name: impl Into<String>,
-        node_name: impl Into<String>,
+        driver_name: DriverName,
+        node_name: NodeName,
         driver: D,
         registration_socket_path: Utf8PathBuf,
     ) -> Self {
@@ -234,7 +231,7 @@ impl DraPlugin {
             Self::new(client, driver_name, node_name, driver).expect("valid test driver");
         plugin.registration = DraRegistrationServer::for_test(
             &plugin.driver_name,
-            service::plugin_socket_path(&plugin.driver_name),
+            service::plugin_socket_path(plugin.driver_name.as_str()),
             registration_socket_path,
         );
         plugin
@@ -264,7 +261,7 @@ impl DraPlugin {
     /// This is a process-lifetime future: dropping it does not abort the
     /// component tasks. Terminate the process to shut down the plugin.
     pub async fn run(self) -> io::Result<()> {
-        let plugin_dir = Utf8Path::new(dra::KUBELET_PLUGINS_PATH).join(&self.driver_name);
+        let plugin_dir = Utf8Path::new(dra::KUBELET_PLUGINS_PATH).join(self.driver_name.as_str());
         tokio::fs::create_dir_all(dra::KUBELET_PLUGINS_REGISTRY_PATH).await?;
         tokio::fs::create_dir_all(&plugin_dir).await?;
         self.run_at(&plugin_dir.join("plugin.sock")).await

@@ -21,11 +21,12 @@ wire projections/normalization rather than implying a reversible conversion.
 
 Rust orphan rules apply across workspace crates. DRA cannot implement
 `From<dra_core::PoolDevice>` for an OpenAPI device because both types are foreign.
-Core's pure types/traits intentionally stay independent of generated gRPC and
-Kubernetes API types, including optional dependencies. Keep such projections
-in the adapter layer as functions when neither type has a useful local owner.
-An optional dependency still couples the implementation to a versioned
-transport/schema API; it is an architecture decision, not a style workaround.
+Classic core's types and traits stay independent of generated gRPC and
+Kubernetes API types, including optional dependencies. DRA core owns
+context-free OpenAPI projections for its own types and deliberately depends on
+schema-unselected OpenAPI. Keep protocol adapters in the runtime and use free
+functions where neither endpoint has a useful local owner. Applications choose
+the Kubernetes schema.
 Use a standard conversion where one of the types is already local, such as
 the metadata journal projection or the accelerator example's pair model.
 Do not move domain types or invert foundational dependencies merely to satisfy
@@ -46,7 +47,7 @@ than duplicate an existing constructor.
 - Does a conversion's ownership, fallibility and meaning fit `From`,
   `TryFrom` or `FromStr`, without a redundant parallel API?
 - Is the implementation legal in its owning crate? Are the architecture's
-  dependency boundaries intact, including core independence and consumer
+  dependency boundaries intact, including classic core independence and consumer
   schema selection?
 - Is retained state borrowed and consumed input moved? Are semantic/wire
   distinctions and any non-reversible projections documented?

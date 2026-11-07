@@ -2,6 +2,9 @@
 
 use k8s_openapi::apimachinery::pkg::runtime;
 
+use k8s_device_plugin_dra_core::DeviceNameError;
+use k8s_device_plugin_dra_core::PoolNameError;
+
 use super::*;
 
 const FIELD_MANAGER: &str = "k8s-device-plugin-rs";
@@ -10,8 +13,8 @@ const MAX_DATA_BYTES: usize = 10 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ClaimDeviceStatusKey {
-    pub pool_name: String,
-    pub device_name: String,
+    pub pool_name: PoolName,
+    pub device_name: DeviceName,
     pub share_id: Option<String>,
 }
 
@@ -35,8 +38,8 @@ impl fmt::Display for ClaimDeviceStatusKey {
 /// time into Kubernetes' raw `data` field and therefore must not exceed 10 KiB.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClaimDeviceStatus {
-    pub pool_name: String,
-    pub device_name: String,
+    pub pool_name: PoolName,
+    pub device_name: DeviceName,
     pub share_id: Option<String>,
     pub conditions: Option<Vec<metav1::Condition>>,
     pub data: Option<json::Value>,
@@ -45,10 +48,10 @@ pub struct ClaimDeviceStatus {
 
 impl ClaimDeviceStatus {
     #[must_use]
-    pub fn new(pool_name: impl Into<String>, device_name: impl Into<String>) -> Self {
+    pub fn new(pool_name: PoolName, device_name: DeviceName) -> Self {
         Self {
-            pool_name: pool_name.into(),
-            device_name: device_name.into(),
+            pool_name,
+            device_name,
             share_id: None,
             conditions: None,
             data: None,
@@ -94,10 +97,10 @@ impl ClaimDeviceStatus {
         Ok(resourcev1::AllocatedDeviceStatus {
             conditions: self.conditions,
             data,
-            device: self.device_name,
+            device: self.device_name.into_string(),
             driver: driver_name.to_string(),
             network_data: self.network_data,
-            pool: self.pool_name,
+            pool: self.pool_name.into_string(),
             share_id: self.share_id,
         })
     }
@@ -113,6 +116,10 @@ pub enum ClaimDeviceStatusPublishOutcome {
 /// A safe failure while validating or publishing a device-status report.
 #[derive(Debug, thiserror::Error)]
 pub enum ClaimDeviceStatusError {
+    #[error("invalid allocated pool name: {0}")]
+    InvalidPool(#[source] PoolNameError),
+    #[error("invalid allocated device name: {0}")]
+    InvalidDevice(#[source] DeviceNameError),
     #[error("ResourceClaim {namespace}/{name} has no resourceVersion for a conditional update")]
     MissingResourceVersion { namespace: String, name: String },
     #[error(
@@ -141,7 +148,7 @@ pub enum ClaimDeviceStatusError {
     DriverNotAllocated {
         namespace: String,
         name: String,
-        driver_name: String,
+        driver_name: DriverName,
     },
     #[error(
         "device status {device} is not allocated to driver {driver_name} in ResourceClaim {namespace}/{name}"
@@ -149,7 +156,7 @@ pub enum ClaimDeviceStatusError {
     DeviceNotAllocated {
         namespace: String,
         name: String,
-        driver_name: String,
+        driver_name: DriverName,
         device: Box<ClaimDeviceStatusKey>,
     },
     #[error("Kubernetes API error while publishing ResourceClaim device status: {0}")]
@@ -170,7 +177,7 @@ pub enum ClaimDeviceStatusError {
 #[derive(Clone)]
 pub struct ClaimDeviceStatusPublisher {
     client: kube::Client,
-    driver_name: String,
+    driver_name: DriverName,
     field_manager: String,
 }
 
@@ -184,21 +191,12 @@ impl fmt::Debug for ClaimDeviceStatusPublisher {
 
 impl ClaimDeviceStatusPublisher {
     /// Creates a status publisher scoped to a validated DRA driver.
-    ///
-    /// # Errors
-    ///
-    /// Returns a validation error for an invalid driver name.
-    pub fn new(
-        client: kube::Client,
-        driver_name: impl Into<String>,
-    ) -> Result<Self, ValidationError> {
-        let driver_name = driver_name.into();
-        validate_driver_name(&driver_name)?;
-        Ok(Self {
+    pub fn new(client: kube::Client, driver_name: DriverName) -> Self {
+        Self {
             client,
             driver_name,
             field_manager: FIELD_MANAGER.to_string(),
-        })
+        }
     }
 
     /// Changes the field manager recorded for status updates.
@@ -353,12 +351,18 @@ impl ClaimDeviceStatusPublisher {
             .iter()
             .flat_map(|status| status.devices.iter().flatten())
         {
-            if status.driver != self.driver_name {
+            if status.driver != self.driver_name.as_str() {
                 continue;
             }
+            let (Ok(pool_name), Ok(device_name)) = (
+                PoolName::try_from(status.pool.as_str()),
+                DeviceName::try_from(status.device.as_str()),
+            ) else {
+                continue;
+            };
             let key = ClaimDeviceStatusKey {
-                pool_name: status.pool.clone(),
-                device_name: status.device.clone(),
+                pool_name,
+                device_name,
                 share_id: status.share_id.clone(),
             };
             if let Some(update) = merged.get_mut(&key) {
@@ -386,7 +390,7 @@ impl ClaimDeviceStatusPublisher {
         let mut desired = BTreeMap::new();
         for status in statuses {
             let key = status.key();
-            let kubernetes_status = status.into_kubernetes(&self.driver_name)?;
+            let kubernetes_status = status.into_kubernetes(self.driver_name.as_str())?;
             if desired.insert(key.clone(), kubernetes_status).is_some() {
                 return Err(ClaimDeviceStatusError::DuplicateDeviceStatus(key));
             }
@@ -408,13 +412,17 @@ impl ClaimDeviceStatusPublisher {
             .and_then(|devices| devices.results.as_ref())
             .into_iter()
             .flatten()
-            .filter(|device| device.driver == self.driver_name)
-            .map(|device| ClaimDeviceStatusKey {
-                pool_name: device.pool.clone(),
-                device_name: device.device.clone(),
-                share_id: device.share_id.clone(),
+            .filter(|device| device.driver == self.driver_name.as_str())
+            .map(|device| {
+                Ok(ClaimDeviceStatusKey {
+                    pool_name: PoolName::try_from(device.pool.as_str())
+                        .map_err(ClaimDeviceStatusError::InvalidPool)?,
+                    device_name: DeviceName::try_from(device.device.as_str())
+                        .map_err(ClaimDeviceStatusError::InvalidDevice)?,
+                    share_id: device.share_id.clone(),
+                })
             })
-            .collect::<BTreeSet<_>>();
+            .collect::<Result<BTreeSet<_>, ClaimDeviceStatusError>>()?;
 
         if allocated.is_empty() {
             return Err(ClaimDeviceStatusError::DriverNotAllocated {
@@ -448,16 +456,16 @@ impl ClaimDeviceStatusPublisher {
             .and_then(|status| status.devices.as_ref())
             .into_iter()
             .flatten()
-            .filter(|status| status.driver == self.driver_name)
-            .map(|status| {
-                (
+            .filter(|status| status.driver == self.driver_name.as_str())
+            .filter_map(|status| {
+                Some((
                     ClaimDeviceStatusKey {
-                        pool_name: status.pool.clone(),
-                        device_name: status.device.clone(),
+                        pool_name: PoolName::try_from(status.pool.as_str()).ok()?,
+                        device_name: DeviceName::try_from(status.device.as_str()).ok()?,
                         share_id: status.share_id.clone(),
                     },
                     status,
-                )
+                ))
             })
             .collect::<BTreeMap<_, _>>();
 
@@ -519,8 +527,8 @@ mod tests {
 
     fn status() -> ClaimDeviceStatus {
         ClaimDeviceStatus {
-            pool_name: "widget-pool".to_string(),
-            device_name: "widget-0".to_string(),
+            pool_name: "widget-pool".parse().unwrap(),
+            device_name: "widget-0".parse().unwrap(),
             share_id: None,
             conditions: None,
             data: Some(json::json!({"phase": "prepared"})),
@@ -540,7 +548,7 @@ mod tests {
     #[tokio::test]
     async fn publish_applies_only_the_local_drivers_allocated_device_status() {
         let (client, mut handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
         let expected_claim = allocated_claim(json::Value::Null);
         let responder = tokio::spawn(async move {
             let (get, send) = handle.next_request().await.expect("claim get request");
@@ -610,7 +618,7 @@ mod tests {
     #[tokio::test]
     async fn publish_is_idempotent_when_the_device_status_is_current() {
         let (client, mut handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
         let responder = tokio::spawn(async move {
             let (_get, send) = handle.next_request().await.expect("claim get request");
             send.send_response(response(
@@ -637,12 +645,13 @@ mod tests {
     #[tokio::test]
     async fn publish_rejects_an_unallocated_or_foreign_device_before_patching() {
         let (client, mut handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
         let responder = tokio::spawn(async move {
             let (_get, send) = handle.next_request().await.expect("claim get request");
             send.send_response(response(200, allocated_claim(json::Value::Null)));
         });
-        let foreign = ClaimDeviceStatus::new("widget-pool", "widget-1");
+        let foreign =
+            ClaimDeviceStatus::new("widget-pool".parse().unwrap(), "widget-1".parse().unwrap());
 
         assert!(matches!(
             publisher.publish(&claim_ref(), [foreign]).await,
@@ -654,7 +663,7 @@ mod tests {
     #[tokio::test]
     async fn publish_surfaces_authorization_failures() {
         let (client, mut handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
         let expected_claim = allocated_claim(json::Value::Null);
         let responder = tokio::spawn(async move {
             let (_get, send) = handle.next_request().await.expect("claim get request");
@@ -682,7 +691,7 @@ mod tests {
     #[tokio::test]
     async fn publish_rejects_duplicate_status_keys_without_an_api_request() {
         let (client, _handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
         let duplicate = publisher.desired_statuses([status(), status()]);
 
         assert!(matches!(
@@ -716,7 +725,7 @@ mod tests {
     #[tokio::test]
     async fn successive_upserts_preserve_omitted_foreign_and_shared_entries() {
         let (client, mut handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
         let responder = tokio::spawn(async move {
             let preserved = json::json!([
                 {"driver": DRIVER, "pool": "widget-pool", "device": "widget-1", "data": {"keep": true}},
@@ -762,7 +771,7 @@ mod tests {
     #[tokio::test]
     async fn conflict_rereads_and_preserves_concurrent_foreign_update() {
         let (client, mut handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
         let responder = tokio::spawn(async move {
             let (_get, send) = handle.next_request().await.expect("initial read");
             send.send_response(response(200, allocated_claim(json::Value::Null)));
@@ -798,7 +807,7 @@ mod tests {
     async fn conflict_revalidates_uid_and_allocation_before_retry() {
         for replaced in [false, true] {
             let (client, mut handle) = mock_kube_client();
-            let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
+            let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
             let responder = tokio::spawn(async move {
                 let (_get, send) = handle.next_request().await.expect("initial read");
                 send.send_response(response(200, allocated_claim(json::Value::Null)));
@@ -841,7 +850,7 @@ mod tests {
     #[tokio::test]
     async fn conflict_retries_are_bounded() {
         let (client, mut handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
         let responder = tokio::spawn(async move {
             for _ in 0..MAX_PATCH_ATTEMPTS {
                 let (_get, send) = handle.next_request().await.expect("claim read");
@@ -858,7 +867,7 @@ mod tests {
     #[tokio::test]
     async fn missing_resource_version_refuses_unconditional_patch() {
         let (client, mut handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
         let responder = tokio::spawn(async move {
             let mut current = allocated_claim(json::Value::Null);
             current["metadata"]["resourceVersion"] = json::Value::Null;
@@ -875,7 +884,7 @@ mod tests {
     #[tokio::test]
     async fn status_data_equality_ignores_json_whitespace_and_key_order() {
         let (client, _handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
         let mut desired = status();
         desired.data = Some(json::from_str(r#"{ "b": 2, "a": 1 }"#).expect("valid JSON"));
         let current = json::from_value(allocated_claim(json::json!([{
@@ -889,7 +898,8 @@ mod tests {
     }
 
     fn ready_device_status() -> json::Value {
-        let mut status = ClaimDeviceStatus::new("widget-pool", "widget-0");
+        let mut status =
+            ClaimDeviceStatus::new("widget-pool".parse().unwrap(), "widget-0".parse().unwrap());
         status.conditions = Some(vec![metav1::Condition {
             type_: "dra.example.com/Attached".into(),
             status: "True".into(),
@@ -916,7 +926,7 @@ mod tests {
     #[tokio::test]
     async fn partial_data_update_retains_controller_conditions_network_and_other_drivers() {
         let (client, mut handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
         let current = ready_device_status();
         let foreign =
             json::json!({"driver":"other.example.com", "pool":"other", "device":"foreign"});
@@ -952,7 +962,7 @@ mod tests {
     #[tokio::test]
     async fn complete_publication_still_replaces_unspecified_fields() {
         let (client, mut handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
         let script = async {
             let (_, send) = handle.next_request().await.unwrap();
             send.send_response(response(
@@ -976,8 +986,9 @@ mod tests {
     #[tokio::test]
     async fn partial_condition_update_remerges_data_after_a_conflict() {
         let (client, mut handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
-        let mut desired = ClaimDeviceStatus::new("widget-pool", "widget-0");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
+        let mut desired =
+            ClaimDeviceStatus::new("widget-pool".parse().unwrap(), "widget-0".parse().unwrap());
         desired.conditions =
             Some(json::from_value(ready_device_status()["conditions"].clone()).unwrap());
         let script = async {
@@ -1018,8 +1029,9 @@ mod tests {
     #[tokio::test]
     async fn empty_partial_conditions_clear_once_and_then_converge() {
         let (client, mut handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
-        let mut desired = ClaimDeviceStatus::new("widget-pool", "widget-0");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
+        let mut desired =
+            ClaimDeviceStatus::new("widget-pool".parse().unwrap(), "widget-0".parse().unwrap());
         desired.conditions = Some(vec![]);
         let script = async {
             let mut current = ready_device_status();
@@ -1062,7 +1074,7 @@ mod tests {
     #[tokio::test]
     async fn partial_publication_rechecks_claim_identity_before_retrying() {
         let (client, mut handle) = mock_kube_client();
-        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER).expect("valid driver");
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
         let script = async {
             let (_, send) = handle.next_request().await.unwrap();
             send.send_response(response(

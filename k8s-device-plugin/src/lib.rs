@@ -4,6 +4,8 @@ pub use k8s_device_plugin_core as core;
 pub use k8s_device_plugin_core::*;
 
 #[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra::DriverIdentityMismatch;
+#[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra_core as dra_core;
 #[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra_core::AllocatedDevice;
@@ -14,11 +16,23 @@ pub use k8s_device_plugin_dra_core::ClaimPreparer;
 #[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra_core::ClaimRef;
 #[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra_core::CounterName;
+#[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra_core::CounterNameError;
+#[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra_core::CounterSet;
+#[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra_core::CounterSetName;
+#[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra_core::CounterSetNameError;
 #[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra_core::DeviceBinding;
 #[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra_core::DeviceCounterConsumption;
+#[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra_core::DeviceName;
+#[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra_core::DeviceNameError;
 #[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra_core::DeviceTaint;
 #[cfg(feature = "dra")]
@@ -28,11 +42,23 @@ pub use k8s_device_plugin_dra_core::DraDeviceHealth;
 #[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra_core::DraDriver;
 #[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra_core::DriverName;
+#[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra_core::DriverNameError;
+#[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra_core::InventoryDevice;
+#[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra_core::NodeName;
+#[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra_core::NodeNameError;
 #[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra_core::PoolDevice;
 #[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra_core::PoolInventory;
+#[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra_core::PoolName;
+#[cfg(feature = "dra")]
+pub use k8s_device_plugin_dra_core::PoolNameError;
 #[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra_core::PrepareError;
 #[cfg(feature = "dra")]
@@ -55,16 +81,6 @@ pub use k8s_device_plugin_dra_core::ResourceHealthReporter;
 pub use k8s_device_plugin_dra_core::ResourceHealthStatus;
 #[cfg(feature = "dra")]
 pub use k8s_device_plugin_dra_core::ResourcePool;
-#[cfg(feature = "dra")]
-pub use k8s_device_plugin_dra_core::ValidationError as DraValidationError;
-#[cfg(feature = "dra")]
-pub use k8s_device_plugin_dra_core::is_valid_counter_name;
-#[cfg(feature = "dra")]
-pub use k8s_device_plugin_dra_core::validate_driver_name;
-#[cfg(feature = "dra")]
-pub use k8s_device_plugin_dra_core::validate_node_name;
-#[cfg(feature = "dra")]
-pub use k8s_device_plugin_dra_core::validate_pool_name;
 
 #[cfg(feature = "device-plugin")]
 pub use k8s_device_plugin_lib as device_plugin;

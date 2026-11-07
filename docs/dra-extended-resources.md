@@ -67,7 +67,7 @@ generated claims:
 ```rust
 #[async_trait]
 impl ResourcePool for MyDriver {
-    async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
+    async fn devices(&self) -> BTreeMap<PoolName, Vec<PoolDevice>> {
         // The scheduler persists these pool and device names in allocations.
         BTreeMap::from([(self.pool_name.clone(), self.current_devices())])
     }

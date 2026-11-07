@@ -7,7 +7,7 @@ use super::*;
 fn persisted_wire_matches_version_one_golden_bytes() {
     let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = MetadataRuntime::new(
-        "dra.example.com".into(),
+        "dra.example.com".parse().unwrap(),
         DeviceMetadataOptions::v1beta1()
             .with_plugin_directories(tmp.path().join("plugin"), "/node/plugin")
             .with_cdi_directory(tmp.path().join("cdi")),
@@ -123,7 +123,7 @@ fn malformed_journals_refuse_cleanup_before_removing_artifacts() {
 fn new_runtime(root: &Utf8Path) -> Arc<MetadataRuntime> {
     Arc::new(
         MetadataRuntime::new(
-            "dra.example.com".into(),
+            "dra.example.com".parse().unwrap(),
             DeviceMetadataOptions::v1beta1()
                 .with_plugin_directories(root.join("plugin"), root.join("plugin"))
                 .with_cdi_directory(root.join("cdi")),
@@ -187,8 +187,8 @@ fn claim() -> resourcev1::ResourceClaim {
 fn prepared(request: &str, device: &str) -> PreparedDeviceWithMetadata {
     PreparedDeviceWithMetadata::new(PreparedDevice {
         request_names: vec![request.into()],
-        pool_name: "pool-a".into(),
-        device_name: device.into(),
+        pool_name: "pool-a".parse().unwrap(),
+        device_name: device.parse().unwrap(),
         cdi_device_ids: vec![format!("dra.example.com/widget={device}")],
     })
     .with_attribute("model", "widget")
@@ -583,11 +583,11 @@ async fn rpc_batches_once_preserves_other_claims_and_retries_failed_cleanup() {
     let (client, mut handle) = mock_kube_client();
     let backend = Arc::new(Backend::default());
     let service = DraPluginService::new(
-        ClaimResolver::new(client, "dra.example.com").expect("valid driver"),
+        ClaimResolver::new(client, "dra.example.com".parse().unwrap()),
         Arc::clone(&backend),
     )
     .with_device_metadata(
-        "dra.example.com",
+        "dra.example.com".parse().unwrap(),
         DeviceMetadataOptions::v1beta1()
             .with_plugin_directories(tmp.path().join("plugin"), tmp.path().join("plugin"))
             .with_cdi_directory(tmp.path().join("cdi")),
@@ -717,8 +717,8 @@ async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations(
             reports
                 .send(ResourceHealthReport {
                     devices: vec![DraDeviceHealth {
-                        pool_name: "pool-a".into(),
-                        device_name: "widget-0".into(),
+                        pool_name: "pool-a".parse().unwrap(),
+                        device_name: "widget-0".parse().unwrap(),
                         health: ResourceHealthStatus::Healthy,
                         last_updated_time: 1_700_000_000,
                         health_check_timeout_seconds: 30,
@@ -735,12 +735,12 @@ async fn metadata_artifacts_do_not_add_health_monitors_or_hardware_preparations(
     let backend = Arc::new(Backend::default());
     let (client, mut handle) = mock_kube_client();
     let service = DraPluginService::new(
-        ClaimResolver::new(client, "dra.example.com").expect("valid driver"),
+        ClaimResolver::new(client, "dra.example.com".parse().unwrap()),
         Arc::clone(&backend),
     )
     .with_resource_health(Arc::clone(&backend))
     .with_device_metadata(
-        "dra.example.com",
+        "dra.example.com".parse().unwrap(),
         DeviceMetadataOptions::v1beta1()
             .with_plugin_directories(tmp.path().join("plugin"), tmp.path().join("plugin"))
             .with_cdi_directory(tmp.path().join("cdi")),
@@ -935,7 +935,7 @@ fn zero_device_allocation_has_no_container_edits_and_cleans_its_journal() {
 fn unicode_host_paths_preserve_cdi_spec_bytes() {
     let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = MetadataRuntime::new(
-        "dra.example.com".into(),
+        "dra.example.com".parse().unwrap(),
         DeviceMetadataOptions::v1beta1()
             .with_plugin_directories(tmp.path().join("plugin"), "/node/נתונים")
             .with_cdi_directory(tmp.path().join("cdi")),

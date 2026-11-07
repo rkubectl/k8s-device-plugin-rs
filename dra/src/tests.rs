@@ -15,14 +15,14 @@ use k8s_device_plugin_test::kube_mock::respond;
 use super::*;
 
 struct StaticDraDriver {
-    name: String,
-    pool: String,
+    name: DriverName,
+    pool: PoolName,
     devices: Vec<PoolDevice>,
 }
 
 #[tonic::async_trait]
 impl ResourcePool for StaticDraDriver {
-    async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
+    async fn devices(&self) -> BTreeMap<PoolName, Vec<PoolDevice>> {
         BTreeMap::from([(self.pool.clone(), self.devices.clone())])
     }
 }
@@ -60,7 +60,7 @@ impl ClaimPreparer for StaticDraDriver {
 }
 
 impl DraDriver for StaticDraDriver {
-    fn driver_name(&self) -> &str {
+    fn driver_name(&self) -> &DriverName {
         &self.name
     }
 }
@@ -93,14 +93,14 @@ async fn run_spawns_all_three_components_and_they_work() {
     let plugin_socket_path = plugin_dir.path().join("plugin.sock");
 
     let driver = StaticDraDriver {
-        name: "example.com".to_string(),
-        pool: "pool-0".to_string(),
-        devices: vec![PoolDevice::new("widget-0")],
+        name: "example.com".parse().unwrap(),
+        pool: "pool-0".parse().unwrap(),
+        devices: vec![PoolDevice::new("widget-0".parse().unwrap())],
     };
     let plugin = DraPlugin::for_test(
         client,
-        "example.com",
-        "node-0",
+        "example.com".parse().unwrap(),
+        "node-0".parse().unwrap(),
         driver,
         registration_socket_path.clone(),
     );
@@ -210,11 +210,10 @@ async fn liveness_probe_rejects_other_plugin_types_with_plain_string_diagnostics
     let registration_path = registration.socket_path();
     let plugin_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
     let error = DraPluginLivenessProbe::with_socket_paths(
-        "example.com",
+        &"example.com".parse().unwrap(),
         registration_path,
         plugin_dir.path().join("missing.sock"),
     )
-    .expect("valid probe")
     .check()
     .await
     .expect_err("a classic device plugin must not pass the DRA probe");
@@ -237,13 +236,13 @@ async fn liveness_probe_checks_both_dra_sockets_with_real_rpcs() {
     let plugin_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
     let plugin_socket_path = plugin_dir.path().join("plugin.sock");
     let driver = StaticDraDriver {
-        name: "example.com".to_string(),
-        pool: "pool-0".to_string(),
-        devices: vec![PoolDevice::new("widget-0")],
+        name: "example.com".parse().unwrap(),
+        pool: "pool-0".parse().unwrap(),
+        devices: vec![PoolDevice::new("widget-0".parse().unwrap())],
     };
 
     let registration = DraRegistrationServer::for_test(
-        "example.com",
+        &"example.com".parse().unwrap(),
         &plugin_socket_path,
         registration_socket_path.clone(),
     );
@@ -252,7 +251,7 @@ async fn liveness_probe_checks_both_dra_sockets_with_real_rpcs() {
         .await
         .expect("spawn registration server");
     let service = DraPluginService::new(
-        ClaimResolver::new(client, "example.com").expect("valid driver"),
+        ClaimResolver::new(client, "example.com".parse().unwrap()),
         driver,
     );
     let service_handle = service
@@ -261,11 +260,10 @@ async fn liveness_probe_checks_both_dra_sockets_with_real_rpcs() {
         .expect("spawn DRAPlugin service");
 
     DraPluginLivenessProbe::with_socket_paths(
-        "example.com",
+        &"example.com".parse().unwrap(),
         registration_socket_path,
         plugin_socket_path,
     )
-    .expect("valid probe")
     .check()
     .await
     .expect("both DRA sockets answer the liveness probe");
@@ -284,12 +282,12 @@ async fn run_at_stops_registration_when_service_startup_fails() {
 
     let plugin = DraPlugin::for_test(
         client,
-        "example.com",
-        "node-0",
+        "example.com".parse().unwrap(),
+        "node-0".parse().unwrap(),
         StaticDraDriver {
-            name: "example.com".to_string(),
-            pool: "pool-0".to_string(),
-            devices: vec![PoolDevice::new("widget-0")],
+            name: "example.com".parse().unwrap(),
+            pool: "pool-0".parse().unwrap(),
+            devices: vec![PoolDevice::new("widget-0".parse().unwrap())],
         },
         registration_socket_path.clone(),
     );
@@ -384,35 +382,22 @@ async fn publisher_error_reports_panic() {
 async fn dra_constructors_reject_invalid_or_mismatched_driver_identity() {
     let (client, _) = mock_kube_client();
     for name in ["", "..", "example.com/widget", "UPPER.example"] {
-        assert!(DraRegistrationServer::new(name, "/plugin.sock").is_err());
-        assert!(ClaimResolver::new(client.clone(), name).is_err());
-        assert!(ClaimDeviceStatusPublisher::new(client.clone(), name).is_err());
-        assert!(
-            ResourceSlicePublisher::new(
-                client.clone(),
-                name,
-                "node",
-                StaticDraDriver {
-                    name: name.into(),
-                    pool: "pool".into(),
-                    devices: vec![]
-                }
-            )
-            .is_err()
-        );
+        assert!(DriverName::try_from(name).is_err());
     }
-    let driver = || StaticDraDriver {
-        name: "example.com".into(),
-        pool: "pool".into(),
+    assert!(NodeName::try_from("../node").is_err());
+    let driver = StaticDraDriver {
+        name: "example.com".parse().unwrap(),
+        pool: "pool".parse().unwrap(),
         devices: vec![],
     };
     assert!(matches!(
-        DraPlugin::new(client.clone(), "other.example", "node", driver()),
-        Err(ValidationError::DriverNameMismatch { .. })
-    ));
-    assert!(matches!(
-        DraPlugin::new(client, "example.com", "../node", driver()),
-        Err(ValidationError::InvalidNodeName(_))
+        DraPlugin::new(
+            client,
+            "other.example".parse().unwrap(),
+            "node".parse().unwrap(),
+            driver
+        ),
+        Err(DriverIdentityMismatch { .. })
     ));
 }
 
@@ -424,11 +409,11 @@ async fn registration_failure_aborts_the_already_bound_plugin_service() {
     let plugin_path = directory.path().join("plugin.sock");
     let plugin = DraPlugin::for_test(
         client,
-        "example.com",
-        "node",
+        "example.com".parse().unwrap(),
+        "node".parse().unwrap(),
         StaticDraDriver {
-            name: "example.com".into(),
-            pool: "pool".into(),
+            name: "example.com".parse().unwrap(),
+            pool: "pool".parse().unwrap(),
             devices: vec![],
         },
         registration_path,
@@ -459,11 +444,10 @@ async fn liveness_rejects_wrong_driver_or_missing_dra_service() {
             supported_versions,
         });
         let error = DraPluginLivenessProbe::with_socket_paths(
-            "example.com",
+            &"example.com".parse().unwrap(),
             registration.socket_path(),
             "/missing/plugin.sock",
         )
-        .unwrap()
         .check()
         .await
         .unwrap_err();
@@ -493,11 +477,11 @@ async fn opted_in_health_is_advertised_by_the_plugin_registration_rpc() {
     let directory = Utf8TempDir::new().unwrap();
     let mut plugin = DraPlugin::with_resource_health(
         client,
-        "example.com",
-        "node",
+        "example.com".parse().unwrap(),
+        "node".parse().unwrap(),
         StaticDraDriver {
-            name: "example.com".into(),
-            pool: "pool".into(),
+            name: "example.com".parse().unwrap(),
+            pool: "pool".parse().unwrap(),
             devices: vec![],
         },
     )

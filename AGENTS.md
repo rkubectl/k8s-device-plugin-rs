@@ -175,10 +175,10 @@ the future phases.
 - Respect crate ownership and orphan rules. Put a conversion implementation
   in a crate owning one of its types. Use a fitting optional owner-crate
   conversion feature only when the architecture permits that coupling.
-  Core's types/traits stay independent of generated gRPC and Kubernetes API
-  dependencies, including optional ones. Keep wire adapters in runtime/API
-  layers; an optional dependency is still a version/schema coupling and needs
-  an explicit architecture decision. Preserve application-selected schemas.
+  Classic core's types/traits stay independent of generated gRPC and Kubernetes
+  API dependencies, including optional ones. DRA core owns context-free
+  OpenAPI projections and deliberately depends on schema-unselected OpenAPI;
+  applications choose the schema. Protocol adapters remain in runtime layers.
   Do not reverse a foundational dependency or add a wrapper/extension trait
   solely to remove a free function.
 - Keep free functions for standalone algorithms, multi-object orchestration,

@@ -25,11 +25,11 @@ The publisher calls `inventory()` once per reconciliation.
 use std::collections::BTreeMap;
 use k8s_device_plugin_dra_core::{DeviceTaint, DeviceTaintEffect, InventoryDevice, PoolDevice};
 
-let device = InventoryDevice::new(PoolDevice::new("widget-0")).with_taint(
+let device = InventoryDevice::new(PoolDevice::new("widget-0".parse().unwrap())).with_taint(
     DeviceTaint::new("example.com/maintenance", DeviceTaintEffect::NoSchedule)
         .with_value("scheduled"),
 );
-let inventory = BTreeMap::from([("node-0".to_string(), vec![device])]);
+let inventory = BTreeMap::from([("node-0".parse::<k8s_device_plugin_dra_core::PoolName>().unwrap(), vec![device])]);
 ```
 
 An effect of `None` only communicates diagnostics. `NoSchedule` prevents

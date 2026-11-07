@@ -15,23 +15,19 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// run repeatedly from a Kubernetes `exec` liveness or readiness probe.
 #[derive(Clone, Debug)]
 pub struct DraPluginLivenessProbe {
-    driver_name: String,
+    driver_name: DriverName,
     registration_socket_path: Utf8PathBuf,
     plugin_socket_path: Utf8PathBuf,
 }
 
 impl DraPluginLivenessProbe {
     /// Creates a probe for the standard kubelet paths of `driver_name`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a validation error for an invalid driver name.
-    pub fn new(driver_name: &str) -> Result<Self, ValidationError> {
+    pub fn new(driver_name: &DriverName) -> Self {
         let plugin_socket_path = Utf8Path::new(dra::KUBELET_PLUGINS_PATH)
-            .join(driver_name)
+            .join(driver_name.as_str())
             .join("plugin.sock");
         let registration_socket_path = Utf8Path::new(dra::KUBELET_PLUGINS_REGISTRY_PATH)
-            .join(DraRegistrationServer::socket_name(driver_name));
+            .join(DraRegistrationServer::socket_name(driver_name.as_str()));
         Self::with_socket_paths(driver_name, registration_socket_path, plugin_socket_path)
     }
 
@@ -39,21 +35,16 @@ impl DraPluginLivenessProbe {
     ///
     /// This is useful when a deployment intentionally mounts kubelet
     /// directories at non-standard locations.
-    ///
-    /// # Errors
-    ///
-    /// Returns a validation error for an invalid expected driver name.
     pub fn with_socket_paths(
-        driver_name: &str,
+        driver_name: &DriverName,
         registration_socket_path: impl Into<Utf8PathBuf>,
         plugin_socket_path: impl Into<Utf8PathBuf>,
-    ) -> Result<Self, ValidationError> {
-        validate_driver_name(driver_name)?;
-        Ok(Self {
-            driver_name: driver_name.to_string(),
+    ) -> Self {
+        Self {
+            driver_name: driver_name.clone(),
             registration_socket_path: registration_socket_path.into(),
             plugin_socket_path: plugin_socket_path.into(),
-        })
+        }
     }
 
     /// Verifies that both DRA gRPC services respond without mutating state.
@@ -84,7 +75,7 @@ impl DraPluginLivenessProbe {
             ));
         }
 
-        if info.name != self.driver_name
+        if info.name != self.driver_name.as_str()
             || !info
                 .supported_versions
                 .iter()

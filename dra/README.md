@@ -35,9 +35,16 @@ driver-author and workload-consumer walkthrough.
 
 DRA contract imports previously provided by `k8s-device-plugin-core` now
 come from `k8s-device-plugin-dra-core`. The DRA-enabled facade re-exports
-them at its root and as `dra_core`; its `DraValidationError` names the DRA
-validation error separately from the classic `ValidationError`. Existing
-string identities, wire representations and runtime validation are unchanged.
+them at its root and as `dra_core`. Parse the six checked DRA identity types
+before passing them to constructors or populating domain fields and maps.
+Each has its own parse error; `DriverIdentityMismatch` is the runtime error for
+a configured/backend mismatch. Wire and journal values remain plain strings.
+DRA device names now reject empty, uppercase, dotted, underscored, non-ASCII,
+or over-63-byte values that earlier constructors accepted unchecked. The
+validation example no longer trims whitespace from configured device names;
+remove such whitespace when migrating. Driver,
+node and pool parsing retains the existing 63-byte per-label restriction, which
+is stricter than Kubernetes subdomain validation; see task `ha1.6`.
 Health support no longer needs a Cargo feature; activation still requires
 `DraPlugin::with_resource_health`.
 
@@ -131,7 +138,7 @@ changes:
 6. Validate changes with the commands below before treating an integration as
    ready.
 
-DRA constructors return `Result` and reject invalid driver and node names.
+Parse driver and node identities before constructing DRA runtime objects.
 Driver names are DNS subdomains limited to 63 bytes; node names are DNS
 subdomains limited to 253 bytes. `DraPlugin` checks that its name agrees with
 `DraDriver::driver_name()`. Standalone resolvers and publishers require the same
@@ -235,8 +242,9 @@ driver name, and the local node name, and call `.run()`:
 
 ```rust
 let client = kube::Client::try_default().await?;
-let node_name = std::env::var("NODE_NAME")?;
-let plugin = DraPlugin::new(client, "dra.example.com", node_name, driver)?;
+let node_name = std::env::var("NODE_NAME")?.parse()?;
+let driver_name = "dra.example.com".parse()?;
+let plugin = DraPlugin::new(client, driver_name, node_name, driver)?;
 plugin.run().await
 ```
 

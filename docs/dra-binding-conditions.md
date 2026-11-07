@@ -8,7 +8,7 @@ inventory and declare no binding policy.
 ```rust
 use k8s_device_plugin_dra_core::{DeviceBinding, InventoryDevice, PoolDevice};
 
-let device = InventoryDevice::new(PoolDevice::new("widget-0")).with_binding(
+let device = InventoryDevice::new(PoolDevice::new("widget-0".parse().unwrap())).with_binding(
     DeviceBinding::new()
         .with_condition("example.com/Attached")
         .with_failure_condition("example.com/AttachFailed")

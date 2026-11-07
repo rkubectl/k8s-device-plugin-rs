@@ -13,15 +13,15 @@ and v1.37.0. It adds no protobuf service or cluster permission.
 ## Driver integration
 
 Keep implementing `ClaimPreparer::prepare` and `unprepare` as before.
-`PreparedDevice`, `PoolDevice`, `AllocatedDevice` and `ResolvedClaim` retain
-their public field layouts. Existing struct literals remain valid.
+`PreparedDevice`, `PoolDevice` and `AllocatedDevice` use checked DRA pool and
+device names; parse strings before constructing them.
 
 Attach metadata options to the runtime:
 
 ```rust,no_run
 use k8s_device_plugin_dra::{DeviceMetadataOptions, DraPlugin};
 # async fn start<D: k8s_device_plugin_dra_core::DraDriver + 'static>(client: kube::Client, driver: D) -> std::io::Result<()> {
-let plugin = DraPlugin::new(client, "gpu.example.com", "worker-1", driver)
+let plugin = DraPlugin::new(client, "gpu.example.com".parse().map_err(std::io::Error::other)?, "worker-1".parse().map_err(std::io::Error::other)?, driver)
     .map_err(std::io::Error::other)?
     .with_device_metadata(DeviceMetadataOptions::v1beta1())?;
 plugin.run().await
@@ -51,8 +51,8 @@ use k8s_device_plugin_dra_core::PreparedDeviceWithMetadata;
 
 let device = PreparedDeviceWithMetadata::new(PreparedDevice {
     request_names: vec!["gpu".into()],
-    pool_name: "pool-a".into(),
-    device_name: "gpu-0".into(),
+    pool_name: "pool-a".parse().unwrap(),
+    device_name: "gpu-0".parse().unwrap(),
     cdi_device_ids: vec!["gpu.example.com/device=gpu-0".into()],
 })
 .with_attribute("model", "example")

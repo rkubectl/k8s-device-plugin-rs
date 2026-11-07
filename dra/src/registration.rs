@@ -41,16 +41,8 @@ impl DraRegistrationServer {
     /// `plugin_endpoint` is the socket path of this driver's `DRAPlugin`
     /// gRPC service (see the plugin-service task) -- passed in rather than
     /// computed here, so this type stays decoupled from that one.
-    ///
-    /// # Errors
-    ///
-    /// Returns a validation error for an invalid driver name.
-    pub fn new(
-        driver_name: &str,
-        plugin_endpoint: impl AsRef<Utf8Path>,
-    ) -> Result<Self, ValidationError> {
-        validate_driver_name(driver_name)?;
-        let socket_name = Self::socket_name(driver_name);
+    pub fn new(driver_name: &DriverName, plugin_endpoint: impl AsRef<Utf8Path>) -> Self {
+        let socket_name = Self::socket_name(driver_name.as_str());
         let socket_path = Utf8Path::new(dra::KUBELET_PLUGINS_REGISTRY_PATH).join(socket_name);
         let plugin_info = dra::registration::PluginInfo {
             r#type: "DRAPlugin".to_string(),
@@ -58,19 +50,19 @@ impl DraRegistrationServer {
             endpoint: plugin_endpoint.as_ref().as_str().to_owned(),
             supported_versions: vec![dra::DRA_PLUGIN_SERVICE.to_string()],
         };
-        Ok(Self {
+        Self {
             socket_path,
             plugin_info,
-        })
+        }
     }
 
     #[cfg(test)]
     pub(crate) fn for_test(
-        driver_name: &str,
+        driver_name: &DriverName,
         plugin_endpoint: impl AsRef<Utf8Path>,
         socket_path: Utf8PathBuf,
     ) -> Self {
-        let mut server = Self::new(driver_name, plugin_endpoint).expect("valid test driver name");
+        let mut server = Self::new(driver_name, plugin_endpoint);
         server.set_socket_path(socket_path);
         server
     }

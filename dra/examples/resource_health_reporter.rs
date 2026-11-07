@@ -41,8 +41,8 @@ impl ResourceHealthReporter for WidgetHealthReporter {
             .map_err(|error| ResourceHealthError::MonitorFailed(error.to_string()))?;
         let report = ResourceHealthReport {
             devices: vec![DraDeviceHealth {
-                pool_name: "widget-pool".to_string(),
-                device_name: "widget-0".to_string(),
+                pool_name: "widget-pool".parse().unwrap(),
+                device_name: "widget-0".parse().unwrap(),
                 health: ResourceHealthStatus::Healthy,
                 last_updated_time,
                 health_check_timeout_seconds: 30,

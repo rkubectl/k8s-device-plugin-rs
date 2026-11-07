@@ -48,8 +48,8 @@ to choose between the classic and DRA runtimes and find runnable examples.
 
 DRA backend contracts moved from `k8s-device-plugin-core` to
 `k8s-device-plugin-dra-core`. With the facade's `dra` feature, they remain
-available at its root and through `dra_core`; DRA validation errors are
-exposed as `DraValidationError`, while `ValidationError` remains classic.
+available at its root and through `dra_core`. Each checked identity has its
+own parse error; the runtime exposes `DriverIdentityMismatch`, while
+`ValidationError` remains classic.
 The former `resource-health` Cargo feature has been removed. Construct with
-`DraPlugin::with_resource_health` to activate reporting. Domain strings and
-wire values are unchanged.
+`DraPlugin::with_resource_health` to activate reporting. Domain identity fields are typed; wire values remain strings.

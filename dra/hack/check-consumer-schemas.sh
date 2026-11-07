@@ -35,11 +35,11 @@ use k8s_openapi::api::resource::v1 as resourcev1;
 
 fn main() {
     let inventory = k8s_device_plugin::PoolInventory::new(vec![
-        k8s_device_plugin::InventoryDevice::new(k8s_device_plugin::PoolDevice::new("card-0"))
-            .with_consumes_counters(k8s_device_plugin::DeviceCounterConsumption::new("pair-a")
-                .counter("cards", k8s_device_plugin::Quantity::from(1))),
-    ]).with_counter_set(k8s_device_plugin::CounterSet::new("pair-a")
-        .counter("cards", k8s_device_plugin::Quantity::from(2)));
+        k8s_device_plugin::InventoryDevice::new(k8s_device_plugin::PoolDevice::new("card-0".parse().unwrap()))
+            .with_consumes_counters(k8s_device_plugin::DeviceCounterConsumption::new("pair-a".parse().unwrap())
+                .counter("cards".parse().unwrap(), k8s_device_plugin::Quantity::from(1))),
+    ]).with_counter_set(k8s_device_plugin::CounterSet::new("pair-a".parse().unwrap())
+        .counter("cards".parse().unwrap(), k8s_device_plugin::Quantity::from(2)));
     assert_eq!(inventory.shared_counters.len(), 1);
     let exact: k8s_device_plugin::Quantity = "0.5".parse().unwrap();
     let wire: k8s_openapi::apimachinery::pkg::api::resource::Quantity = exact.into();
@@ -87,7 +87,7 @@ for schema in v1_36 v1_37; do
                 ;;
             facade-dra)
                 dependency="k8s-device-plugin = { path = $facade_path, default-features = false, features = [\"dra\"] }"
-                source='let _ = std::mem::size_of::<k8s_device_plugin::DraResourceHealthService>(); let _ = std::mem::size_of::<k8s_device_plugin::ResourceHealthReport>(); let _ = k8s_device_plugin::validate_driver_name("example.com"); let _ = k8s_device_plugin::validate_node_name("node"); let _ = k8s_device_plugin::validate_pool_name("pool"); let _ = k8s_device_plugin::is_valid_counter_name("counter");'
+                source='let _ = std::mem::size_of::<k8s_device_plugin::DraResourceHealthService>(); let _ = std::mem::size_of::<k8s_device_plugin::ResourceHealthReport>(); let _: k8s_device_plugin::DriverName = "example.com".parse().unwrap(); let _: k8s_device_plugin::NodeName = "node".parse().unwrap(); let _: k8s_device_plugin::PoolName = "pool".parse().unwrap(); let _: k8s_device_plugin::DeviceName = "device".parse().unwrap(); let _: k8s_device_plugin::CounterSetName = "set".parse().unwrap(); let _: k8s_device_plugin::CounterName = "counter".parse().unwrap();'
                 ;;
         esac
         cat > Cargo.toml <<MANIFEST

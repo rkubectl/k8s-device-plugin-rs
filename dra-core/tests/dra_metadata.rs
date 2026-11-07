@@ -16,7 +16,7 @@ use k8s_device_plugin_dra_core::ResolvedClaim;
 
 #[test]
 fn attribute_builders_preserve_scalar_types_and_explicit_versions() {
-    let pool_device = PoolDevice::new("device")
+    let pool_device = PoolDevice::new("device".parse().unwrap())
         .attribute("model", "widget")
         .attribute("owned", String::from("owned"))
         .attribute("count", 7)
@@ -25,8 +25,8 @@ fn attribute_builders_preserve_scalar_types_and_explicit_versions() {
         .attribute("version", AttributeValue::version("1.2.3"));
     let prepared = PreparedDeviceWithMetadata::new(PreparedDevice {
         request_names: vec!["a".into()],
-        pool_name: "pool".into(),
-        device_name: "device".into(),
+        pool_name: "pool".parse().unwrap(),
+        device_name: "device".parse().unwrap(),
         cdi_device_ids: vec![],
     })
     .with_attribute("model", "widget")
@@ -67,8 +67,8 @@ impl ClaimPreparer for Legacy {
                     c.claim.clone(),
                     Ok(vec![PreparedDevice {
                         request_names: vec!["a".into()],
-                        pool_name: "pool".into(),
-                        device_name: "device".into(),
+                        pool_name: "pool".parse().unwrap(),
+                        device_name: "device".parse().unwrap(),
                         cdi_device_ids: vec![],
                     }]),
                 )

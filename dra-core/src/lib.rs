@@ -29,14 +29,21 @@ pub use dra::ResourceHealthReport;
 pub use dra::ResourceHealthReporter;
 pub use dra::ResourceHealthStatus;
 pub use dra::ResourcePool;
-pub use validation::ValidationError;
-pub use validation::is_valid_counter_name;
-pub use validation::validate_driver_name;
-pub use validation::validate_node_name;
-pub use validation::validate_pool_name;
+pub use identity::CounterName;
+pub use identity::CounterNameError;
+pub use identity::CounterSetName;
+pub use identity::CounterSetNameError;
+pub use identity::DeviceName;
+pub use identity::DeviceNameError;
+pub use identity::DriverName;
+pub use identity::DriverNameError;
+pub use identity::NodeName;
+pub use identity::NodeNameError;
+pub use identity::PoolName;
+pub use identity::PoolNameError;
 
 mod dra;
-mod validation;
+mod identity;
 
 fn default<T: Default>() -> T {
     T::default()

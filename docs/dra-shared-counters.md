@@ -14,11 +14,11 @@ this adapter. Selecting a Rust schema does not enable server feature gates.
 ## Backend contract
 
 Override `ResourcePool::snapshot()` to return a
-`BTreeMap<String, PoolInventory>`. Read devices, policies, and counter sets
+`BTreeMap<PoolName, PoolInventory>`. Read devices, policies, and counter sets
 from one coherent backend state. The publisher calls this method once per
 reconciliation; `Arc<dyn ResourcePool>` preserves the override.
 
-Build each pool with the pure core types, also exported by the facade crate:
+Build each pool with DRA core types, also exported by the facade crate:
 
 ```rust
 use k8s_device_plugin::CounterSet;
@@ -31,14 +31,14 @@ use k8s_device_plugin::Quantity;
 let devices = [("card-0", "card", 1), ("card-1", "card", 1), ("bridge-a", "pair", 2)]
     .into_iter()
     .map(|(name, kind, count)| {
-        InventoryDevice::new(PoolDevice::new(name).attribute("type", kind))
+        InventoryDevice::new(PoolDevice::new(name.parse().unwrap()).attribute("type", kind))
             .with_consumes_counters(
-                DeviceCounterConsumption::new("pair-a").counter("cards", Quantity::from(count)),
+                DeviceCounterConsumption::new("pair-a".parse().unwrap()).counter("cards".parse().unwrap(), Quantity::from(count)),
             )
     })
     .collect();
 let pool = PoolInventory::new(devices)
-    .with_counter_set(CounterSet::new("pair-a").counter("cards", Quantity::from(2)));
+    .with_counter_set(CounterSet::new("pair-a".parse().unwrap()).counter("cards".parse().unwrap(), Quantity::from(2)));
 ```
 
 Counters and ordinary device capacities share the framework's exact
@@ -51,15 +51,15 @@ compare numerically, so a round trip converges. See the
 Names must be DNS labels. Each counter map must
 contain 1–32 entries, and each device may reference at most two distinct
 counter sets. Every referenced set and counter must exist in the same pool.
-Invalid counter definitions and references return the publisher's 422
-`invalid_pool_error` before any mutation of that pool. Counter definitions
+Invalid counter names fail checked construction. Invalid counter sizes and
+references return the publisher's 422 `invalid_pool_error` before mutation. Counter definitions
 are scoped to a pool, including across multiple counter slices.
 
 The snapshot extension preserves existing backend implementations; update
 integer Quantity constructors as described in the migration guide.
 The default `snapshot()` delegates to
-`inventory()`, which defaults to `devices()`. Existing `PoolDevice` literals,
-taints, and binding metadata remain supported. Use `snapshot()` instead of
+`inventory()`, which defaults to `devices()`. `PoolDevice` identity fields require checked names; taints and binding metadata
+remain supported. Use `snapshot()` instead of
 separate counter and device queries to avoid publishing incompatible reads.
 
 ## Publication and allocation

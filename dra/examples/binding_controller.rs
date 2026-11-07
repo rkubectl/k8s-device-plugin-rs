@@ -61,6 +61,12 @@ impl BindingState {
             if device.binding_conditions.as_ref().is_none_or(Vec::is_empty) {
                 continue;
             }
+            let pool_name = device.pool.as_str().try_into().map_err(io::Error::other)?;
+            let device_name = device
+                .device
+                .as_str()
+                .try_into()
+                .map_err(io::Error::other)?;
             let key = (
                 device.pool.clone(),
                 device.device.clone(),
@@ -79,7 +85,7 @@ impl BindingState {
                                 && status.share_id == device.share_id
                         })
                     });
-                let mut report = ClaimDeviceStatus::new(&device.pool, &device.device);
+                let mut report = ClaimDeviceStatus::new(pool_name, device_name);
                 report.share_id.clone_from(&device.share_id);
                 report.conditions = Some(
                     existing
@@ -186,8 +192,7 @@ async fn main() -> io::Result<()> {
             .map_err(io::Error::other)?,
     );
     let statuses = state.statuses_for_claim(&claim, &driver, &now)?;
-    let result = ClaimDeviceStatusPublisher::new(client, driver)
-        .map_err(io::Error::other)?
+    let result = ClaimDeviceStatusPublisher::new(client, driver.parse().map_err(io::Error::other)?)
         .publish_fields(&claim_ref, statuses)
         .await
         .map_err(io::Error::other)?;
@@ -256,8 +261,8 @@ mod tests {
             let reports = state
                 .statuses_for_claim(&allocated_claim(), "dra.example.com", &now)
                 .unwrap();
-            assert_eq!(reports[0].pool_name, "pool-0");
-            assert_eq!(reports[0].device_name, "widget-0");
+            assert_eq!(reports[0].pool_name.as_str(), "pool-0");
+            assert_eq!(reports[0].device_name.as_str(), "widget-0");
             let conditions = reports[0].conditions.as_ref().unwrap();
             assert_eq!(
                 [conditions[0].status.as_str(), conditions[1].status.as_str()],

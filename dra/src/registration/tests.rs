@@ -16,7 +16,7 @@ fn make_server() -> (DraRegistrationServer, Utf8TempDir) {
     let dir = Utf8TempDir::new().expect("create temp dir for registration socket");
     let socket_path = dir.path().join("plugin-reg.sock");
     let server = DraRegistrationServer::for_test(
-        "example.com",
+        &"example.com".parse().unwrap(),
         "/var/lib/kubelet/plugins/example.com/plugin.sock",
         socket_path,
     );

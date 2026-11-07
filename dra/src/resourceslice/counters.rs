@@ -1,9 +1,9 @@
 //! Shared-counter conversion and pool-local reference validation.
 
+use k8s_device_plugin_dra_core::CounterName;
 use k8s_device_plugin_dra_core::CounterSet;
 use k8s_device_plugin_dra_core::DeviceCounterConsumption;
 use k8s_device_plugin_dra_core::Quantity;
-use k8s_device_plugin_dra_core::is_valid_counter_name;
 
 use super::*;
 
@@ -11,18 +11,8 @@ pub(super) const MAX_COUNTER_SETS_PER_SLICE: usize = 8;
 const MAX_COUNTERS: usize = 32;
 const MAX_CONSUMPTIONS_PER_DEVICE: usize = 2;
 
-fn validate_counter_name(name: &str, pool_name: &str) -> kube::Result<()> {
-    if !is_valid_counter_name(name) {
-        return Err(invalid_pool_error(
-            pool_name,
-            &format!("counter name {name:?} must be a DNS label of at most 63 characters"),
-        ));
-    }
-    Ok(())
-}
-
 fn counters_to_wire(
-    counters: BTreeMap<String, Quantity>,
+    counters: BTreeMap<CounterName, Quantity>,
     pool_name: &str,
 ) -> kube::Result<BTreeMap<String, resourcev1::Counter>> {
     if counters.is_empty() || counters.len() > MAX_COUNTERS {
@@ -34,9 +24,8 @@ fn counters_to_wire(
     counters
         .into_iter()
         .map(|(name, quantity)| {
-            validate_counter_name(&name, pool_name)?;
             Ok((
-                name,
+                name.into_string(),
                 resourcev1::Counter {
                     value: quantity.into(),
                 },
@@ -53,7 +42,6 @@ pub(super) fn counter_sets_to_wire(
     let mut sets = sets
         .into_iter()
         .map(|set| {
-            validate_counter_name(&set.name, pool_name)?;
             if !names.insert(set.name.clone()) {
                 return Err(invalid_pool_error(
                     pool_name,
@@ -61,7 +49,7 @@ pub(super) fn counter_sets_to_wire(
                 ));
             }
             Ok(resourcev1::CounterSet {
-                name: set.name,
+                name: set.name.into_string(),
                 counters: counters_to_wire(set.counters, pool_name)?,
             })
         })
@@ -84,7 +72,6 @@ pub(super) fn consumptions_to_wire(
     let consumptions = consumptions
         .into_iter()
         .map(|consumption| {
-            validate_counter_name(&consumption.counter_set, pool_name)?;
             if !names.insert(consumption.counter_set.clone()) {
                 return Err(invalid_pool_error(
                     pool_name,
@@ -94,7 +81,7 @@ pub(super) fn consumptions_to_wire(
             // v1.37 adds compatibility_groups; keep the v1.36 schema supported.
             #[allow(clippy::needless_update)]
             let wire = resourcev1::DeviceCounterConsumption {
-                counter_set: consumption.counter_set,
+                counter_set: consumption.counter_set.into_string(),
                 counters: counters_to_wire(consumption.counters, pool_name)?,
                 ..default()
             };

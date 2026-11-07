@@ -16,7 +16,7 @@ use super::*;
 fn mock_resolver() -> (ClaimResolver, MockKubeHandle) {
     let (client, handle) = mock_kube_client();
     (
-        ClaimResolver::new(client, "example.com").expect("valid driver"),
+        ClaimResolver::new(client, "example.com".parse().unwrap()),
         handle,
     )
 }
@@ -189,7 +189,10 @@ async fn empty_prepare_skips_backend_with_and_without_metadata() {
         let mut service = DraPluginService::new(resolver, Arc::clone(&preparer));
         if with_metadata {
             service = service
-                .with_device_metadata("example.com", DeviceMetadataOptions::v1beta1())
+                .with_device_metadata(
+                    "example.com".parse().unwrap(),
+                    DeviceMetadataOptions::v1beta1(),
+                )
                 .unwrap();
         }
         let response = service
@@ -414,13 +417,16 @@ async fn first_available_is_normalized_without_metadata() {
 fn wire_request_names_deduplicate_base_names_and_preserve_all_requests() {
     let wire = prepared_device_to_wire(PreparedDevice {
         request_names: vec!["a/fast".into(), "a/slow".into(), "a".into(), "b".into()],
-        ..default()
+        ..PreparedDevice::new("pool".parse().unwrap(), "device".parse().unwrap())
     });
     assert_eq!(wire.request_names, ["a", "b"]);
     assert!(
-        prepared_device_to_wire(PreparedDevice::default())
-            .request_names
-            .is_empty()
+        prepared_device_to_wire(PreparedDevice::new(
+            "pool".parse().unwrap(),
+            "device".parse().unwrap()
+        ))
+        .request_names
+        .is_empty()
     );
 }
 
@@ -429,11 +435,17 @@ async fn standalone_service_rejects_identity_changes_before_startup_or_metadata(
     let (resolver, _) = mock_resolver();
     let service = DraPluginService::new(resolver, FakeClaimPreparer::default());
     let error = service
-        .with_device_metadata("other.example", DeviceMetadataOptions::v1beta1())
+        .with_device_metadata(
+            "other.example".parse().unwrap(),
+            DeviceMetadataOptions::v1beta1(),
+        )
         .unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     let (resolver, _) = mock_resolver();
     let service = DraPluginService::new(resolver, FakeClaimPreparer::default());
-    let error = service.spawn("other.example").await.unwrap_err();
+    let error = service
+        .spawn(&"other.example".parse().unwrap())
+        .await
+        .unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
 }

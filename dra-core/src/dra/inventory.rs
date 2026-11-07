@@ -5,22 +5,22 @@ use super::*;
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct CounterSet {
-    pub name: String,
-    pub counters: BTreeMap<String, Quantity>,
+    pub name: CounterSetName,
+    pub counters: BTreeMap<CounterName, Quantity>,
 }
 
 impl CounterSet {
     #[must_use]
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: CounterSetName) -> Self {
         Self {
-            name: name.into(),
+            name,
             counters: BTreeMap::new(),
         }
     }
 
     #[must_use]
-    pub fn counter(mut self, name: impl Into<String>, value: Quantity) -> Self {
-        self.counters.insert(name.into(), value);
+    pub fn counter(mut self, name: CounterName, value: Quantity) -> Self {
+        self.counters.insert(name, value);
         self
     }
 }
@@ -30,22 +30,22 @@ impl CounterSet {
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct DeviceCounterConsumption {
-    pub counter_set: String,
-    pub counters: BTreeMap<String, Quantity>,
+    pub counter_set: CounterSetName,
+    pub counters: BTreeMap<CounterName, Quantity>,
 }
 
 impl DeviceCounterConsumption {
     #[must_use]
-    pub fn new(counter_set: impl Into<String>) -> Self {
+    pub fn new(counter_set: CounterSetName) -> Self {
         Self {
-            counter_set: counter_set.into(),
+            counter_set,
             counters: BTreeMap::new(),
         }
     }
 
     #[must_use]
-    pub fn counter(mut self, name: impl Into<String>, value: Quantity) -> Self {
-        self.counters.insert(name.into(), value);
+    pub fn counter(mut self, name: CounterName, value: Quantity) -> Self {
+        self.counters.insert(name, value);
         self
     }
 }
@@ -238,15 +238,15 @@ mod tests {
 
     #[async_trait]
     impl ResourcePool for LegacyPool {
-        async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
+        async fn devices(&self) -> BTreeMap<PoolName, Vec<PoolDevice>> {
             // Keep source compatibility for v0.1 consumers using literals.
             let device = PoolDevice {
-                name: "widget-0".to_string(),
+                name: "widget-0".parse().unwrap(),
                 attributes: BTreeMap::new(),
                 capacity: BTreeMap::new(),
                 health: Health::Healthy,
             };
-            BTreeMap::from([("pool-0".to_string(), vec![device])])
+            BTreeMap::from([("pool-0".parse().unwrap(), vec![device])])
         }
     }
 
@@ -254,18 +254,17 @@ mod tests {
 
     #[async_trait]
     impl ResourcePool for TaintedPool {
-        async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
+        async fn devices(&self) -> BTreeMap<PoolName, Vec<PoolDevice>> {
             LegacyPool.devices().await
         }
 
-        async fn inventory(&self) -> BTreeMap<String, Vec<InventoryDevice>> {
+        async fn inventory(&self) -> BTreeMap<PoolName, Vec<InventoryDevice>> {
             BTreeMap::from([(
-                "pool-0".to_string(),
+                "pool-0".parse().unwrap(),
                 vec![
-                    InventoryDevice::new(PoolDevice::new("widget-0")).with_taint(DeviceTaint::new(
-                        "example.com/maintenance",
-                        DeviceTaintEffect::NoSchedule,
-                    )),
+                    InventoryDevice::new(PoolDevice::new("widget-0".parse().unwrap())).with_taint(
+                        DeviceTaint::new("example.com/maintenance", DeviceTaintEffect::NoSchedule),
+                    ),
                 ],
             )])
         }
@@ -274,7 +273,7 @@ mod tests {
     #[tokio::test]
     async fn legacy_backend_has_an_untainted_inventory_without_changes() {
         let inventory = LegacyPool.inventory().await;
-        assert_eq!(inventory["pool-0"][0].device.name, "widget-0");
+        assert_eq!(inventory["pool-0"][0].device.name.as_str(), "widget-0");
         assert!(inventory["pool-0"][0].taints.is_empty());
         let snapshot = LegacyPool.snapshot().await;
         assert_eq!(snapshot["pool-0"].devices, inventory["pool-0"]);
@@ -297,19 +296,24 @@ mod tests {
 
     #[async_trait]
     impl ResourcePool for PartitionablePool {
-        async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
+        async fn devices(&self) -> BTreeMap<PoolName, Vec<PoolDevice>> {
             panic!("snapshot override must be delegated")
         }
 
-        async fn snapshot(&self) -> BTreeMap<String, PoolInventory> {
+        async fn snapshot(&self) -> BTreeMap<PoolName, PoolInventory> {
             BTreeMap::from([(
-                "pool-0".into(),
+                "pool-0".parse().unwrap(),
                 PoolInventory::new(vec![
-                    InventoryDevice::new(PoolDevice::new("card-0")).with_consumes_counters(
-                        DeviceCounterConsumption::new("pair-a").counter("cards", Quantity::from(1)),
-                    ),
+                    InventoryDevice::new(PoolDevice::new("card-0".parse().unwrap()))
+                        .with_consumes_counters(
+                            DeviceCounterConsumption::new("pair-a".parse().unwrap())
+                                .counter("cards".parse().unwrap(), Quantity::from(1)),
+                        ),
                 ])
-                .with_counter_set(CounterSet::new("pair-a").counter("cards", Quantity::from(2))),
+                .with_counter_set(
+                    CounterSet::new("pair-a".parse().unwrap())
+                        .counter("cards".parse().unwrap(), Quantity::from(2)),
+                ),
             )])
         }
     }
@@ -320,7 +324,10 @@ mod tests {
         let snapshot = pool.snapshot().await;
         let pool = &snapshot["pool-0"];
         assert_eq!(pool.shared_counters[0].counters["cards"], Quantity::from(2));
-        assert_eq!(pool.devices[0].consumes_counters[0].counter_set, "pair-a");
+        assert_eq!(
+            pool.devices[0].consumes_counters[0].counter_set.as_str(),
+            "pair-a"
+        );
         assert_eq!(
             pool.devices[0].consumes_counters[0].counters["cards"],
             Quantity::from(1)

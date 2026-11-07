@@ -28,8 +28,8 @@ fn prepared_device_to_wire(device: PreparedDevice) -> dra::v1::Device {
         .collect();
     dra::v1::Device {
         request_names,
-        pool_name: device.pool_name,
-        device_name: device.device_name,
+        pool_name: device.pool_name.into_string(),
+        device_name: device.device_name.into_string(),
         cdi_device_ids: device.cdi_device_ids,
         share_id: None,
     }
@@ -99,10 +99,9 @@ impl DraPluginService {
     /// claim is prepared. Existing health configuration remains in effect.
     pub fn with_device_metadata(
         mut self,
-        driver_name: impl Into<String>,
+        driver_name: DriverName,
         options: DeviceMetadataOptions,
     ) -> io::Result<Self> {
-        let driver_name = driver_name.into();
         self.resolver
             .validate_identity(&driver_name)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
@@ -176,12 +175,13 @@ impl DraPluginService {
     /// silently creating it here.
     pub async fn spawn(
         self,
-        driver_name: &str,
+        driver_name: &DriverName,
     ) -> io::Result<task::JoinHandle<Result<(), transport::Error>>> {
         self.resolver
             .validate_identity(driver_name)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-        self.spawn_at(&plugin_socket_path(driver_name)).await
+        self.spawn_at(&plugin_socket_path(driver_name.as_str()))
+            .await
     }
 
     pub(crate) async fn spawn_at(

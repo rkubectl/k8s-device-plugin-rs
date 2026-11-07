@@ -12,7 +12,7 @@ fn mock_resolver() -> (
 ) {
     let (client, handle) = mock_kube_client();
     (
-        ClaimResolver::new(client, "example.com").expect("valid driver"),
+        ClaimResolver::new(client, "example.com".parse().unwrap()),
         handle,
     )
 }
@@ -67,8 +67,8 @@ async fn resolve_returns_resolved_claim_for_allocated_claim() {
     );
     assert_eq!(resolved.claim, claim_ref);
     assert_eq!(resolved.devices.len(), 1);
-    assert_eq!(resolved.devices[0].pool_name, "node-0");
-    assert_eq!(resolved.devices[0].device_name, "widget-0");
+    assert_eq!(resolved.devices[0].pool_name.as_str(), "node-0");
+    assert_eq!(resolved.devices[0].device_name.as_str(), "widget-0");
     assert_eq!(resolved.devices[0].request_name, Some("req-0".to_string()));
 }
 
@@ -175,7 +175,7 @@ async fn resolve_all_resolves_a_batch_concurrently() {
         } else {
             "node-1"
         };
-        assert_eq!(resolved.devices[0].pool_name, expected_pool);
+        assert_eq!(resolved.devices[0].pool_name.as_str(), expected_pool);
     }
 }
 
@@ -225,7 +225,7 @@ async fn resolve_retries_a_transient_api_failure() {
 
     let resolved = resolver.resolve(&claim_ref).await.expect("retry succeeds");
     server.await.expect("server task completes");
-    assert_eq!(resolved.devices[0].pool_name, "pool-0");
+    assert_eq!(resolved.devices[0].pool_name.as_str(), "pool-0");
 }
 
 #[tokio::test]
@@ -412,4 +412,101 @@ async fn resolve_filters_foreign_allocations_and_rejects_only_local_shares() {
             assert_eq!(resolved.devices[0].request_name.as_deref(), Some("a/fast"));
         }
     }
+}
+
+#[tokio::test]
+async fn malformed_local_identities_are_isolated_and_foreign_data_is_ignored() {
+    for malformed_pool in [true, false] {
+        let (resolver, mut handle) = mock_resolver();
+        let refs = [
+            ClaimRef {
+                namespace: "default".into(),
+                name: "bad".into(),
+                uid: "uid-bad".into(),
+            },
+            ClaimRef {
+                namespace: "default".into(),
+                name: "good".into(),
+                uid: "uid-good".into(),
+            },
+        ];
+        let server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (request, send) = handle.next_request().await.unwrap();
+                let bad = request.uri().path().ends_with("/bad");
+                let name = if bad { "bad" } else { "good" };
+                let uid = if bad { "uid-bad" } else { "uid-good" };
+                let mut status = allocated_claim_status("example.com", "pool", "device", "request");
+                let results = status
+                    .allocation
+                    .as_mut()
+                    .unwrap()
+                    .devices
+                    .as_mut()
+                    .unwrap()
+                    .results
+                    .as_mut()
+                    .unwrap();
+                if bad {
+                    if malformed_pool {
+                        results[0].pool = "bad//pool".into();
+                    } else {
+                        results[0].device = "Bad.Device".into();
+                    }
+                } else {
+                    let mut foreign = results[0].clone();
+                    foreign.driver = "foreign.example".into();
+                    foreign.pool = "bad//pool".into();
+                    foreign.device = "Bad.Device".into();
+                    foreign.share_id = Some("foreign-share".into());
+                    results.push(foreign);
+                }
+                let body = resource_claim(name, "default", uid, Some(status));
+                send.send_response(http::Response::new(client::Body::from(
+                    json::to_vec(&body).unwrap(),
+                )));
+            }
+        });
+        let results = resolver.resolve_all(&refs).await;
+        server.await.unwrap();
+        assert_eq!(results[0].0, refs[0]);
+        assert!(if malformed_pool {
+            matches!(results[0].1, Err(PrepareError::InvalidAllocatedPool(_)))
+        } else {
+            matches!(results[0].1, Err(PrepareError::InvalidAllocatedDevice(_)))
+        });
+        assert_eq!(results[1].0, refs[1]);
+        assert_eq!(results[1].1.as_ref().unwrap().devices.len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn local_share_rejection_precedes_malformed_identity() {
+    let (resolver, handle) = mock_resolver();
+    let reference = ClaimRef {
+        namespace: "default".into(),
+        name: "claim".into(),
+        uid: "uid".into(),
+    };
+    let mut status = allocated_claim_status("example.com", "bad//pool", "Bad.Device", "request");
+    status
+        .allocation
+        .as_mut()
+        .unwrap()
+        .devices
+        .as_mut()
+        .unwrap()
+        .results
+        .as_mut()
+        .unwrap()[0]
+        .share_id = Some("share".into());
+    let server = respond_once(
+        handle,
+        resource_claim("claim", "default", "uid", Some(status)),
+    );
+    let error = resolver.resolve(&reference).await.unwrap_err();
+    server.await.unwrap();
+    assert!(
+        matches!(&error, PrepareError::ResolutionFailed(message) if message.contains("share IDs"))
+    );
 }

@@ -1,3 +1,5 @@
+use k8s_device_plugin_dra_core::CounterName;
+
 use k8s_device_plugin_dra_core::CounterSet;
 use k8s_device_plugin_dra_core::DeviceCounterConsumption;
 use k8s_device_plugin_dra_core::Quantity;
@@ -8,22 +10,23 @@ struct SnapshotPool(PoolInventory);
 
 #[tonic::async_trait]
 impl ResourcePool for SnapshotPool {
-    async fn devices(&self) -> BTreeMap<String, Vec<PoolDevice>> {
+    async fn devices(&self) -> BTreeMap<PoolName, Vec<PoolDevice>> {
         panic!("publisher must read one coherent snapshot")
     }
 
-    async fn snapshot(&self) -> BTreeMap<String, PoolInventory> {
-        BTreeMap::from([("pool-0".into(), self.0.clone())])
+    async fn snapshot(&self) -> BTreeMap<PoolName, PoolInventory> {
+        BTreeMap::from([("pool-0".parse().unwrap(), self.0.clone())])
     }
 }
 
 fn counter_set(name: &str, value: i64) -> CounterSet {
-    CounterSet::new(name).counter("cards", Quantity::from(value))
+    CounterSet::new(name.parse().unwrap()).counter("cards".parse().unwrap(), Quantity::from(value))
 }
 
 fn consuming_device(name: &str, set: &str, value: i64) -> InventoryDevice {
-    InventoryDevice::new(PoolDevice::new(name)).with_consumes_counters(
-        DeviceCounterConsumption::new(set).counter("cards", Quantity::from(value)),
+    InventoryDevice::new(PoolDevice::new(name.parse().unwrap())).with_consumes_counters(
+        DeviceCounterConsumption::new(set.parse().unwrap())
+            .counter("cards".parse().unwrap(), Quantity::from(value)),
     )
 }
 
@@ -56,7 +59,12 @@ fn snapshot_publisher(inventory: PoolInventory) -> (ResourceSlicePublisher, Mock
     let (client, handle) = mock_kube_client();
     let pool: Arc<dyn ResourcePool> = Arc::new(SnapshotPool(inventory));
     (
-        ResourceSlicePublisher::new(client, "example.com", "node-0", pool).unwrap(),
+        ResourceSlicePublisher::new(
+            client,
+            "example.com".parse().unwrap(),
+            "node-0".parse().unwrap(),
+            pool,
+        ),
         handle,
     )
 }
@@ -136,7 +144,7 @@ async fn counters_and_devices_publish_separately_and_second_poll_is_unchanged() 
 async fn server_returned_empty_collections_do_not_republish() {
     let inventory = PoolInventory::new(vec![
         consuming_device("card-0", "pair-a", 1),
-        InventoryDevice::new(PoolDevice::new("plain")),
+        InventoryDevice::new(PoolDevice::new("plain".parse().unwrap())),
     ])
     .with_counter_set(counter_set("pair-a", 2));
     let (publisher, mut handle) = snapshot_publisher(inventory);
@@ -195,13 +203,17 @@ async fn server_returned_empty_collections_do_not_republish() {
 async fn fractional_capacity_and_counters_converge_across_server_notation() {
     let inventory = PoolInventory::new(vec![
         InventoryDevice::new(
-            PoolDevice::new("card-0").capacity("memory", "1.5Gi".parse().unwrap()),
+            PoolDevice::new("card-0".parse().unwrap()).capacity("memory", "1.5Gi".parse().unwrap()),
         )
         .with_consumes_counters(
-            DeviceCounterConsumption::new("pair-a").counter("cards", "0.125".parse().unwrap()),
+            DeviceCounterConsumption::new("pair-a".parse().unwrap())
+                .counter("cards".parse().unwrap(), "0.125".parse().unwrap()),
         ),
     ])
-    .with_counter_set(CounterSet::new("pair-a").counter("cards", "0.5".parse().unwrap()));
+    .with_counter_set(
+        CounterSet::new("pair-a".parse().unwrap())
+            .counter("cards".parse().unwrap(), "0.5".parse().unwrap()),
+    );
     let (publisher, mut handle) = snapshot_publisher(inventory);
     let script = async {
         respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
@@ -256,11 +268,11 @@ async fn counter_and_consumption_changes_advance_every_slice_once() {
         if change_counter {
             changed.shared_counters[0]
                 .counters
-                .insert("cards".into(), Quantity::from(3));
+                .insert("cards".parse().unwrap(), Quantity::from(3));
         } else {
             changed.devices[0].consumes_counters[0]
                 .counters
-                .insert("cards".into(), Quantity::from(2));
+                .insert("cards".parse().unwrap(), Quantity::from(2));
         }
         let (old, mut old_handle) = snapshot_publisher(initial);
         let script = async {
@@ -331,9 +343,10 @@ async fn counter_sets_and_consuming_devices_split_at_api_limits() {
 #[tokio::test]
 async fn reordered_sets_consumptions_and_devices_keep_generation() {
     let mut inventory = paired_cards().with_counter_set(counter_set("pair-b", 1000));
-    inventory.devices[0]
-        .consumes_counters
-        .push(DeviceCounterConsumption::new("pair-b").counter("cards", Quantity::from(1000)));
+    inventory.devices[0].consumes_counters.push(
+        DeviceCounterConsumption::new("pair-b".parse().unwrap())
+            .counter("cards".parse().unwrap(), Quantity::from(1000)),
+    );
     let (publisher, mut handle) = snapshot_publisher(inventory);
     let script = async {
         respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
@@ -373,20 +386,18 @@ async fn invalid_counter_pools_fail_before_any_write() {
     let mut unknown_counter = paired_cards();
     unknown_counter.devices[0].consumes_counters[0]
         .counters
-        .insert("unknown".into(), Quantity::from(1));
+        .insert("unknown".parse().unwrap(), Quantity::from(1));
     cases.push(unknown_counter);
     cases.push(paired_cards().with_counter_set(counter_set("pair-a", 2)));
-    cases.push(paired_cards().with_counter_set(counter_set("bad.name", 2)));
-    cases.push(paired_cards().with_counter_set(CounterSet::new("empty")));
-    let mut too_many_counters = CounterSet::new("large");
+    assert!(k8s_device_plugin_dra_core::CounterSetName::try_from("bad.name").is_err());
+    cases.push(paired_cards().with_counter_set(CounterSet::new("empty".parse().unwrap())));
+    let mut too_many_counters = CounterSet::new("large".parse().unwrap());
     for i in 0..33 {
-        too_many_counters = too_many_counters.counter(format!("c-{i}"), Quantity::from(1));
+        too_many_counters =
+            too_many_counters.counter(format!("c-{i}").parse().unwrap(), Quantity::from(1));
     }
     cases.push(paired_cards().with_counter_set(too_many_counters));
-    cases.push(
-        paired_cards()
-            .with_counter_set(CounterSet::new("invalid-key").counter("Bad", Quantity::from(1))),
-    );
+    assert!(CounterName::try_from("Bad").is_err());
     let mut duplicate_consumption = paired_cards();
     let consumption = duplicate_consumption.devices[0].consumes_counters[0].clone();
     duplicate_consumption.devices[0]
@@ -396,7 +407,8 @@ async fn invalid_counter_pools_fail_before_any_write() {
     let mut too_many_consumptions = paired_cards();
     too_many_consumptions.devices[0].consumes_counters = (0..3)
         .map(|i| {
-            DeviceCounterConsumption::new(format!("pair-{i}")).counter("cards", Quantity::from(1))
+            DeviceCounterConsumption::new(format!("pair-{i}").parse().unwrap())
+                .counter("cards".parse().unwrap(), Quantity::from(1))
         })
         .collect();
     cases.push(too_many_consumptions);
@@ -405,12 +417,10 @@ async fn invalid_counter_pools_fail_before_any_write() {
         .counters
         .clear();
     cases.push(empty_consumption);
-    let mut invalid_consumption = paired_cards();
-    invalid_consumption.devices[0].consumes_counters[0].counter_set = "Bad".into();
-    cases.push(invalid_consumption);
+    assert!(k8s_device_plugin_dra_core::CounterSetName::try_from("Bad").is_err());
     let mut oversized_consumption = paired_cards();
     oversized_consumption.devices[0].consumes_counters[0].counters = (0..33)
-        .map(|i| (format!("c-{i}"), Quantity::from(1)))
+        .map(|i| (format!("c-{i}").parse().unwrap(), Quantity::from(1)))
         .collect();
     cases.push(oversized_consumption);
     for inventory in cases {
@@ -439,7 +449,7 @@ async fn removing_counters_updates_devices_before_deleting_the_counter_slice() {
     result.unwrap();
     let (publisher, mut handle) =
         snapshot_publisher(PoolInventory::new(vec![InventoryDevice::new(
-            PoolDevice::new("card-0"),
+            PoolDevice::new("card-0".parse().unwrap()),
         )]));
     let script = async {
         respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;

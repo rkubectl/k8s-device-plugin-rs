@@ -35,60 +35,6 @@ fn slice_name(driver_name: &str, node_name: &str, pool_name: &str, index: usize)
     prefix + &suffix
 }
 
-pub(crate) fn attribute_value_to_wire(value: AttributeValue) -> resourcev1::DeviceAttribute {
-    match value {
-        AttributeValue::String(s) => resourcev1::DeviceAttribute {
-            string: Some(s),
-            ..default()
-        },
-        AttributeValue::Int(i) => resourcev1::DeviceAttribute {
-            int: Some(i),
-            ..default()
-        },
-        AttributeValue::Bool(b) => resourcev1::DeviceAttribute {
-            bool: Some(b),
-            ..default()
-        },
-        AttributeValue::Version(v) => resourcev1::DeviceAttribute {
-            version: Some(v),
-            ..default()
-        },
-    }
-}
-
-fn pool_device_to_wire(device: PoolDevice) -> resourcev1::Device {
-    // Omit empty maps entirely: the API server normalizes empty optional
-    // maps to None, and retaining Some({}) would cause endless updates.
-    let attributes = (!device.attributes.is_empty()).then(|| {
-        device
-            .attributes
-            .into_iter()
-            .map(|(name, value)| (name, attribute_value_to_wire(value)))
-            .collect()
-    });
-    let capacity = (!device.capacity.is_empty()).then(|| {
-        device
-            .capacity
-            .into_iter()
-            .map(|(name, quantity)| {
-                (
-                    name,
-                    resourcev1::DeviceCapacity {
-                        request_policy: None,
-                        value: quantity.into(),
-                    },
-                )
-            })
-            .collect()
-    });
-    resourcev1::Device {
-        name: device.name,
-        attributes,
-        capacity,
-        ..default()
-    }
-}
-
 fn inventory_device_to_wire(
     inventory: InventoryDevice,
     pool_name: &str,
@@ -131,7 +77,7 @@ fn inventory_device_to_wire(
     let mut wire = resourcev1::Device {
         taints: (!taints.is_empty()).then_some(taints),
         consumes_counters: consumptions_to_wire(inventory.consumes_counters, pool_name)?,
-        ..pool_device_to_wire(inventory.device)
+        ..resourcev1::Device::from(inventory.device)
     };
     if let Some(binding) = inventory.binding {
         for conditions in [&binding.conditions, &binding.failure_conditions] {
@@ -266,8 +212,8 @@ fn preserve_taint_times(
 /// stale ones, and keeps generation/count coherent across split slices.
 pub struct ResourceSlicePublisher {
     client: kube::Client,
-    driver_name: String,
-    node_name: String,
+    driver_name: DriverName,
+    node_name: NodeName,
     resource_pool: Arc<dyn ResourcePool>,
     poll_interval: Duration,
     retry_base_delay: Duration,
@@ -283,21 +229,13 @@ impl fmt::Debug for ResourceSlicePublisher {
 
 impl ResourceSlicePublisher {
     /// Creates a publisher for one driver's inventory on a named node.
-    ///
-    /// # Errors
-    ///
-    /// Returns a validation error for invalid driver or node names.
     pub fn new<P: ResourcePool + 'static>(
         client: kube::Client,
-        driver_name: impl Into<String>,
-        node_name: impl Into<String>,
+        driver_name: DriverName,
+        node_name: NodeName,
         resource_pool: P,
-    ) -> Result<Self, ValidationError> {
-        let driver_name = driver_name.into();
-        let node_name = node_name.into();
-        validate_driver_name(&driver_name)?;
-        validate_node_name(&node_name)?;
-        Ok(Self {
+    ) -> Self {
+        Self {
             client,
             driver_name,
             node_name,
@@ -305,7 +243,7 @@ impl ResourceSlicePublisher {
             poll_interval: DEFAULT_POLL_INTERVAL,
             retry_base_delay: DEFAULT_RETRY_BASE_DELAY,
             retry_max_delay: DEFAULT_RETRY_MAX_DELAY,
-        })
+        }
     }
 
     /// Overrides the normal interval between successful reconciliations.
@@ -341,8 +279,8 @@ impl ResourceSlicePublisher {
             // that turn an authoritative reconciliation into cross-node GC.
             .into_iter()
             .filter(|slice| {
-                slice.spec.driver == self.driver_name
-                    && slice.spec.node_name.as_deref() == Some(&self.node_name)
+                slice.spec.driver == self.driver_name.as_str()
+                    && slice.spec.node_name.as_deref() == Some(self.node_name.as_str())
             })
             .filter_map(|slice| slice.metadata.name.clone().map(|name| (name, slice)))
             .collect::<BTreeMap<_, _>>();
@@ -394,7 +332,7 @@ impl ResourceSlicePublisher {
 
     async fn owner_reference(&self) -> kube::Result<metav1::OwnerReference> {
         let api = self.client.nodes();
-        let node = api.get(&self.node_name).await?;
+        let node = api.get(self.node_name.as_str()).await?;
         node.owner_ref(&())
             .map(|owner_ref| metav1::OwnerReference {
                 controller: Some(true),
@@ -415,11 +353,10 @@ impl ResourceSlicePublisher {
         api: &api::Api<resourcev1::ResourceSlice>,
         owner: &metav1::OwnerReference,
         existing: &mut BTreeMap<String, resourcev1::ResourceSlice>,
-        pool_name: &str,
+        pool_name: &PoolName,
         inventory: PoolInventory,
     ) -> kube::Result<()> {
-        validate_pool_name(pool_name)
-            .map_err(|error| invalid_pool_error(pool_name, &error.to_string()))?;
+        let pool_name = pool_name.as_str();
         let counters = counter_sets_to_wire(inventory.shared_counters, pool_name)?;
         let wire_devices = inventory
             .devices
@@ -470,7 +407,12 @@ impl ResourceSlicePublisher {
             .map_err(|_| invalid_pool_error(pool_name, "requires too many ResourceSlices"))?;
         let mut desired = Vec::with_capacity(chunks.len());
         for (index, (devices, shared_counters)) in chunks.into_iter().enumerate() {
-            let name = slice_name(&self.driver_name, &self.node_name, pool_name, index);
+            let name = slice_name(
+                self.driver_name.as_str(),
+                self.node_name.as_str(),
+                pool_name,
+                index,
+            );
             desired.push(resourcev1::ResourceSlice {
                 metadata: metav1::ObjectMeta {
                     name: Some(name),
@@ -478,8 +420,8 @@ impl ResourceSlicePublisher {
                     ..default()
                 },
                 spec: resourcev1::ResourceSliceSpec {
-                    driver: self.driver_name.clone(),
-                    node_name: Some(self.node_name.clone()),
+                    driver: self.driver_name.to_string(),
+                    node_name: Some(self.node_name.to_string()),
                     pool: resourcev1::ResourcePool {
                         name: pool_name.to_string(),
                         generation: 0,
