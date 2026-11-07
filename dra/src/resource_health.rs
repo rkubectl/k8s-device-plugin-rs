@@ -35,8 +35,8 @@ impl DraResourceHealthService {
     }
 
     /// Creates a protocol service that explicitly declines health reporting.
-    /// This is used when the Cargo feature is enabled but a backend has not
-    /// opted in; kubelet then stops opening health watches for that driver.
+    /// This is used when a backend has not opted in; kubelet then stops
+    /// opening health watches for that driver.
     pub fn unsupported() -> Self {
         Self { reporter: None }
     }

@@ -1,9 +1,10 @@
 # Separate classic and DRA contracts; validate identities at construction
 
 Tracking: `k8s-device-plugin-rs-ha1` and phases `ha1.1`–`ha1.5`.
-Status: **review approved; ha1.2, ha1.3, and ha1.4 complete**.
-The user authorized the classic identity phase after ha1.3. ha1.5 has not
-started; release and publication remain separate decisions.
+Status: **review approved; ha1.2, ha1.3, and ha1.4 complete; ha1.5 in progress**.
+Local validation is authorized from `d866fe632ea5c05e8632ae56b1df82770eb2a716`.
+Native kubelet acceptance awaits separate Container 1.7.1 instrumentation;
+release and publication remain separate decisions.
 
 Baseline: v0.5.0 plus ownership audit, commit
 `51774a29a86dbbf47eb20bcbaca65481854ab9ec`, assessed 2026-11-07.
@@ -321,6 +322,19 @@ rerun affected checks; do not repeatedly run broad matrices without a reason.
 7. Record exact source revision, commands, schemas/features, focused test
    results, image identities and any unavailable acceptance environment.
    Evidence gaps remain explicit; do not describe planned checks as passed.
+
+### Local validation record, 2026-11-07
+
+Tested implementation source: `d866fe632ea5c05e8632ae56b1df82770eb2a716`;
+the subsequent ha1.5 edits add this record, migration prose, a health doc
+correction, and an isolated protocol consumer script wired into CI and Mise.
+Commands used `RUSTC_WRAPPER=` and offline Cargo.
+
+- `MISE_STATE_DIR=/private/tmp/ha1-mise-state MISE_TRUSTED_CONFIG_PATHS="$PWD" CARGO_NET_OFFLINE=true mise run --jobs 1 ci` passed: formatting, strict workspace Clippy, 229 nextest tests, mock matrix (29), profile (5) and multi-node (14) tests, and the independent core/Quantity and DRA schema consumers. The first sandboxed run failed to create Unix sockets; the passing run was outside that restriction. The first Mise attempt also could not write its default state directory.
+- For each `K8S_OPENAPI_ENABLED_VERSION=1.36` and `1.37`, with both default and `--all-features`, passed `cargo test --locked --offline --workspace --all-targets`, `cargo clippy --locked --offline --workspace --all-targets -- -D warnings`, `cargo test --locked --offline --workspace --doc`, and `RUSTDOCFLAGS='-D warnings' cargo doc --locked --offline --workspace --no-deps`. The all-feature flag precedes `--` for Clippy. These cells cover ordinary registration and unsupported health RPCs, explicit health registration, streaming, reconnect and cancellation. Source inspection confirms the ordinary constructor supplies no reporter and `watch_stream` returns `Unimplemented` before spawning when no reporter exists.
+- With `K8S_OPENAPI_ENABLED_VERSION` unset, `cargo test --locked --offline -p k8s-device-plugin-core -p k8s-quantity --no-default-features` passed, including compile-fail identity doctests. `sh proto/hack/check-without-protoc.sh` passed the classic, DRA and DRA-health protocol builds; `sh proto/hack/check-consumer-features.sh` passed the same three feature selections from isolated applications.
+- `cargo package --list --locked -p <package>` was inspected offline for core, Quantity, DRA core, protocol, classic runtime, test helpers, DRA runtime and facade. It includes DRA core sources and protocol's vendored schemas. `cargo metadata --locked --format-version 1 --no-deps` confirms core and Quantity precede DRA core, which precedes DRA runtime and facade; protocol precedes its dependents. This is a content/dependency audit, not package verification or publication.
+- Native fixture build, kind smoke and live kubelet matrix are **not completed** for this revision. They await separately resolved Container 1.7.1 instrumentation and authorization; no image identity or live health/lifecycle evidence is asserted here. Keep ha1.5 and the parent epic open until that acceptance is completed.
 
 ## Items for plan review
 

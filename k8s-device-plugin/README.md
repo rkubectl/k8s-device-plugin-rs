@@ -11,8 +11,7 @@ application needs:
 
 ```toml
 [dependencies]
-k8s-device-plugin = { version = "0.5.0", default-features = false, features = ["dra"] }
-k8s-openapi = { version = "0.29", features = ["v1_37"] }
+k8s-device-plugin = { version = "0.5.0", default-features = false, features = ["device-plugin"] }
 ```
 
 The common types are available at the crate root:
@@ -27,8 +26,12 @@ full focused APIs remain available as modules: `core`, `dra_core`, `device_plugi
 and `proto`. The individual `k8s-device-plugin-*` crates remain supported for
 applications that prefer explicit, minimal dependencies.
 
-DRA health support is compiled with the runtime. Backends explicitly activate reporting with `DraPlugin::with_resource_health`:
+DRA health support is compiled with the runtime. Backends explicitly activate
+reporting with `DraPlugin::with_resource_health`.
 
+For DRA, the application selects exactly one `k8s-openapi` schema feature:
+`v1_36` or `v1_37`. The library leaves this choice to the application.
+For example:
 
 ```toml
 [dependencies]
@@ -36,8 +39,6 @@ k8s-device-plugin = { version = "0.5.0", default-features = false, features = ["
 k8s-openapi = { version = "0.29", features = ["v1_37"] }
 ```
 
-For DRA, the application selects exactly one `k8s-openapi` schema feature:
-`v1_36` or `v1_37`. The library leaves this choice to the application.
 Classic-only consumers do not need `k8s-openapi`. See the getting-started
 guide for the v0.4 migration requirements and dependency override.
 
@@ -53,3 +54,11 @@ own parse error; the runtime exposes `DriverIdentityMismatch`, while
 `ValidationError` remains classic.
 The former `resource-health` Cargo feature has been removed. Construct with
 `DraPlugin::with_resource_health` to activate reporting. Domain identity fields are typed; wire values remain strings.
+
+## Classic identity migration
+
+Parse `DeviceId` before constructing devices or passing IDs to allocation and
+hook APIs. IDs remain nonempty strings of at most 63 UTF-8 bytes and need not
+be DNS names. Parse `ExtendedResourceName` before calling the now-infallible
+`DevicePlugin::new`. Path validation and the string values sent to kubelet are
+unchanged. See the [classic core guide](../core/README.md).

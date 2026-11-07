@@ -37,7 +37,7 @@ run = "python3 dra/hack/test-validate-k8s-versions.py"
 
 [tasks.dra-check-consumer-schemas]
 description = "Check core independence and Kubernetes v1.36/v1.37 consumers"
-run = ["sh core/hack/check-consumer-features.sh", "sh dra/hack/check-consumer-schemas.sh"]
+run = ["sh core/hack/check-consumer-features.sh", "sh dra/hack/check-consumer-schemas.sh", "sh proto/hack/check-consumer-features.sh"]
 
 [tasks.dra-test-profile-config]
 description = "Test isolated DRA profile configuration without VMs"
