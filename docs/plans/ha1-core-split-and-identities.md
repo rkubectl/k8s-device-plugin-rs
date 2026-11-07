@@ -72,9 +72,11 @@ duplicate socket algorithms, remove informational health, or reverse a core
 dependency as part of this migration.
 
 Move all current DRA contracts together, including `Arc` delegations, metadata
-preparation contracts, optional resource-health contracts and Quantity
-re-exports. Preserve the exact Quantity and `AttributeValue` domain types;
-OpenAPI string/struct representations do not replace their invariants.
+preparation contracts, resource-health contracts and Quantity re-exports.
+Health contracts are always available in DRA core; reporting remains an
+explicit backend choice. Preserve the exact Quantity and `AttributeValue`
+domain types; OpenAPI string/struct representations do not replace their
+invariants.
 
 When OpenAPI projections land, DRA core has a direct, non-optional
 `k8s-openapi` dependency with no selected version feature. This deliberately
@@ -209,13 +211,44 @@ users migrate `k8s_device_plugin_core::PoolDevice` to the new crate; facade
 users enabling DRA keep the familiar name but adopt typed constructors and
 fields. Cover default, no-default, classic-only, DRA-only and combined modes.
 
-Move `resource-health` contracts and their Tokio sync dependency to DRA core;
-forward the runtime/facade feature there. DRA health stays opt-in. The checkout
-contains a maintainer-owned addition of `default = ["resource-health"]` in
-`core/Cargo.toml`; do not stage, overwrite or implicitly transfer it. Proposed
-resolution for review: move the real health capability out of core, retaining
-an empty compatibility feature if needed to leave that local edit intact.
-Any permanent core default-feature policy change requires explicit agreement.
+### Resource health: accepted plan revision, 2026-11-07
+
+The maintainer approved removing the public `resource-health` Cargo feature
+after the split. Compile support unconditionally within DRA, while retaining
+explicit backend activation. This decision is settled for the plan; the full
+implementation review gate remains open.
+
+| Crate | Health contract after the split |
+|---|---|
+| Pure core | No DRA health contracts, health feature or health-only Tokio dependency |
+| DRA core | Health types and `ResourceHealthReporter` always available; Tokio sync dependency unconditional |
+| DRA runtime | Health service and APIs always compiled; always enable the protocol crate's `dra-health` feature |
+| Facade | Health APIs exposed whenever `dra` is enabled; no separate health feature |
+| Protocol | Retain the low-level `dra-health` feature for direct consumers and classic isolation |
+
+`DraPlugin::new(...)` must not advertise resource-health capability or start a
+health monitor. The compiled health endpoint explicitly returns `Unimplemented`
+without a reporter. `DraPlugin::with_resource_health(...)` accepts a backend
+implementing `ResourceHealthReporter` and advertises the capability; monitors
+start for kubelet watches and retain existing cancellation/reaping behavior.
+Clusters with health reporting disabled need no special Cargo configuration.
+The version-sensitive `v1alpha1` protocol still requires compatibility review.
+
+Remove obsolete public feature forwarding, `cfg` gates, health example
+`required-features`, health-only build flags and health-off/on Cargo matrix
+cells. Migrate examples, scripts, Docker inputs, docs.rs settings and CI as
+needed. Keep schema/facade combinations and low-level protocol feature tests;
+replace removed health Cargo combinations with ordinary-plugin and
+health-enabled-plugin runtime tests. Do not keep an empty compatibility feature
+or add a default-enabled feature that preserves the same branching.
+
+The checkout contains a maintainer-owned addition of
+`default = ["resource-health"]` in `core/Cargo.toml`; leave it untouched during
+planning. During the approved implementation, remove the obsolete health
+feature/default entry as part of this intentional migration, preserving any
+other maintainer edits. Do not transfer it to DRA core or retain a dummy feature.
+
+### Workspace and release integration
 
 Add the new public crate to workspace dependencies, package/readme/docs.rs
 metadata, lockfile, consumer checks, examples, test helpers, Docker/build
@@ -232,8 +265,8 @@ decisions with a link rather than rewriting their original findings.
 
 | Ticket | Work | Completion evidence |
 |---|---|---|
-| `ha1.1` | Maintainer reviews this plan and explicitly approves implementation | Recorded approval and resolved choices below; no Rust changes before approval |
-| `ha1.2` | Extract DRA contracts, split mixed error ownership, migrate imports/features/facade/docs and consumer/release plumbing; retain current domain string representations | Pure core/Quantity schema-free checks, both-schema DRA consumer builds and focused moved-contract/health tests; no wire behavior changes |
+| `ha1.1` | Maintainer reviews this plan and explicitly approves implementation; unconditional DRA health support is already agreed | Recorded approval and remaining choices below; no Rust changes before approval |
+| `ha1.2` | Extract DRA contracts, split mixed error ownership, remove public health feature gates, migrate imports/facade/docs and consumer/release plumbing; retain current domain string representations | Pure core/Quantity schema-free checks, both-schema DRA consumer builds, always-available health APIs and ordinary/health-enabled plugin tests; existing activation and wire semantics preserved |
 | `ha1.3` | Introduce DRA identities, typed fields/maps/traits, construction errors and fitting type-owned OpenAPI projections | Invariant/boundary tests, both-schema conversions, per-claim failures and journal/metadata regressions |
 | `ha1.4` | Introduce classic identities and migrate configuration/device/allocation/hook APIs and examples | Schema-free classic consumers, malformed RPC IDs, allocation/pre-start/preferred-allocation and path regressions |
 | `ha1.5` | Complete migration documentation and comprehensive validation on the combined result | Matrix and acceptance record below, package dry runs and reviewed API/dependency diff |
@@ -262,9 +295,14 @@ rerun affected checks; do not repeatedly run broad matrices without a reason.
    runtime naturally retains its own protocol/Tonic dependencies.
 4. Extend `dra/hack/check-consumer-schemas.sh` with direct DRA core, direct
    runtime and facade consumers. The application explicitly selects each of
-   v1.36/v1.37, with and without resource health; libraries choose neither
-   `latest` nor a version feature. Check DRA-only and combined facade modes,
-   and retain independent schema-free Quantity proof.
+   v1.36/v1.37; libraries choose neither `latest` nor a version feature. Health
+   contracts and runtime APIs must be available without a health Cargo feature.
+   Check DRA-only and combined facade modes, retain independent schema-free
+   Quantity proof, and retain the protocol crate's direct-consumer feature tests.
+   Test that ordinary plugin construction omits health advertisement, declines
+   health RPCs with `Unimplemented` and starts no reporter; explicit health
+   construction advertises and streams reports, reconnects and cancels/reaps
+   monitors correctly. Verify both runtime paths under each supported schema.
 5. Run `mise run --jobs 1 ci`, then any matrix cells not already covered:
    locked workspace all-target tests, strict Clippy, doctests and strict
    rustdoc under both schemas and default/all features, sequentially or with
@@ -291,9 +329,12 @@ rerun affected checks; do not repeatedly run broad matrices without a reason.
 - Approve the eight initial identity types and typed constructor/trait API,
   with claim/request/CDI/path types deferred.
 - Confirm focused construction errors and runtime-owned contextual errors.
-- Resolve the maintainer's local core health-default edit as described above.
 - Confirm the coordinated breaking-release migration and conditional facade
   exports; release execution remains a separate instruction.
+
+Agreed during review: always compile DRA health support, retain explicit
+backend activation and only the low-level protocol feature, and remove the
+obsolete core health default/feature during implementation as described above.
 
 Planning checks: source/graph and dependency/feature review completed; tracking
 dependencies and document links checked at commit time. No implementation,
