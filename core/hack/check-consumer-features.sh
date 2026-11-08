@@ -84,6 +84,30 @@ cargo tree --edges normal --prefix none --format '{p}' > "$check_dir/tree"
 jq -Rse '(contains("k8s-openapi v") or contains("kube v") or contains("k8s-device-plugin-dra") or contains("k8s-quantity v") or contains("bigdecimal v")) | not' < "$check_dir/tree" >/dev/null
 printf 'classic facade consumer passed without DRA or schema\n'
 
+runtime_path=$(printf '%s' "$repo_root/lib" | jq -Rs .)
+cat > Cargo.toml <<EOF
+[package]
+name = "classic-runtime-consumer"
+version = "0.0.0"
+edition = "2024"
+[workspace]
+[dependencies]
+k8s-device-plugin-lib = { path = $runtime_path }
+EOF
+cat > src/main.rs <<'EOF'
+fn main() {
+    let service = k8s_device_plugin_lib::DevicePluginService::new(
+        k8s_device_plugin_lib::StaticDevicePlugin::new(vec![]),
+    );
+    let name = "example.com/GPU.v_1".parse().unwrap();
+    let _plugin = k8s_device_plugin_lib::DevicePlugin::new(name, service);
+}
+EOF
+cargo check
+cargo tree --edges normal --prefix none --format '{p}' > "$check_dir/tree"
+jq -Rse '(contains("k8s-openapi v") or contains("kube v") or contains("k8s-device-plugin-dra") or contains("k8s-quantity v") or contains("bigdecimal v")) | not' < "$check_dir/tree" >/dev/null
+printf 'classic runtime consumer passed without DRA or schema\n'
+
 quantity_path=$(printf '%s' "$repo_root/quantity" | jq -Rs .)
 cat > Cargo.toml <<EOF2
 [package]

@@ -76,4 +76,4 @@ for the exact boundary and validation evidence.
 to DRA core or the DRA-enabled facade. Integer construction uses
 `Quantity::from(2)` rather than `Quantity(2)`.
 The crate participates in the workspace's shared-version, tag-first release
-process. This change does not publish a release.
+process; the Quantity migration was published with v0.6.0.

@@ -23,6 +23,19 @@ fn make_server() -> (DraRegistrationServer, Utf8TempDir) {
     (server, dir)
 }
 
+#[test]
+fn repeated_health_activation_advertises_one_service() {
+    let (server, _dir) = make_server();
+    assert_eq!(
+        server
+            .with_resource_health()
+            .with_resource_health()
+            .plugin_info
+            .supported_versions,
+        ["v1.DRAPlugin", "v1alpha1.DRAResourceHealth"]
+    );
+}
+
 #[tokio::test]
 async fn get_info_returns_configured_plugin_info() {
     let (server, _dir) = make_server();

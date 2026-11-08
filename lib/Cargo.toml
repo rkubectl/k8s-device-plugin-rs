@@ -11,7 +11,7 @@ description = "Kubernetes device-plugin server runtime for Rust"
 [dependencies]
 camino.workspace = true
 hyper-util.workspace = true
-tokio = { workspace = true, features = ["fs", "time"] }
+tokio = { workspace = true, features = ["fs", "net", "rt", "sync", "time"] }
 tokio-stream.workspace = true
 tonic.workspace = true
 tower.workspace = true

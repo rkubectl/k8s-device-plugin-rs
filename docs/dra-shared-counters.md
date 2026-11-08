@@ -70,6 +70,10 @@ most eight counter sets per counter slice. Pools containing consuming or
 tainted devices use device chunks of at most 64; ordinary pools retain the
 128-device limit and their existing wire output.
 
+Kubernetes v1.37 compatibility groups cannot be expressed by this shared-counter
+adapter. The schema-dependent backend model and conversion are deferred to
+`k8s-device-plugin-rs-qt7.6.10`.
+
 Every slice has the same pool generation and total `resourceSliceCount`,
 including counter slices. A counter or consumption change advances the
 generation once. Reordering devices, counter sets, or consumption entries
