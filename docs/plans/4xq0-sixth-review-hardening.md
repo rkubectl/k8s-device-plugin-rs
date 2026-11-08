@@ -1,7 +1,7 @@
 # Sixth-review validation and hardening
 
 Tracking: `k8s-device-plugin-rs-4xq0` and children `.1` through `.7`.
-Status: approved for planning and implementation by the maintainer.
+Status: implemented, validated and accepted after parent review.
 Baseline: `9551921e4d0b564e900efcbdfc1ef4ab89a6c152` (v0.6.0 publication audit).
 Private `CODE_REVIEW-6.md` is evidence, not a source-controlled deliverable.
 No release, tag or publication is included in this task.
@@ -96,7 +96,8 @@ workers routinely. Keep the original private review files untouched.
 ## Implementation and acceptance evidence, 2026-11-08
 
 Tested implementation source: `d0bb7ad` after focused commits `ad28db8`,
-`5479ab8`, and `5e2b32d`. All findings remain in progress for parent review.
+`5479ab8`, and `5e2b32d`. At handoff, all findings remained in progress
+pending parent review.
 Checked `ExtendedResourceName` serialization adds a direct `serde` dependency
 to pure core; the isolated consumer checks still confirm no Kubernetes schema,
 DRA, Quantity or transport dependency in its normal graph. Compatibility
@@ -108,3 +109,23 @@ groups remain deferred to `k8s-device-plugin-rs-qt7.6.10`.
 - Native fixture: `container build --platform linux/arm64 -f dra/Dockerfile -t docker.io/library/k8s-device-plugin-dra-example:review6-d0bb7ad .` from a clean `git archive` of `d0bb7ad`, with populated protocol files compared byte-for-byte to the pinned submodule `98912ce841e56c346b0e9a086eee5ee6c2764832`. An earlier build from the live worktree failed while Cargo changed files in its `target` context; the clean-archive retry passed. Image index `sha256:8c56856eb6bd34bb84a624752c3d14b43d5ece44b28bbd242c59f2e7027be924`, arm64 manifest `sha256:1c5ccef145c73e35147a901535a686df057647fdccb9b833a8d4cdc2993a1816`, config `sha256:55822b083c539f5fa22cdc221c67a131bd966ec432d27983967e35042f110665`; pod image IDs matched the config digest. The h2 compatibility fork was compiled and `maxSurge: 0` retained.
 - With isolated `KUBECONFIG`, `DRA_E2E_V136_CLUSTER=k8s-versioned-171-validation-136`, `DRA_E2E_V137_CLUSTER=k8s-versioned-171-validation-137`, `DRA_E2E_IMAGE=docker.io/library/k8s-device-plugin-dra-example:review6-d0bb7ad`, `DRA_E2E_SKIP_BUILD=1`, `DRA_E2E_RESOURCE_HEALTH=1`, and a temporary `KUBECTL` wrapper checking image identity and slice generations, `bash dra/hack/validate-k8s-versions.sh` passed. Both native profiles migrated their existing unpadded generation-1 slice to the padded generation-2 name, passed registration/liveness, claim prepare/unprepare/CDI, FirstAvailable and negotiated health; the v1.37 extended-resource smoke passed. The independent mock proves complete new generation publication precedes conditional deletion and the next reconciliation makes no writes. The temporary native log `/private/tmp/4xq0-native/matrix.log` has SHA-256 `f258e6d8615ebc47ef94ca805bffa13ea01722947b45632011ebba1669f6ece5`.
 - The host and both dedicated profiles were arm64 with `rosetta=false`; all four listed profiles were stopped before and after and the original `dra-validation-advanced-137` context was unchanged. The dedicated profiles retain their validation deployment updated to the new image. Pre-1.7 profiles were not touched. The separate kind CLI environment remains unavailable and no kind CLI pass is claimed.
+
+## Consolidated review and integration
+
+The parent reviewed the parser and error contracts, NUL-path validation and
+RPC regressions, slice ordering and complete-generation migration assertions,
+health idempotence, dependency declarations and documentation. CI and native
+log hashes matched the record above. The stale trial graph required exact
+source/diff fallback for changed files and excluded scripts/docs; no exhaustive
+graph-completeness claim is made.
+
+Commit `ce6e220964bce5b968abb527647de21316e94532` corrected historical
+Quantity publication wording and clarified NUL-free path validation. It only
+changed documentation; formatting/diff checks passed and the assembled code
+did not change after the recorded validation. Main was fast-forwarded to this
+reviewed result. Findings `4xq0.1` through `.7` and the review epic are complete;
+compatibility-group implementation remains deferred as `qt7.6.10`.
+
+Private review files were preserved. No version bump, tag, release or registry
+publication was performed. The new public error variants require the next
+breaking minor release rather than a claim of patch source compatibility.
