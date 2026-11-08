@@ -71,3 +71,39 @@ needed for this forwarding-only change; record any actual validation limits.
 Record exact commands/source/results here and in the ticket; leave the main
 ticket in progress for parent review. Parent integrates, closes and synchronizes
 the accepted work. Preserve all private review files.
+
+## Implementation and validation record
+
+Tested source: `1d8688d3f7de8435c7e18cac5b22b060fb86c01d`, including API/test
+commit `ff6f607` and documentation/consumer commit `1d8688d`. The plugin
+forwards settings through crate-private service methods and the existing
+publisher builder; it stores no duplicate policy. Configured-plugin tests
+exercise the default, custom, zero and repeated settings; per-RPC concurrency
+and independence; retry attempt/delay behavior; backoff capping, reset and
+poll independence; and composition with metadata and health services.
+
+With `RUSTC_WRAPPER=` and `CARGO_NET_OFFLINE=true`, the following passed for
+each `K8S_OPENAPI_ENABLED_VERSION=1.36` and `1.37`:
+
+```sh
+cargo test --locked --offline -p k8s-device-plugin-dra --all-targets
+cargo clippy --locked --offline -p k8s-device-plugin-dra --all-targets -- -D warnings
+cargo test --locked --offline -p k8s-device-plugin-dra --doc
+RUSTDOCFLAGS='-D warnings' cargo doc --locked --offline -p k8s-device-plugin-dra --no-deps
+```
+
+Each all-target run passed 134 library tests and 14 example tests. The test
+and documentation runs used an unrestricted environment for Unix socket
+bindings. `RUSTC_WRAPPER= CARGO_NET_OFFLINE=true sh dra/hack/check-consumer-schemas.sh`
+passed direct DRA core/runtime, DRA-only facade and combined consumers on both
+schemas, including calls to the new builders. The temporary consumer log
+`/private/tmp/97oi-consumers.log` has SHA-256
+`3158f86ae275de3fffc3972233a9240120efdb9b6ef0a47347197764c161c7d7`.
+`cargo fmt --all --check` and `git diff --check` passed.
+
+Trial graph `split-terra-experiment` identified this worktree and HEAD, but
+coverage generation `2026-11-07T19:21:57Z` was stale for modified runtime
+files and excluded docs and consumer scripts. Exact current source and those
+excluded files were inspected directly. No live cluster was changed or
+reprovisioned for this forwarding-only work. `spyb` and `vt9x` remain deferred;
+the ticket stays in progress for parent review.
