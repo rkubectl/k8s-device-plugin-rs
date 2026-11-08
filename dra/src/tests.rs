@@ -84,6 +84,271 @@ fn wire_claim(name: &str, uid: &str) -> dra::v1::Claim {
     }
 }
 
+fn tuning_plugin(client: kube::Client) -> DraPlugin {
+    DraPlugin::new(
+        client,
+        "example.com".parse().unwrap(),
+        "node-0".parse().unwrap(),
+        StaticDraDriver {
+            name: "example.com".parse().unwrap(),
+            pool: "pool-0".parse().unwrap(),
+            devices: vec![],
+        },
+    )
+    .unwrap()
+}
+
+#[tokio::test(start_paused = true)]
+async fn plugin_claim_concurrency_bounds_each_batch() {
+    use dra::v1::DraPlugin as _;
+    for (configured, limit) in [(None, 16), (Some(0), 1), (Some(2), 2)] {
+        let (client, mut handle) = mock_kube_client();
+        let mut plugin = tuning_plugin(client);
+        if let Some(value) = configured {
+            plugin = plugin
+                .with_max_concurrent_resolves(9)
+                .with_max_concurrent_resolves(value);
+        }
+        let claims = (0..=limit)
+            .map(|i| wire_claim(&format!("claim-{i}"), &format!("uid-{i}")))
+            .collect();
+        let request = tonic::Request::new(dra::v1::NodePrepareResourcesRequest { claims });
+        let task = tokio::spawn(async move {
+            plugin
+                .service
+                .node_prepare_resources(request)
+                .await
+                .unwrap()
+                .into_inner()
+        });
+        let mut pending = Vec::new();
+        for _ in 0..limit {
+            pending.push(handle.next_request().await.unwrap().1);
+        }
+        assert!(
+            time::timeout(Duration::from_millis(1), handle.next_request())
+                .await
+                .is_err()
+        );
+        let not_found =
+            json::to_vec(&kube::core::Status::failure("missing", "NotFound").with_code(404))
+                .unwrap();
+        for send in pending {
+            send.send_response(
+                http::Response::builder()
+                    .status(404)
+                    .body(client::Body::from(not_found.clone()))
+                    .unwrap(),
+            );
+        }
+        let (_, send) = handle.next_request().await.unwrap();
+        send.send_response(
+            http::Response::builder()
+                .status(404)
+                .body(client::Body::from(not_found))
+                .unwrap(),
+        );
+        assert_eq!(task.await.unwrap().claims.len(), limit + 1);
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn plugin_claim_limit_is_per_rpc_not_global() {
+    use dra::v1::DraPlugin as _;
+    let (client, mut handle) = mock_kube_client();
+    let service = Arc::new(
+        tuning_plugin(client)
+            .with_max_concurrent_resolves(1)
+            .service,
+    );
+    let mut tasks = Vec::new();
+    for i in 0..2 {
+        let service = Arc::clone(&service);
+        tasks.push(tokio::spawn(async move {
+            service
+                .node_prepare_resources(tonic::Request::new(dra::v1::NodePrepareResourcesRequest {
+                    claims: vec![wire_claim(&format!("claim-{i}"), &format!("uid-{i}"))],
+                }))
+                .await
+                .unwrap()
+        }));
+    }
+    let (_, first) = handle.next_request().await.unwrap();
+    let (_, second) = time::timeout(Duration::from_millis(1), handle.next_request())
+        .await
+        .expect("both RPCs may read concurrently")
+        .unwrap();
+    let body =
+        json::to_vec(&kube::core::Status::failure("missing", "NotFound").with_code(404)).unwrap();
+    for send in [first, second] {
+        send.send_response(
+            http::Response::builder()
+                .status(404)
+                .body(client::Body::from(body.clone()))
+                .unwrap(),
+        );
+    }
+    for task in tasks {
+        task.await.unwrap();
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn plugin_claim_retry_attempts_and_delay_are_applied() {
+    use dra::v1::DraPlugin as _;
+    for (configured, attempts, delay) in [
+        (None, 3, Duration::from_millis(50)),
+        (Some((0, Duration::ZERO)), 1, Duration::ZERO),
+        (
+            Some((2, Duration::from_millis(7))),
+            2,
+            Duration::from_millis(7),
+        ),
+        (Some((2, Duration::ZERO)), 2, Duration::ZERO),
+    ] {
+        let (client, mut handle) = mock_kube_client();
+        let mut plugin = tuning_plugin(client);
+        if let Some((count, wait)) = configured {
+            plugin = plugin
+                .with_claim_retry_policy(8, Duration::from_secs(9))
+                .with_claim_retry_policy(count, wait);
+        }
+        let task = tokio::spawn(async move {
+            plugin
+                .service
+                .node_prepare_resources(tonic::Request::new(dra::v1::NodePrepareResourcesRequest {
+                    claims: vec![wire_claim("claim", "uid")],
+                }))
+                .await
+                .unwrap()
+                .into_inner()
+        });
+        let mut previous = time::Instant::now();
+        for index in 0..attempts {
+            let (_, send) = handle.next_request().await.unwrap();
+            let now = time::Instant::now();
+            if index > 0 {
+                assert_eq!(now - previous, delay);
+            }
+            previous = now;
+            send.send_response(
+                http::Response::builder()
+                    .status(500)
+                    .body(client::Body::from(
+                        json::to_vec(
+                            &kube::core::Status::failure("transient", "InternalError")
+                                .with_code(500),
+                        )
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            );
+        }
+        let response = task.await.unwrap();
+        assert!(
+            response.claims["uid"]
+                .error
+                .contains(&format!("{attempts} attempt(s)"))
+        );
+        assert!(matches!(
+            time::timeout(Duration::from_millis(1), handle.next_request()).await,
+            Err(_) | Ok(None)
+        ));
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn plugin_publisher_failure_backoff_is_bounded_and_resets() {
+    for (configured, delays) in [
+        (
+            None,
+            [
+                Duration::from_secs(1),
+                Duration::from_secs(2),
+                Duration::from_secs(4),
+            ],
+        ),
+        (
+            Some((Duration::from_secs(3), Duration::from_secs(5))),
+            [
+                Duration::from_secs(3),
+                Duration::from_secs(5),
+                Duration::from_secs(5),
+            ],
+        ),
+        (
+            Some((Duration::ZERO, Duration::ZERO)),
+            [Duration::from_millis(1); 3],
+        ),
+        (
+            Some((Duration::from_secs(3), Duration::from_secs(1))),
+            [Duration::from_secs(3); 3],
+        ),
+    ] {
+        let (client, mut handle) = mock_kube_client();
+        let mut plugin = tuning_plugin(client).with_poll_interval(Duration::from_secs(7));
+        if let Some((base, max)) = configured {
+            plugin = plugin
+                .with_publisher_retry_backoff(Duration::from_secs(9), Duration::from_secs(20))
+                .with_publisher_retry_backoff(base, max);
+        }
+        let publisher = plugin.publisher.spawn();
+        let mut previous = time::Instant::now();
+        for index in 0..4 {
+            let (request, send) = handle.next_request().await.unwrap();
+            assert_eq!(request.uri().path(), "/api/v1/nodes/node-0");
+            let now = time::Instant::now();
+            if index > 0 {
+                assert_eq!(now - previous, delays[index - 1]);
+            }
+            previous = now;
+            if index < 3 {
+                send.send_response(
+                    http::Response::builder()
+                        .status(500)
+                        .body(client::Body::from(
+                            json::to_vec(
+                                &kube::core::Status::failure("transient", "InternalError")
+                                    .with_code(500),
+                            )
+                            .unwrap(),
+                        ))
+                        .unwrap(),
+                );
+            } else {
+                send.send_response(http::Response::new(client::Body::from(
+                    json::to_vec(&node("node-0", "node-uid-0")).unwrap(),
+                )));
+            }
+        }
+        respond(
+            &mut handle,
+            200,
+            &k8s_openapi::List::<resourcev1::ResourceSlice>::default(),
+        )
+        .await;
+        let (_, send) = handle.next_request().await.unwrap();
+        assert_eq!(time::Instant::now() - previous, Duration::from_secs(7));
+        let failed_at = time::Instant::now();
+        send.send_response(
+            http::Response::builder()
+                .status(500)
+                .body(client::Body::from(
+                    json::to_vec(
+                        &kube::core::Status::failure("transient", "InternalError").with_code(500),
+                    )
+                    .unwrap(),
+                ))
+                .unwrap(),
+        );
+        let (_, send) = handle.next_request().await.unwrap();
+        assert_eq!(time::Instant::now() - failed_at, delays[0]);
+        drop(send);
+        publisher.abort();
+        assert!(publisher.await.unwrap_err().is_cancelled());
+    }
+}
+
 #[tokio::test]
 async fn run_spawns_all_three_components_and_they_work() {
     let (client, mut kube_handle) = mock_kube_client();
@@ -568,4 +833,91 @@ async fn opted_in_health_is_advertised_by_the_plugin_registration_rpc() {
         ["v1.DRAPlugin", "v1alpha1.DRAResourceHealth"]
     );
     handle.abort();
+}
+
+#[tokio::test]
+async fn tuning_composes_with_health_and_metadata() {
+    use dra::v1::DraPlugin as _;
+    let (client, mut handle) = mock_kube_client();
+    let directory = Utf8TempDir::new().unwrap();
+    let mut plugin = DraPlugin::with_resource_health(
+        client,
+        "example.com".parse().unwrap(),
+        "node".parse().unwrap(),
+        StaticDraDriver {
+            name: "example.com".parse().unwrap(),
+            pool: "pool".parse().unwrap(),
+            devices: vec![],
+        },
+    )
+    .unwrap()
+    .with_max_concurrent_resolves(2)
+    .with_device_metadata(
+        DeviceMetadataOptions::v1beta1()
+            .with_plugin_directories(directory.path().join("plugin"), "/node/plugin")
+            .with_cdi_directory(directory.path().join("cdi")),
+    )
+    .unwrap()
+    .with_claim_retry_policy(1, Duration::ZERO)
+    .with_poll_interval(Duration::from_secs(2))
+    .with_publisher_retry_backoff(Duration::from_millis(2), Duration::from_millis(5));
+    plugin
+        .registration
+        .set_socket_path(directory.path().join("registration.sock"));
+    let registration = plugin.registration.spawn().await.unwrap();
+    let mut reg = MockRegistrationClient::connect(plugin.registration.socket_path())
+        .await
+        .unwrap();
+    assert_eq!(
+        reg.get_info().await.unwrap().supported_versions,
+        ["v1.DRAPlugin", "v1alpha1.DRAResourceHealth"]
+    );
+    let claim = k8s_device_plugin_test::kube_mock::resource_claim(
+        "claim",
+        "default",
+        "uid",
+        Some(resourcev1::ResourceClaimStatus {
+            allocation: Some(resourcev1::AllocationResult::default()),
+            ..default()
+        }),
+    );
+    let server = tokio::spawn(async move {
+        respond(&mut handle, 200, &claim).await;
+    });
+    let response = plugin
+        .service
+        .node_prepare_resources(tonic::Request::new(dra::v1::NodePrepareResourcesRequest {
+            claims: vec![wire_claim("claim", "uid")],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    server.await.unwrap();
+    assert_eq!(response.claims["uid"].error, "");
+    assert!(
+        directory
+            .path()
+            .join("plugin/dra-device-metadata/uid/journal.json")
+            .exists()
+    );
+    let socket = directory.path().join("plugin.sock");
+    let service = plugin.service.spawn_at(&socket).await.unwrap();
+    let channel = transport::Endpoint::from_static("http://[::]:50051")
+        .connect_with_connector(tower::service_fn(move |_| {
+            let path = socket.clone();
+            async move {
+                net::UnixStream::connect(path)
+                    .await
+                    .map(hyper_util::rt::TokioIo::new)
+            }
+        }))
+        .await
+        .unwrap();
+    let mut health = dra::health::v1alpha1::DraResourceHealthClient::new(channel);
+    health
+        .node_watch_resources(dra::health::v1alpha1::NodeWatchResourcesRequest {})
+        .await
+        .expect("health remains enabled");
+    registration.abort();
+    service.abort();
 }

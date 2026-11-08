@@ -201,6 +201,31 @@ impl DraPlugin {
         self
     }
 
+    /// Caps concurrent claim API reads per kubelet RPC. Defaults to 16;
+    /// zero is clamped to one. This is not a global concurrency limit.
+    #[must_use]
+    pub fn with_max_concurrent_resolves(mut self, limit: usize) -> Self {
+        self.service = self.service.with_max_concurrent_resolves(limit);
+        self
+    }
+
+    /// Sets transient claim-read retry attempts and delay. Defaults to three
+    /// attempts and 50 ms; zero attempts is clamped to one. Zero delay is allowed.
+    #[must_use]
+    pub fn with_claim_retry_policy(mut self, attempts: usize, delay: Duration) -> Self {
+        self.service = self.service.with_claim_retry_policy(attempts, delay);
+        self
+    }
+
+    /// Sets the publisher's exponential failure backoff. Defaults to one and
+    /// 30 seconds; the base is at least 1 ms and the maximum at least the base.
+    /// Successful reconciliations still use the independent poll interval.
+    #[must_use]
+    pub fn with_publisher_retry_backoff(mut self, base: Duration, max: Duration) -> Self {
+        self.publisher = self.publisher.with_retry_backoff(base, max);
+        self
+    }
+
     /// Enables read-only container metadata using an explicitly selected
     /// protocol. The default lifecycle creates no metadata artifacts.
     pub fn with_device_metadata(mut self, options: DeviceMetadataOptions) -> io::Result<Self> {

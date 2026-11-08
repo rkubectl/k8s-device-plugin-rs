@@ -95,6 +95,16 @@ impl DraPluginService {
         }
     }
 
+    pub(crate) fn with_max_concurrent_resolves(mut self, limit: usize) -> Self {
+        self.resolver = self.resolver.with_max_concurrent_resolves(limit);
+        self
+    }
+
+    pub(crate) fn with_claim_retry_policy(mut self, attempts: usize, delay: Duration) -> Self {
+        self.resolver = self.resolver.with_retry_policy(attempts, delay);
+        self
+    }
+
     /// Enables standard beta container metadata. No files are written until a
     /// claim is prepared. Existing health configuration remains in effect.
     pub fn with_device_metadata(
