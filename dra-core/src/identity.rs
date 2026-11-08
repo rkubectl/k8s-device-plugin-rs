@@ -21,9 +21,8 @@ use std::str::FromStr;
 use serde::Deserialize;
 use serde::Serialize;
 
-fn dns_label(value: &str) -> bool {
+fn dns_component(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= 63
         && value
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
@@ -31,8 +30,12 @@ fn dns_label(value: &str) -> bool {
         && value.as_bytes()[value.len() - 1].is_ascii_alphanumeric()
 }
 
+fn dns_label(value: &str) -> bool {
+    value.len() <= 63 && dns_component(value)
+}
+
 fn dns_subdomain(value: &str, limit: usize) -> bool {
-    !value.is_empty() && value.len() <= limit && value.split('.').all(dns_label)
+    !value.is_empty() && value.len() <= limit && value.split('.').all(dns_component)
 }
 
 macro_rules! identity {
@@ -109,8 +112,8 @@ macro_rules! identity {
 // https://github.com/kubernetes/kubernetes/blob/v1.37.0/pkg/apis/resource/validation/validation.go
 // Kubernetes v1.36.1 and v1.37.0 resource validation use DNS1123 labels
 // for device and counter names; ResourcePool allows slash-separated DNS
-// subdomains. Existing workspace subdomain checks additionally restrict each
-// component to 63 bytes; preserve that behavior during this migration.
+// subdomains. DNS1123 subdomain validation bounds the complete value, not
+// individual components. Actual DNS labels keep their 63-byte limit.
 identity!(
     DriverName,
     DriverNameError,
@@ -194,12 +197,38 @@ mod tests {
         assert!(PoolName::try_from(max.clone()).is_ok());
         assert!(PoolName::try_from(format!("{max}x")).is_err());
         assert!(NodeName::try_from(format!("{max}x")).is_err());
-        assert!(NodeName::try_from("a".repeat(64)).is_err());
+        for len in [63, 64, 253] {
+            let long_component = "a".repeat(len);
+            assert_eq!(
+                NodeName::try_from(long_component.as_str())
+                    .unwrap()
+                    .as_str(),
+                long_component
+            );
+            assert_eq!(
+                PoolName::try_from(long_component.as_str())
+                    .unwrap()
+                    .as_str(),
+                long_component
+            );
+        }
+        assert!(NodeName::try_from("a".repeat(254)).is_err());
+        assert!(PoolName::try_from("a".repeat(254)).is_err());
+        let nested = format!("pool/{}", "a".repeat(64));
+        assert_eq!(
+            PoolName::try_from(nested.as_str()).unwrap().as_str(),
+            nested
+        );
+        let nested_max = format!("pool/{}", "a".repeat(248));
+        assert_eq!(nested_max.len(), 253);
+        assert!(PoolName::try_from(nested_max.as_str()).is_ok());
+        assert!(PoolName::try_from(format!("{nested_max}a")).is_err());
         assert!(PoolName::try_from("pool.example/tenant-a.example").is_ok());
         for invalid in [
             "",
             ".",
             "..",
+            "a..b",
             "a/b",
             "UPPER.example",
             "a-",
@@ -234,6 +263,12 @@ mod tests {
         assert!(serde_json::from_str::<PoolName>("\"bad//pool\"").is_err());
         assert!(serde_json::from_str::<CounterName>("\"INVALID\"").is_err());
         assert!(serde_json::from_str::<CounterSetName>("\"INVALID\"").is_err());
+        let long = "x".repeat(253);
+        let encoded = serde_json::to_string(&long).unwrap();
+        let node: NodeName = serde_json::from_str(&encoded).unwrap();
+        let pool: PoolName = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(serde_json::to_string(&node).unwrap(), encoded);
+        assert_eq!(serde_json::to_string(&pool).unwrap(), encoded);
         let map = BTreeMap::from([(name, 1)]);
         assert_eq!(map.get("card-0"), Some(&1));
         assert_eq!(serde_json::to_string(&map).unwrap(), "{\"card-0\":1}");

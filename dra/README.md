@@ -42,9 +42,8 @@ a configured/backend mismatch. Wire and journal values remain plain strings.
 DRA device names now reject empty, uppercase, dotted, underscored, non-ASCII,
 or over-63-byte values that earlier constructors accepted unchecked. The
 validation example no longer trims whitespace from configured device names;
-remove such whitespace when migrating. Driver,
-node and pool parsing retains the existing 63-byte per-label restriction, which
-is stricter than Kubernetes subdomain validation; see task `ha1.6`.
+remove such whitespace when migrating. Node and pool subdomain components may
+exceed 63 bytes within their total limit, matching Kubernetes subdomain rules.
 Health support no longer needs a Cargo feature; activation still requires
 `DraPlugin::with_resource_health`.
 

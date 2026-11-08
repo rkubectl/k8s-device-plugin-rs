@@ -208,6 +208,41 @@ fn data(root: &Utf8Path, request: &str) -> Utf8PathBuf {
 }
 
 #[test]
+fn long_claim_subdomain_preserves_metadata_paths_and_journal() {
+    let tmp = camino_tempfile::tempdir().unwrap();
+    let runtime = new_runtime(tmp.path());
+    for len in [63, 64, 253] {
+        let name = "a".repeat(len);
+        let mut object = claim();
+        object.metadata.name = Some(name.clone());
+        let plan = Plan::build(&runtime, &object, vec![prepared("a", "widget-0")]).unwrap();
+        let document = json::from_str::<json::Value>(&plan.documents["a"]).unwrap();
+        assert_eq!(document["metadata"]["name"], name);
+        let spec = json::from_str::<json::Value>(&plan.specs["a"]).unwrap();
+        assert_eq!(
+            spec["devices"][0]["containerEdits"]["mounts"][0]["containerPath"],
+            format!("{CONTAINER_ROOT}/resourceclaims/{name}/a/dra.example.com-metadata.json")
+        );
+        runtime.persist(&plan).unwrap();
+        runtime.cleanup_blocking(&plan.claim).unwrap();
+        // A maximal claim is one component in the container mount path.
+        fs::create_dir(tmp.path().join(&name)).unwrap();
+        fs::remove_dir(tmp.path().join(&name)).unwrap();
+    }
+    for invalid in [
+        "a".repeat(254),
+        "a..b".into(),
+        format!("{}-", "a".repeat(63)),
+    ] {
+        let mut object = claim();
+        object.metadata.name = Some(invalid);
+        assert!(Plan::build(&runtime, &object, vec![prepared("a", "widget-0")]).is_err());
+    }
+    assert!(attribute_key(&format!("{}/x", "a".repeat(63))));
+    assert!(!attribute_key(&format!("{}/x", "a".repeat(64))));
+}
+
+#[test]
 fn beta_schema_paths_and_request_cdi_edits_are_isolated() {
     let tmp = camino_tempfile::tempdir().unwrap();
     let runtime = new_runtime(tmp.path());

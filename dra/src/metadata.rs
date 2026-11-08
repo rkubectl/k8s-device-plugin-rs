@@ -145,9 +145,8 @@ fn invalid(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
 }
 
-fn label(name: &str, limit: usize) -> bool {
+fn component(name: &str) -> bool {
     !name.is_empty()
-        && name.len() <= limit
         && name
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
@@ -155,8 +154,12 @@ fn label(name: &str, limit: usize) -> bool {
         && name.as_bytes()[name.len() - 1].is_ascii_alphanumeric()
 }
 
+fn label(name: &str, limit: usize) -> bool {
+    name.len() <= limit && component(name)
+}
+
 fn dns_subdomain(name: &str, limit: usize) -> bool {
-    name.len() <= limit && name.split('.').all(|part| label(part, 63))
+    name.len() <= limit && name.split('.').all(component)
 }
 
 fn request_ref(name: &str) -> io::Result<&str> {
