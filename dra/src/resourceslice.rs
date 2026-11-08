@@ -29,7 +29,8 @@ fn slice_name(driver_name: &str, node_name: &str, pool_name: &str, index: usize)
     // '|' cannot occur in any validated component. Include the complete
     // identity in the stable socket-name hash before truncating the prefix.
     let identity = format!("{driver_name}|{node_name}|{pool_name}");
-    let prefix = format!("slice-{index}-");
+    // Fixed width preserves numeric order under Kubernetes' lexical name sort.
+    let prefix = format!("slice-{index:020}-");
     let suffix = k8s_device_plugin_core::sanitize_socket_name(&identity, 63 - prefix.len())
         .replace('_', "-");
     prefix + &suffix

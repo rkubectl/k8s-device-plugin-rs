@@ -953,6 +953,86 @@ fn slice_names_are_bounded_dns_safe_and_disambiguate_components() {
         slice_name("driver", "node", "pool/tenant-a", 0),
         slice_name("driver", "node", "pool-tenant-a", 0)
     );
+    let names = (0..=12)
+        .map(|i| slice_name("driver", "node", "pool", i))
+        .collect::<Vec<_>>();
+    assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(slice_name("driver", "node", "pool", 999) < slice_name("driver", "node", "pool", 1000));
+    assert!(slice_name("driver", "node", "pool", 0).starts_with("slice-00000000000000000000-"));
+    assert!(slice_name("driver", "node", "pool", usize::MAX).len() <= 63);
+}
+
+#[tokio::test]
+async fn migrate_unpadded_chunks_then_reconcile_without_writes() {
+    let (publisher, mut handle) = mock_publisher(one_pool("pool-0", widgets(129)));
+    let script = async {
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
+        let old_names = [
+            "slice-0-example-com-node-0-pool-0-908ab3b00bbdb582",
+            "slice-1-example-com-node-0-pool-0-908ab3b00bbdb582",
+        ];
+        let old = old_names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                let devices = if i == 0 {
+                    (0..128)
+                        .map(|n| device(&format!("widget-{n:03}")))
+                        .collect()
+                } else {
+                    vec![device("widget-128")]
+                };
+                owned_slice(name, 4, "pool-0", 2, devices)
+            })
+            .collect();
+        respond(&mut handle, 200, &resource_slice_list(old)).await;
+        let mut created = Vec::new();
+        for index in 0..2 {
+            let (request, send) = handle.next_request().await.unwrap();
+            assert_eq!(request.method(), http::Method::POST);
+            let body = request_body_json(request).await;
+            assert_eq!(
+                body["metadata"]["name"],
+                slice_name("example.com", "node-0", "pool-0", index)
+            );
+            assert_eq!(body["spec"]["pool"]["generation"], 5);
+            assert_eq!(body["spec"]["pool"]["resourceSliceCount"], 2);
+            created.push(json::from_value::<resourcev1::ResourceSlice>(body.clone()).unwrap());
+            send.send_response(http::Response::new(client::Body::from(
+                json::to_vec(&body).unwrap(),
+            )));
+        }
+        for name in old_names {
+            let (request, send) = handle.next_request().await.unwrap();
+            assert_eq!(request.method(), http::Method::DELETE);
+            assert!(request.uri().path().ends_with(name));
+            let body = request_body_json(request).await;
+            assert_eq!(
+                body["preconditions"],
+                json::json!({"uid": format!("uid-{name}"), "resourceVersion": "7"})
+            );
+            send.send_response(http::Response::new(client::Body::from(
+                json::to_vec(&metav1::Status {
+                    status: Some("Success".into()),
+                    ..default()
+                })
+                .unwrap(),
+            )));
+        }
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
+        respond(&mut handle, 200, &resource_slice_list(created)).await;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), handle.next_request())
+                .await
+                .is_err()
+        );
+    };
+    let work = async {
+        publisher.publish_once().await?;
+        publisher.publish_once().await
+    };
+    let (_, result) = tokio::join!(script, work);
+    result.unwrap();
 }
 
 #[tokio::test]

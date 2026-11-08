@@ -153,7 +153,8 @@ device preparation is not yet supported, including the metadata path.
 
 Pool names may contain slash-separated DNS subdomains, up to 253 bytes total.
 ResourceSlice names use a bounded stable hash of the complete driver/node/pool
-identity and an explicit chunk index. Upgrading from legacy names publishes
+identity and a zero-padded, 20-digit chunk index so lexical ordering follows
+numeric ordering. Upgrading from unpadded or other legacy names publishes
 the new generation before deleting old slices with UID/resourceVersion
 preconditions; it may briefly leave two generations visible to the scheduler.
 The publisher refuses to replace a slice belonging to a different pool.
