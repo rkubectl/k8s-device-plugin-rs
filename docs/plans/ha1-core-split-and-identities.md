@@ -1,7 +1,7 @@
 # Separate classic and DRA contracts; validate identities at construction
 
 Tracking: `k8s-device-plugin-rs-ha1` and phases `ha1.1`–`ha1.5`.
-Status: **review approved; ha1.2, ha1.3, and ha1.4 complete; ha1.5 in progress**.
+Status: **implementation and ha1.5 acceptance complete, with limitations below**.
 Local validation is authorized from `d866fe632ea5c05e8632ae56b1df82770eb2a716`.
 Native acceptance results and remaining limitations are recorded below;
 release and publication remain separate decisions.
@@ -348,9 +348,9 @@ verified separately at container source `307d502a` and evidence `4d785dba`.
 - With an isolated `KUBECONFIG`, `DRA_E2E_V136_CLUSTER=k8s-versioned-171-validation-136`, `DRA_E2E_V137_CLUSTER=k8s-versioned-171-validation-137`, `DRA_E2E_IMAGE=docker.io/library/k8s-device-plugin-dra-example:ha15-c35fc85`, `DRA_E2E_SKIP_BUILD=1`, `DRA_E2E_RESOURCE_HEALTH=1`, and `DRA_E2E_METADATA=1`, `bash dra/hack/validate-k8s-versions.sh` passed. A temporary kubectl wrapper refused an already existing fixture namespace and checked the expected image tag and built image digest on every driver rollout. Both Kubernetes v1.36.1 and v1.37.0 passed registration/liveness, allocation/prepare/unprepare and CDI smoke, FirstAvailable, negotiated kubelet health watches and Pod health, and metadata direct/reused/template/FirstAvailable, restart, cleanup, collision and retry cases. The v1.37 extended-resource smoke passed. The validation DaemonSet retained `maxSurge: 0`.
 - The captured output is `/private/tmp/ha15-acceptance/matrix.log`, SHA-256 `f4ee02b34570622a13ef667b29d178463b714164d0e1af12a2bddf7e00c001ba`; it is a temporary local artifact, not a committed log.
 - The host was arm64; both profiles were arm64 with `rosetta=false`. All four listed profiles were stopped before and after, and the original `dra-validation-advanced-137` kubeconfig context was unchanged. The validation namespace, RBAC and DaemonSet were created on each replacement profile and remain there as the runner's deployment fixture; individual smoke resources and metadata were cleaned by their fixtures.
-- The older `dra-validation` and `dra-validation-137` profiles were absent from the versioned inventory, so their restart and load-image compatibility could not be checked. The separate `kind` CLI could not run: Docker was unavailable and `podman info` could not connect to a Podman service. The passing native profiles used kindest-node images but are not a separate kind CLI smoke. Keep ha1.5 and the parent epic open for consolidated review and disposition of these gaps.
+- The default `dra-validation` and `dra-validation-137` names were absent from the versioned inventory. The existing pre-1.7 `dra-upgrade-348-136` and `dra-upgrade-348-137` profiles were stopped and untouched; their restart and load-image compatibility remains a separate Container tooling follow-up, not evidence for this split. The separate `kind` CLI could not run: Docker was unavailable and `podman info` could not connect to a Podman service. The passing native profiles used kindest-node images but are not a separate kind CLI smoke. Consolidated review accepted the native matrix for ha1.5 while retaining these limitations.
 
-## Items for plan review
+## Original plan-review items
 
 - Approve the `dra-core` ownership and direct OpenAPI dependency once useful
   conversions land, including the direct-consumer schema requirement.
@@ -364,6 +364,6 @@ Agreed during review: always compile DRA health support, retain explicit
 backend activation and only the low-level protocol feature, and remove the
 obsolete core health default/feature during implementation as described above.
 
-Planning checks: source/graph and dependency/feature review completed; tracking
-dependencies and document links checked at commit time. No implementation,
-compilation or live-cluster validation has been performed for this proposal.
+At planning time, source/graph and dependency/feature review was completed and
+tracking dependencies and document links were checked. Implementation and
+validation were subsequently completed as recorded above.
