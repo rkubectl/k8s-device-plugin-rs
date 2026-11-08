@@ -894,7 +894,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "k8s-device-plugin-core",
  "k8s-device-plugin-dra",
@@ -905,7 +905,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "camino",
@@ -918,7 +918,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin-dra"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "camino",
@@ -950,7 +950,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin-dra-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "k8s-device-plugin-core",
@@ -964,7 +964,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin-example"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "camino",
  "k8s-device-plugin-lib",
@@ -975,7 +975,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin-lib"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "camino",
  "camino-tempfile",
@@ -995,7 +995,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin-proto"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "prost",
  "protox",
@@ -1006,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-device-plugin-test"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "camino",
  "camino-tempfile",
@@ -1038,7 +1038,7 @@ dependencies = [
 
 [[package]]
 name = "k8s-quantity"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "bigdecimal",
  "k8s-openapi",
