@@ -2,7 +2,7 @@
 # Serially validate the DRA fixture against the two local native-arm64 clusters.
 #
 # This is intentionally opt-in: it builds a container image and changes local
-# cluster state. It restores the v1.36 baseline as the sole running cluster.
+# cluster state. It restores the initial running/stopped profile states.
 
 set -euo pipefail
 
@@ -35,7 +35,7 @@ require_command() {
 }
 
 cluster_json() {
-    "$CONTAINER" list --all --format json | "$JQ" -cer --arg cluster "$1" '
+    "$CONTAINER" k8s-versioned list --format json | "$JQ" -cer --arg cluster "$1" '
         map(select(.id == $cluster)) |
         if length == 1 then .[0] else error("expected exactly one cluster named \($cluster), found \(length)") end
     '
@@ -47,7 +47,7 @@ cluster_state() {
 
 assert_native_cluster() {
     local cluster=$1
-    local rosetta
+    local rosetta architecture
 
     rosetta=$(cluster_json "$cluster" | "$JQ" -er '
         if (.configuration.rosetta | type) == "boolean" then
@@ -60,6 +60,11 @@ assert_native_cluster() {
         printf 'cluster %s has rosetta=%s; native validation requires rosetta=false\n' "$cluster" "$rosetta" >&2
         exit 1
     fi
+    architecture=$(cluster_json "$cluster" | "$JQ" -er '.configuration.platform.architecture')
+    if [[ "$architecture" != arm64 ]]; then
+        printf 'cluster %s has architecture=%s; native validation requires arm64\n' "$cluster" "$architecture" >&2
+        exit 1
+    fi
 
     return 0
 }
@@ -70,7 +75,7 @@ stop_if_running() {
 
     state=$(cluster_state "$cluster") || return $?
     if [[ "$state" == running ]]; then
-        "$CONTAINER" stop "$cluster" || return $?
+        "$CONTAINER" k8s-versioned stop --name "$cluster" || return $?
     fi
 }
 
@@ -102,7 +107,7 @@ capture_driver_logs() {
         printf 'could not collect driver logs for %s\n' "$1" >&2
 }
 
-restore_baseline() {
+restore_initial_state() {
     local result=$?
     local restore_result=0
 
@@ -111,16 +116,19 @@ restore_baseline() {
     if [[ -n "$ACTIVE_CLUSTER" ]]; then
         capture_driver_logs "$ACTIVE_CLUSTER"
     fi
-    # Never boot the baseline if stopping the other profile failed.
-    if stop_if_running "$V137_CLUSTER"; then
-        start_cluster "$V136_CLUSTER" &&
-            assert_server_version "$V136_CLUSTER" v1.36.1
-        restore_result=$?
-    else
-        restore_result=$?
+    # Stop both before restoring an initially running profile; never start a
+    # second profile if either stop fails.
+    stop_if_running "$V137_CLUSTER" || restore_result=$?
+    stop_if_running "$V136_CLUSTER" || restore_result=$?
+    if ((restore_result == 0)); then
+        if [[ "$INITIAL_V136_STATE" == running ]]; then
+            start_cluster "$V136_CLUSTER" && assert_server_version "$V136_CLUSTER" v1.36.1 || restore_result=$?
+        elif [[ "$INITIAL_V137_STATE" == running ]]; then
+            start_cluster "$V137_CLUSTER" && assert_server_version "$V137_CLUSTER" v1.37.0 || restore_result=$?
+        fi
     fi
     if ((restore_result != 0)); then
-        printf 'failed to restore the v1.36 baseline (exit %s)\n' "$restore_result" >&2
+        printf 'failed to restore initial profile states (exit %s)\n' "$restore_result" >&2
         if ((result == 0)); then
             result=$restore_result
         fi
@@ -214,9 +222,16 @@ if [[ "$V136_CLUSTER" == "$V137_CLUSTER" ]]; then
 fi
 assert_native_cluster "$V136_CLUSTER"
 assert_native_cluster "$V137_CLUSTER"
+INITIAL_V136_STATE=$(cluster_state "$V136_CLUSTER")
+INITIAL_V137_STATE=$(cluster_state "$V137_CLUSTER")
+if [[ ! "$INITIAL_V136_STATE" =~ ^(running|stopped)$ || ! "$INITIAL_V137_STATE" =~ ^(running|stopped)$ ||
+      "$INITIAL_V136_STATE:$INITIAL_V137_STATE" == running:running ]]; then
+    printf 'unsupported initial profile states: %s, %s\n' "$INITIAL_V136_STATE" "$INITIAL_V137_STATE" >&2
+    exit 1
+fi
 
 # Preflight failures must not mutate cluster state.
-trap restore_baseline EXIT
+trap restore_initial_state EXIT
 
 if [[ ${DRA_E2E_SKIP_BUILD:-0} != 1 ]]; then
     "$CONTAINER" build --platform linux/arm64 -f dra/Dockerfile -t "$IMAGE" .

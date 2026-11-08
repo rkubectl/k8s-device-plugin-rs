@@ -3,7 +3,7 @@
 Tracking: `k8s-device-plugin-rs-ha1` and phases `ha1.1`–`ha1.5`.
 Status: **review approved; ha1.2, ha1.3, and ha1.4 complete; ha1.5 in progress**.
 Local validation is authorized from `d866fe632ea5c05e8632ae56b1df82770eb2a716`.
-Native kubelet acceptance awaits separate Container 1.7.1 instrumentation;
+Native acceptance results and remaining limitations are recorded below;
 release and publication remain separate decisions.
 
 Baseline: v0.5.0 plus ownership audit, commit
@@ -334,7 +334,21 @@ Commands used `RUSTC_WRAPPER=` and offline Cargo.
 - For each `K8S_OPENAPI_ENABLED_VERSION=1.36` and `1.37`, with both default and `--all-features`, passed `cargo test --locked --offline --workspace --all-targets`, `cargo clippy --locked --offline --workspace --all-targets -- -D warnings`, `cargo test --locked --offline --workspace --doc`, and `RUSTDOCFLAGS='-D warnings' cargo doc --locked --offline --workspace --no-deps`. The all-feature flag precedes `--` for Clippy. These cells cover ordinary registration and unsupported health RPCs, explicit health registration, streaming, reconnect and cancellation. Source inspection confirms the ordinary constructor supplies no reporter and `watch_stream` returns `Unimplemented` before spawning when no reporter exists.
 - With `K8S_OPENAPI_ENABLED_VERSION` unset, `cargo test --locked --offline -p k8s-device-plugin-core -p k8s-quantity --no-default-features` passed, including compile-fail identity doctests. `sh proto/hack/check-without-protoc.sh` passed the classic, DRA and DRA-health protocol builds; `sh proto/hack/check-consumer-features.sh` passed the same three feature selections from isolated applications.
 - `cargo package --list --locked -p <package>` was inspected offline for core, Quantity, DRA core, protocol, classic runtime, test helpers, DRA runtime and facade. It includes DRA core sources and protocol's vendored schemas. `cargo metadata --locked --format-version 1 --no-deps` confirms core and Quantity precede DRA core, which precedes DRA runtime and facade; protocol precedes its dependents. This is a content/dependency audit, not package verification or publication.
-- Native fixture build, kind smoke and live kubelet matrix are **not completed** for this revision. They await separately resolved Container 1.7.1 instrumentation and authorization; no image identity or live health/lifecycle evidence is asserted here. Keep ha1.5 and the parent epic open until that acceptance is completed.
+- At the time of this local record, native fixture build, kind smoke and the live kubelet matrix remained pending. See the later native acceptance record below.
+
+### Native acceptance record, 2026-11-08
+
+Implementation source was `c35fc85848b6a9c57df0a45ae5f2b139d7f984f7`;
+the working-tree changes in this phase were the runner, its mock tests and
+documentation, and the metadata preflight. Container 1.7.1 tooling was
+verified separately at container source `307d502a` and evidence `4d785dba`.
+
+- `python3 dra/hack/test-validate-k8s-versions.py`: 30 VM-free orchestration and failure-path tests passed, including restoration of both stopped and either initially running profile. `bash -n dra/hack/validate-k8s-versions.sh dra/hack/e2e-metadata.sh` and `git diff --check` passed. The runner now uses `container k8s-versioned list --format json` and `stop --name`, verifies arm64 and `rosetta=false`, and restores the initial profile states. The metadata preflight uses the same inventory.
+- `container build --platform linux/arm64 -f dra/Dockerfile -t docker.io/library/k8s-device-plugin-dra-example:ha15-c35fc85 .` passed. The image index was `sha256:f22de4ba1ff4850e760d3cadaaf7273ba8fe44eb5c4a0a87d3917e29f19f4571`, arm64 manifest `sha256:3fd15b6ac43041015be541f3d16621598134f27129088b356be843db92263336`, and config `sha256:e625008e4d8ef3e350a0a7f29ac7317931f4122438718d9bcefa7ed31047c313`. The build compiled the pinned h2 fork. Pod image IDs matched the config digest after each rollout.
+- With an isolated `KUBECONFIG`, `DRA_E2E_V136_CLUSTER=k8s-versioned-171-validation-136`, `DRA_E2E_V137_CLUSTER=k8s-versioned-171-validation-137`, `DRA_E2E_IMAGE=docker.io/library/k8s-device-plugin-dra-example:ha15-c35fc85`, `DRA_E2E_SKIP_BUILD=1`, `DRA_E2E_RESOURCE_HEALTH=1`, and `DRA_E2E_METADATA=1`, `bash dra/hack/validate-k8s-versions.sh` passed. A temporary kubectl wrapper refused an already existing fixture namespace and checked the expected image tag and built image digest on every driver rollout. Both Kubernetes v1.36.1 and v1.37.0 passed registration/liveness, allocation/prepare/unprepare and CDI smoke, FirstAvailable, negotiated kubelet health watches and Pod health, and metadata direct/reused/template/FirstAvailable, restart, cleanup, collision and retry cases. The v1.37 extended-resource smoke passed. The validation DaemonSet retained `maxSurge: 0`.
+- The captured output is `/private/tmp/ha15-acceptance/matrix.log`, SHA-256 `f4ee02b34570622a13ef667b29d178463b714164d0e1af12a2bddf7e00c001ba`; it is a temporary local artifact, not a committed log.
+- The host was arm64; both profiles were arm64 with `rosetta=false`. All four listed profiles were stopped before and after, and the original `dra-validation-advanced-137` kubeconfig context was unchanged. The validation namespace, RBAC and DaemonSet were created on each replacement profile and remain there as the runner's deployment fixture; individual smoke resources and metadata were cleaned by their fixtures.
+- The older `dra-validation` and `dra-validation-137` profiles were absent from the versioned inventory, so their restart and load-image compatibility could not be checked. The separate `kind` CLI could not run: Docker was unavailable and `podman info` could not connect to a Podman service. The passing native profiles used kindest-node images but are not a separate kind CLI smoke. Keep ha1.5 and the parent epic open for consolidated review and disposition of these gaps.
 
 ## Items for plan review
 

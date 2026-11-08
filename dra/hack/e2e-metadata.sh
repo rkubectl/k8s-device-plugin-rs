@@ -116,7 +116,7 @@ case_run() {
 }
 
 for command in "$KUBECTL" "$CONTAINER" "$JQ"; do command -v "$command" >/dev/null; done
-"$CONTAINER" list --all --format json | "$JQ" -e --arg name "$KUBE_CONTEXT" '[.[] | select(.id==$name)] | length==1 and .[0].status.state=="running" and .[0].configuration.rosetta==false' >/dev/null
+"$CONTAINER" k8s-versioned list --format json | "$JQ" -e --arg name "$KUBE_CONTEXT" '[.[] | select(.id==$name)] | length==1 and .[0].status.state=="running" and .[0].configuration.rosetta==false and .[0].configuration.platform.architecture=="arm64"' >/dev/null
 test -z "$(k get -f "$SOURCE" --ignore-not-found -o name)"
 test -z "$(k -n "$NAMESPACE" get pod,resourceclaim -o name | grep '/dra-example-metadata-peer$' || true)"
 k -n "$NAMESPACE" get "$DS" -o json | "$JQ" -e 'all(.spec.template.spec.containers[].env[]?; .name != "DRA_EXAMPLE_DEVICE_METADATA" and .name != "DRA_EXAMPLE_TAINT_EFFECT" and .name != "DRA_EXAMPLE_BINDING_CONDITIONS")' >/dev/null

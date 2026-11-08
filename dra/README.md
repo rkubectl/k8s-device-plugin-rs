@@ -461,8 +461,9 @@ and DNS readiness, and refreshes the host kubeconfig before returning.
 
 The matrix prints driver logs before stopping a profile, including on smoke
 failure, so prepare/unprepare events remain available in the run output.
-After preflight, success or failure triggers restoration: stop the v1.37
-profile, then restore `dra-validation` (v1.36.1) and verify its server version.
+After preflight, success or failure triggers restoration of the profiles'
+original running or stopped states. An initially running profile is restarted
+and its server version verified; if both were stopped, both remain stopped.
 If stopping v1.37 fails, restoration does not start v1.36 concurrently. A
 restoration failure makes an otherwise successful run fail; an earlier error
 keeps its original exit code. Preflight failures leave cluster state alone.
