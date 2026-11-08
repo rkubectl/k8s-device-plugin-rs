@@ -3,6 +3,7 @@ use std::future;
 use camino_tempfile::Utf8TempDir;
 use kube::client;
 use tokio::sync::oneshot;
+use tokio::time;
 
 use k8s_device_plugin_test::dra_plugin::MockDraPluginClient;
 use k8s_device_plugin_test::dra_registration::MockRegistrationClient;
@@ -199,6 +200,74 @@ async fn run_spawns_all_three_components_and_they_work() {
     run_handle.abort();
 }
 
+#[tokio::test(start_paused = true)]
+async fn plugin_poll_interval_controls_successful_reconciliation() {
+    for (configured, expected) in [
+        (None, Duration::from_secs(30)),
+        (Some(Duration::from_secs(5)), Duration::from_secs(5)),
+        (Some(Duration::ZERO), Duration::from_millis(1)),
+        (Some(Duration::from_micros(500)), Duration::from_millis(1)),
+    ] {
+        let (client, mut kube_handle) = mock_kube_client();
+        let mut plugin = DraPlugin::new(
+            client,
+            "example.com".parse().unwrap(),
+            "node-0".parse().unwrap(),
+            StaticDraDriver {
+                name: "example.com".parse().unwrap(),
+                pool: "pool-0".parse().unwrap(),
+                devices: vec![],
+            },
+        )
+        .unwrap();
+        if let Some(interval) = configured {
+            plugin = plugin
+                .with_poll_interval(Duration::from_secs(60))
+                .with_poll_interval(interval);
+        }
+
+        // Run the publisher owned by the configured plugin. Empty inventory
+        // needs only a node lookup and a slice list per successful cycle.
+        let started = time::Instant::now();
+        let publisher = plugin.publisher.spawn();
+        respond(&mut kube_handle, 200, &node("node-0", "node-uid-0")).await;
+        respond(
+            &mut kube_handle,
+            200,
+            &k8s_openapi::List::<resourcev1::ResourceSlice>::default(),
+        )
+        .await;
+
+        assert!(
+            time::timeout(
+                expected - Duration::from_millis(1),
+                kube_handle.next_request(),
+            )
+            .await
+            .is_err(),
+            "publisher must not reconcile before its configured interval"
+        );
+        let (request, send) = time::timeout(Duration::from_millis(2), kube_handle.next_request())
+            .await
+            .expect("publisher reconciles at the configured interval")
+            .expect("node lookup sent");
+        assert_eq!(time::Instant::now() - started, expected);
+        assert_eq!(request.method(), http::Method::GET);
+        assert_eq!(request.uri().path(), "/api/v1/nodes/node-0");
+        send.send_response(http::Response::new(client::Body::from(
+            json::to_vec(&node("node-0", "node-uid-0")).unwrap(),
+        )));
+        respond(
+            &mut kube_handle,
+            200,
+            &k8s_openapi::List::<resourcev1::ResourceSlice>::default(),
+        )
+        .await;
+        publisher.abort();
+        assert!(publisher.await.unwrap_err().is_cancelled());
+    }
+}
+
 #[tokio::test]
 async fn liveness_probe_rejects_other_plugin_types_with_plain_string_diagnostics() {
     use k8s_device_plugin_test::dra_registration::start_mock_registration_server;
@@ -336,11 +405,11 @@ async fn wait_for_component_exit_aborts_and_reaps_surviving_tasks() {
         err.to_string()
             .contains("DRAPlugin service exited unexpectedly")
     );
-    tokio::time::timeout(Duration::from_secs(1), registration_stopped)
+    time::timeout(Duration::from_secs(1), registration_stopped)
         .await
         .expect("registration task is reaped")
         .expect("registration drop notifier runs");
-    tokio::time::timeout(Duration::from_secs(1), publisher_stopped)
+    time::timeout(Duration::from_secs(1), publisher_stopped)
         .await
         .expect("publisher task is reaped")
         .expect("publisher drop notifier runs");

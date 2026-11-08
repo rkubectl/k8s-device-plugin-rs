@@ -233,7 +233,9 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
   names migrate create-before-delete. Pool ownership is checked before updates,
   and stale deletes carry the listed UID and resourceVersion as preconditions.
   The serialized poll loop coalesces each snapshot and retries API failures
-  with bounded exponential backoff.
+  with bounded exponential backoff. `DraPlugin::with_poll_interval(Duration)`
+  configures the interval after successful reconciliations (default 30 seconds,
+  minimum one millisecond); it does not change failure retry backoff.
   The opt-in [shared-counter adapter](dra-shared-counters.md) adds coherent
   pool counter sets and device consumption. Counter slices contain at most
   eight sets and never devices; consuming devices use 64-device chunks. Both

@@ -248,6 +248,11 @@ let plugin = DraPlugin::new(client, driver_name, node_name, driver)?;
 plugin.run().await
 ```
 
+Chain `.with_poll_interval(std::time::Duration::from_secs(5))` on the plugin
+to change the interval after successful ResourceSlice reconciliations from
+the 30-second default. Intervals below one millisecond are clamped to one
+millisecond. Failure retry backoff is unchanged.
+
 [`examples/minimal_driver.rs`](examples/minimal_driver.rs) is the complete,
 copyable DRA deployment example. It covers a stable inventory, idempotent
 claim preparation, CDI output, a status publisher, kube client construction,

@@ -45,6 +45,7 @@ http-body-util.workspace = true
 k8s-device-plugin-test = { workspace = true, features = ["dra"] }
 camino-tempfile.workspace = true
 tracing-subscriber.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 
 [lints]

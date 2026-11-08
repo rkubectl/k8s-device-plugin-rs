@@ -190,6 +190,17 @@ impl DraPlugin {
         })
     }
 
+    /// Overrides the interval between successful ResourceSlice reconciliations.
+    ///
+    /// The default is 30 seconds. Values below one millisecond are clamped to
+    /// one millisecond; failures retain the publisher's retry backoff.
+    /// See [`ResourceSlicePublisher::with_poll_interval`].
+    #[must_use]
+    pub fn with_poll_interval(mut self, poll_interval: Duration) -> Self {
+        self.publisher = self.publisher.with_poll_interval(poll_interval);
+        self
+    }
+
     /// Enables read-only container metadata using an explicitly selected
     /// protocol. The default lifecycle creates no metadata artifacts.
     pub fn with_device_metadata(mut self, options: DeviceMetadataOptions) -> io::Result<Self> {
