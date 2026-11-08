@@ -52,3 +52,11 @@ With `RUSTC_WRAPPER=` and `--locked --offline`:
 - `K8S_OPENAPI_ENABLED_VERSION=1.36 cargo test -p k8s-device-plugin-dra metadata::tests` and the same command with `1.37` passed all 21 tests, including journal golden bytes and the long claim path/persist/cleanup regression. A sandboxed 1.37 attempt failed on an unrelated Unix socket bind; the unrestricted rerun passed.
 - `K8S_OPENAPI_ENABLED_VERSION=1.37 cargo clippy -p k8s-device-plugin-dra -p k8s-device-plugin-dra-core --all-targets -- -D warnings`, `cargo fmt --all --check` and `git diff --check` passed.
 - `/private/tmp/ha16-native-boundary.sh` used isolated kubeconfig and server-side dry-run create on the native arm64 `k8s-versioned-171-validation-136` and `-137` profiles. Both Kubernetes v1.36.1 and v1.37.0 accepted 64- and 253-byte single-component ResourceClaim names and ResourceSlice pool/node names and rejected 254-byte values. This proves API validation, not a live driver rollout of the changed code. Script SHA-256 `2520379517af5bee85a441f13551f37668fc897eacc2e9919ce4ecbfffb39c04`; output `/private/tmp/ha16-native-boundary.log` SHA-256 `5d6089ff973295a6f53a31718efe2a2381ec411f8cddb2e610502fbf00b210ff`. These are temporary artifacts. Both profiles and the two other listed profiles were stopped before and after; all were arm64 with `rosetta=false`, and the original kubeconfig context was unchanged.
+
+Consolidated parent review accepted commit `512143fdb79e1e2c5c51c7bf615efddc27d18623`, its tests and the native boundary script and log. Final combined CI passed in 135.37 seconds:
+
+```sh
+RUSTC_WRAPPER= MISE_STATE_DIR=/private/tmp/ha1-mise-state MISE_TRUSTED_CONFIG_PATHS=/Volumes/rust/worktrees/k8s-device-plugin/split-terra-experiment CARGO_NET_OFFLINE=true mise run --jobs 1 ci
+```
+
+It passed 230 workspace tests, strict Clippy and formatting, 30 matrix, 5 profile and 14 multi-node mock tests, and schema/feature consumers. The temporary `/private/tmp/ha16-final-ci.log` has SHA-256 `1e642853fa8b7fd0c160a417b402a83931e3c2d72438f3dfbf4278d5f099dd9a`.
