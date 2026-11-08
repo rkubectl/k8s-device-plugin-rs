@@ -920,4 +920,6 @@ async fn tuning_composes_with_health_and_metadata() {
         .expect("health remains enabled");
     registration.abort();
     service.abort();
+    assert!(registration.await.unwrap_err().is_cancelled());
+    assert!(service.await.unwrap_err().is_cancelled());
 }

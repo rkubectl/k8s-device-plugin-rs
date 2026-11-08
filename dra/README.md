@@ -149,6 +149,7 @@ changing the defaults. For example:
 
 ```rust
 use std::time::Duration;
+
 use k8s_device_plugin_dra::DraPlugin;
 
 fn configure(plugin: DraPlugin) -> DraPlugin {
