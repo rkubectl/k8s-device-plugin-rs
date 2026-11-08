@@ -15,6 +15,8 @@ may contain uppercase ASCII, dots and underscores. Path validation rejects
 NUL bytes via `ValidationError::NulByte`; this new enum variant and the
 `ExtendedResourceNameError::ReservedPrefix` variant require downstream
 exhaustive matches to be updated at the next breaking minor release.
+`ExtendedResourceName` supports string serialization and checked
+deserialization; classic core now directly depends on `serde` for this API.
 
 Device and allocation `validate()` methods check paths without
 accessing the filesystem. Runtimes still validate at their RPC boundaries.

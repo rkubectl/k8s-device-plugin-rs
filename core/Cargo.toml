@@ -12,11 +12,13 @@ readme = "README.md"
 [dependencies]
 async-trait.workspace = true
 camino.workspace = true
+serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 
 
 [dev-dependencies]
 camino-tempfile.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 
 

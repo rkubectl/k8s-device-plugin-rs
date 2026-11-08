@@ -98,9 +98,10 @@ fn validate_id(value: &str) -> Result<(), DeviceIdError> {
 }
 
 macro_rules! identity {
-    ($name:ident, $error:ty, $validate:ident, $doc:literal) => {
+    ($(#[$extra:meta])* $name:ident, $error:ty, $validate:ident, $doc:literal) => {
         #[doc = $doc]
         #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        $(#[$extra])*
         pub struct $name(String);
         impl $name {
             #[must_use]
@@ -163,6 +164,8 @@ identity!(
     "Nonempty classic device ID of at most 63 bytes."
 );
 identity!(
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[serde(try_from = "String", into = "String")]
     ExtendedResourceName,
     ExtendedResourceNameError,
     validate_resource,
@@ -237,5 +240,19 @@ mod tests {
                 Err(ExtendedResourceNameError::ReservedDomain(_))
             ));
         }
+    }
+
+    #[test]
+    fn resource_name_serde_checks_and_preserves_values() {
+        let value = "example.com/GPU.v_1";
+        let name: ExtendedResourceName = serde_json::from_str("\"example.com/GPU.v_1\"").unwrap();
+        assert_eq!(name.as_str(), value);
+        assert_eq!(
+            serde_json::to_string(&name).unwrap(),
+            "\"example.com/GPU.v_1\""
+        );
+        assert!(
+            serde_json::from_str::<ExtendedResourceName>("\"requests.example.com/GPU\"").is_err()
+        );
     }
 }
