@@ -106,4 +106,22 @@ coverage generation `2026-11-07T19:21:57Z` was stale for modified runtime
 files and excluded docs and consumer scripts. Exact current source and those
 excluded files were inspected directly. No live cluster was changed or
 reprovisioned for this forwarding-only work. `spyb` and `vt9x` remain deferred;
-the ticket stays in progress for parent review.
+the ticket remained in progress for parent review at handoff.
+
+## Parent review and completion
+
+The parent reviewed the forwarding and ownership, configured-plugin behavioral
+tests, consumer coverage and documentation, and verified the consumer log hash.
+The trial graph was stale, so exact current source/diff reads supplied evidence
+for changed runtime files and excluded scripts/docs; coverage is best effort.
+
+Review correction `69d3c0342f186fc768cd7115c2613d0e8e9182de` reaps both
+aborted servers in the composition test and groups README imports. The focused
+composition test passed again under both schemas; formatting/diff checks passed.
+It changed no production behavior after the assembled validation above.
+
+Main was fast-forwarded to the reviewed result. Ticket `97oi` is complete;
+`spyb` and `vt9x` remain deferred. Existing defaults, normalization, transient
+error classification and per-RPC concurrency semantics are retained. No
+version bump, tag, release or registry publication was performed. Private
+review files remain untouched.
