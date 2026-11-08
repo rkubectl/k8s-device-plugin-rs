@@ -31,3 +31,44 @@ fn validation_checks_protocol_fields_without_requiring_existing_files() {
 fn default<T: Default>() -> T {
     T::default()
 }
+
+#[test]
+fn rejects_nul_in_each_allocation_path() {
+    for host in [true, false] {
+        let mut device = DevicePath::rdwr("/dev/ok");
+        if host {
+            device.host_path = "/dev/a\0b".into();
+        } else {
+            device.container_path = "/dev/a\0b".into();
+        }
+        assert!(matches!(
+            device.validate(),
+            Err(k8s_device_plugin_core::ValidationError::NulByte(_))
+        ));
+        assert!(
+            ContainerAllocation {
+                device_paths: vec![device],
+                ..default()
+            }
+            .validate()
+            .is_err()
+        );
+        let mount = HostMount {
+            host_path: if host { "/mnt/a\0b" } else { "/mnt/ok" }.into(),
+            container_path: if host { "/mnt/ok" } else { "/mnt/a\0b" }.into(),
+            read_only: false,
+        };
+        assert!(matches!(
+            mount.validate(),
+            Err(k8s_device_plugin_core::ValidationError::NulByte(_))
+        ));
+        assert!(
+            ContainerAllocation {
+                mounts: vec![mount],
+                ..default()
+            }
+            .validate()
+            .is_err()
+        );
+    }
+}

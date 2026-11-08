@@ -36,27 +36,39 @@ pub enum ExtendedResourceNameError {
     Malformed(String),
     #[error("resource name domain {0:?} is not a valid DNS subdomain")]
     InvalidDomain(String),
-    #[error("resource name suffix {0:?} is not a valid DNS label")]
+    #[error("resource name suffix {0:?} is not a valid qualified name")]
     InvalidSuffix(String),
     #[error("resource name domain {0:?} is reserved for kubernetes.io")]
     ReservedDomain(String),
+    #[error("resource name {0:?} uses the reserved requests. prefix")]
+    ReservedPrefix(String),
 }
 
-fn valid_label(s: &str) -> bool {
+fn valid_dns_component(s: &str) -> bool {
     !s.is_empty()
-        && s.len() <= 63
         && s.bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
         && !s.starts_with('-')
         && !s.ends_with('-')
 }
 fn valid_subdomain(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 253 && s.split('.').all(valid_label)
+    !s.is_empty() && s.len() <= 244 && s.split('.').all(valid_dns_component)
+}
+fn valid_suffix(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 63
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+        && s.as_bytes()[0].is_ascii_alphanumeric()
+        && s.as_bytes()[s.len() - 1].is_ascii_alphanumeric()
 }
 fn validate_resource(value: &str) -> Result<(), ExtendedResourceNameError> {
     use ExtendedResourceNameError as Error;
     if value.is_empty() {
         return Err(Error::Empty);
+    }
+    if value.starts_with("requests.") {
+        return Err(Error::ReservedPrefix(value.into()));
     }
     let Some((domain, suffix)) = value.split_once('/') else {
         return Err(Error::Malformed(value.into()));
@@ -67,14 +79,10 @@ fn validate_resource(value: &str) -> Result<(), ExtendedResourceNameError> {
     if !valid_subdomain(domain) {
         return Err(Error::InvalidDomain(domain.into()));
     }
-    if !valid_label(suffix) {
+    if !valid_suffix(suffix) {
         return Err(Error::InvalidSuffix(suffix.into()));
     }
-    if domain == "kubernetes.io"
-        || domain
-            .strip_suffix("kubernetes.io")
-            .is_some_and(|prefix| prefix.ends_with('.'))
-    {
+    if value.contains("kubernetes.io/") {
         return Err(Error::ReservedDomain(domain.into()));
     }
     Ok(())
@@ -183,8 +191,12 @@ mod tests {
     }
 
     #[test]
-    fn extended_resource_names_preserve_existing_grammar() {
-        for value in ["example.com/widget", "a.b.example.com/gpu-v100"] {
+    fn extended_resource_names_follow_qualified_name_rules() {
+        for value in [
+            "example.com/widget",
+            "a.b.example.com/gpu-v100",
+            "example.com/GPU.v_1",
+        ] {
             assert_eq!(
                 ExtendedResourceName::try_from(value).unwrap().as_str(),
                 value
@@ -204,13 +216,21 @@ mod tests {
             ExtendedResourceName::try_from("Example.com/widget"),
             Err(ExtendedResourceNameError::InvalidDomain(_))
         ));
+        for suffix in ["", "-a", "a_", ".a", "a/b", "é"] {
+            assert!(ExtendedResourceName::try_from(format!("example.com/{suffix}")).is_err());
+        }
+        assert!(ExtendedResourceName::try_from(format!("example.com/{}", "A".repeat(63))).is_ok());
+        assert!(ExtendedResourceName::try_from(format!("example.com/{}", "a".repeat(64))).is_err());
+        assert!(ExtendedResourceName::try_from(format!("{}/gpu", "a".repeat(244))).is_ok());
+        assert!(ExtendedResourceName::try_from(format!("{}/gpu", "a".repeat(245))).is_err());
         assert!(matches!(
-            ExtendedResourceName::try_from("example.com/my_widget"),
-            Err(ExtendedResourceNameError::InvalidSuffix(_))
+            ExtendedResourceName::try_from("requests.example.com/gpu"),
+            Err(ExtendedResourceNameError::ReservedPrefix(_))
         ));
         for value in [
             "kubernetes.io/widget",
             "device-plugins.kubernetes.io/widget",
+            "notkubernetes.io/widget",
         ] {
             assert!(matches!(
                 ExtendedResourceName::try_from(value),

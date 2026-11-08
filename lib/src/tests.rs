@@ -271,6 +271,7 @@ async fn list_and_watch_drops_invalid_device_but_keeps_valid_sibling() {
     let devices = Arc::new(Mutex::new(vec![
         make_device("dev-0", Health::Healthy),
         Device::rdwr("bad-path".parse().unwrap(), "relative"),
+        Device::rdwr("nul-path".parse().unwrap(), "/dev/a\0b"),
     ]));
     let service = DevicePluginService::new(DynamicDevicePlugin(Arc::clone(&devices)));
 
@@ -376,6 +377,45 @@ async fn allocate_rejects_relative_device_path() {
 
     let status = service.allocate(request).await.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Internal);
+}
+
+#[tokio::test]
+async fn allocate_rejects_nul_in_device_and_mount_paths() {
+    use v1beta1::DevicePlugin as _;
+    for host in [true, false] {
+        let mut device = DevicePath::rdwr("/dev/ok");
+        if host {
+            device.host_path = "/dev/a\0b".into();
+        } else {
+            device.container_path = "/dev/a\0b".into();
+        }
+        let mount = HostMount {
+            host_path: if host { "/mnt/a\0b" } else { "/mnt/ok" }.into(),
+            container_path: if host { "/mnt/ok" } else { "/mnt/a\0b" }.into(),
+            read_only: false,
+        };
+        for allocation in [
+            ContainerAllocation {
+                device_paths: vec![device],
+                ..default()
+            },
+            ContainerAllocation {
+                mounts: vec![mount],
+                ..default()
+            },
+        ] {
+            let service = DevicePluginService::new(AllocationPlugin(allocation));
+            let request = tonic::Request::new(v1beta1::AllocateRequest {
+                container_requests: vec![v1beta1::ContainerAllocateRequest {
+                    devices_ids: vec!["widget-0".into()],
+                }],
+            });
+            assert_eq!(
+                service.allocate(request).await.unwrap_err().code(),
+                tonic::Code::Internal
+            );
+        }
+    }
 }
 
 struct SlowPlugin;

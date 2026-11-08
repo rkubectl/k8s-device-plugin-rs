@@ -70,7 +70,7 @@ mod tests {
             .await
             .expect("connect registration client");
         client
-            .register("plugin.sock", &"example.com/device".parse().unwrap())
+            .register("plugin.sock", &"example.com/GPU.v_1".parse().unwrap())
             .await
             .expect("register call over unix socket");
 
@@ -78,7 +78,7 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].endpoint, "plugin.sock");
         assert_eq!(requests[0].version, v1beta1::VERSION);
-        assert_eq!(requests[0].resource_name, "example.com/device");
+        assert_eq!(requests[0].resource_name, "example.com/GPU.v_1");
         assert!(requests[0].options.is_none());
 
         server.shutdown();

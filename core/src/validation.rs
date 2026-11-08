@@ -6,6 +6,8 @@ pub enum ValidationError {
     EmptyPath,
     #[error("path {0:?} must be absolute")]
     RelativePath(Utf8PathBuf),
+    #[error("path {0:?} contains a NUL byte")]
+    NulByte(Utf8PathBuf),
 }
 
 /// Validates that a UTF-8 host or container path is non-empty and absolute.
@@ -15,6 +17,9 @@ pub fn validate_absolute_path(path: &Utf8Path) -> Result<(), ValidationError> {
     }
     if !path.is_absolute() {
         return Err(ValidationError::RelativePath(path.to_path_buf()));
+    }
+    if path.as_str().contains('\0') {
+        return Err(ValidationError::NulByte(path.to_path_buf()));
     }
     Ok(())
 }
@@ -44,6 +49,17 @@ mod tests {
     #[test]
     fn path_accepts_absolute() {
         assert!(validate_absolute_path(Utf8Path::new("/dev/widget0")).is_ok());
+    }
+    #[test]
+    fn nul_path_is_rejected_after_absolute_path_check() {
+        assert_eq!(
+            validate_absolute_path(Utf8Path::new("/dev/a\0b")),
+            Err(ValidationError::NulByte("/dev/a\0b".into()))
+        );
+        assert_eq!(
+            validate_absolute_path(Utf8Path::new("a\0b")),
+            Err(ValidationError::RelativePath("a\0b".into()))
+        );
     }
     #[test]
     fn rejects_non_utf8_os_paths_at_the_conversion_boundary() {
