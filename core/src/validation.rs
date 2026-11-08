@@ -10,7 +10,7 @@ pub enum ValidationError {
     NulByte(Utf8PathBuf),
 }
 
-/// Validates that a UTF-8 host or container path is non-empty and absolute.
+/// Validates that a UTF-8 host or container path is non-empty, absolute and NUL-free.
 pub fn validate_absolute_path(path: &Utf8Path) -> Result<(), ValidationError> {
     if path.as_str().is_empty() {
         return Err(ValidationError::EmptyPath);
