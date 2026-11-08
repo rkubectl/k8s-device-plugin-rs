@@ -5,8 +5,8 @@ Transport-independent classic device plugin contracts and shared socket and heal
 Classic backends construct `DeviceId` and `ExtendedResourceName` with checked
 parsing before passing them to `Device` or `DevicePlugin`. Device IDs preserve
 bytes exactly, permit non-DNS names, and must be nonempty and at most 63 UTF-8
-bytes. Extended resource names retain the existing domain/name and reserved
-namespace checks. Allocator and optional hook APIs now take `DeviceId` values;
+bytes. Extended resource names use checked domain/name parsing and reserved
+namespace rules. Allocator and optional hook APIs now take `DeviceId` values;
 `DevicePlugin::new` takes an `ExtendedResourceName` and is infallible.
 
 Extended resource names follow Kubernetes qualified-name rules, including the
@@ -14,7 +14,7 @@ quota `requests.` prefix restriction and a 244-byte domain budget. Suffixes
 may contain uppercase ASCII, dots and underscores. Path validation rejects
 NUL bytes via `ValidationError::NulByte`; this new enum variant and the
 `ExtendedResourceNameError::ReservedPrefix` variant require downstream
-exhaustive matches to be updated at the next breaking minor release.
+exhaustive matches to be updated when upgrading to v0.7.
 `ExtendedResourceName` supports string serialization and checked
 deserialization; classic core now directly depends on `serde` for this API.
 
