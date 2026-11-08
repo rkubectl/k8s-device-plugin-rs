@@ -11,7 +11,7 @@ application needs:
 
 ```toml
 [dependencies]
-k8s-device-plugin = { version = "0.5.0", default-features = false, features = ["device-plugin"] }
+k8s-device-plugin = { version = "0.6.0", default-features = false, features = ["device-plugin"] }
 ```
 
 The common types are available at the crate root:
@@ -35,7 +35,7 @@ For example:
 
 ```toml
 [dependencies]
-k8s-device-plugin = { version = "0.5.0", default-features = false, features = ["dra"] }
+k8s-device-plugin = { version = "0.6.0", default-features = false, features = ["dra"] }
 k8s-openapi = { version = "0.29", features = ["v1_37"] }
 ```
 
