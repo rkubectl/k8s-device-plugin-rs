@@ -83,11 +83,11 @@ for schema in v1_36 v1_37; do
                 ;;
             runtime)
                 dependency="k8s-device-plugin-dra = { path = $dra_path }"
-                source='let _ = std::mem::size_of::<k8s_device_plugin_dra::DraResourceHealthService>();'
+                source='let _ = std::mem::size_of::<k8s_device_plugin_dra::DraResourceHealthService>(); fn configure(p: k8s_device_plugin_dra::DraPlugin) -> k8s_device_plugin_dra::DraPlugin { p.with_max_concurrent_resolves(4).with_claim_retry_policy(2, std::time::Duration::from_millis(20)).with_publisher_retry_backoff(std::time::Duration::from_secs(1), std::time::Duration::from_secs(5)) } let _ = configure as fn(_) -> _;'
                 ;;
             facade-dra)
                 dependency="k8s-device-plugin = { path = $facade_path, default-features = false, features = [\"dra\"] }"
-                source='let _ = std::mem::size_of::<k8s_device_plugin::DraResourceHealthService>(); let _ = std::mem::size_of::<k8s_device_plugin::ResourceHealthReport>(); let _: k8s_device_plugin::DriverName = "example.com".parse().unwrap(); let _: k8s_device_plugin::NodeName = "node".parse().unwrap(); let _: k8s_device_plugin::PoolName = "pool".parse().unwrap(); let _: k8s_device_plugin::DeviceName = "device".parse().unwrap(); let _: k8s_device_plugin::CounterSetName = "set".parse().unwrap(); let _: k8s_device_plugin::CounterName = "counter".parse().unwrap();'
+                source='let _ = std::mem::size_of::<k8s_device_plugin::DraResourceHealthService>(); let _ = std::mem::size_of::<k8s_device_plugin::ResourceHealthReport>(); let _: k8s_device_plugin::DriverName = "example.com".parse().unwrap(); let _: k8s_device_plugin::NodeName = "node".parse().unwrap(); let _: k8s_device_plugin::PoolName = "pool".parse().unwrap(); let _: k8s_device_plugin::DeviceName = "device".parse().unwrap(); let _: k8s_device_plugin::CounterSetName = "set".parse().unwrap(); let _: k8s_device_plugin::CounterName = "counter".parse().unwrap(); fn configure(p: k8s_device_plugin::DraPlugin) -> k8s_device_plugin::DraPlugin { p.with_max_concurrent_resolves(4).with_claim_retry_policy(2, std::time::Duration::from_millis(20)).with_publisher_retry_backoff(std::time::Duration::from_secs(1), std::time::Duration::from_secs(5)) } let _ = configure as fn(_) -> _;'
                 ;;
         esac
         cat > Cargo.toml <<MANIFEST

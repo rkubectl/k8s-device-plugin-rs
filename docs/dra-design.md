@@ -223,7 +223,10 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
   `/var/lib/kubelet/plugins/<driver-name>/plugin.sock`. `NodePrepareResources`
   reads the referenced `ResourceClaim` through a bounded, retrying
   `kube::Api` resolver, builds a `ResolvedClaim`, and calls
-  `ClaimPreparer::prepare`.
+  `ClaimPreparer::prepare`. `DraPlugin::with_max_concurrent_resolves` sets the
+  per-RPC read bound (default 16, minimum 1), and `with_claim_retry_policy`
+  sets transient read attempts and delay (default 3 and 50 ms; attempts minimum
+  1, zero delay allowed).
 - **`ResourceSlicePublisher`** — lists the local driver's current slices,
   derives the complete desired inventory from `ResourcePool::snapshot()`, and
   reconciles it authoritatively. Pools are split at 128 devices per slice;
@@ -236,6 +239,9 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
   with bounded exponential backoff. `DraPlugin::with_poll_interval(Duration)`
   configures the interval after successful reconciliations (default 30 seconds,
   minimum one millisecond); it does not change failure retry backoff.
+  `with_publisher_retry_backoff` configures failure delays (default base 1 s,
+  maximum 30 s; base minimum 1 ms, maximum at least base). A successful cycle
+  resets failure backoff and returns to the poll interval.
   The opt-in [shared-counter adapter](dra-shared-counters.md) adds coherent
   pool counter sets and device consumption. Counter slices contain at most
   eight sets and never devices; consuming devices use 64-device chunks. Both

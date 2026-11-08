@@ -144,6 +144,30 @@ subdomains limited to 253 bytes. `DraPlugin` checks that its name agrees with
 validated driver identity. Custom-path liveness probes also require the
 expected driver name and verify both that name and the advertised DRA service.
 
+The `DraPlugin` builders expose claim-read and publisher policies without
+changing the defaults. For example:
+
+```rust
+use std::time::Duration;
+use k8s_device_plugin_dra::DraPlugin;
+
+fn configure(plugin: DraPlugin) -> DraPlugin {
+    plugin
+        .with_max_concurrent_resolves(8)
+        .with_claim_retry_policy(4, Duration::from_millis(100))
+        .with_publisher_retry_backoff(Duration::from_secs(2), Duration::from_secs(20))
+        .with_poll_interval(Duration::from_secs(30))
+}
+```
+
+The concurrency limit defaults to 16 API reads per kubelet RPC, not globally;
+zero clamps to one. Claim reads default to three attempts with a 50 ms delay;
+zero attempts clamps to one and zero delay is allowed. Only transient errors
+are retried. Publisher failure backoff defaults to a one-second base and a
+30-second maximum; the base is clamped to at least one millisecond and the
+maximum to at least the base. Success resets the backoff and uses the separate
+poll interval. Builders can be combined with metadata and health activation.
+
 `ClaimResolver::new(client, driver_name)` exposes only that driver's allocations
 to the preparer. Allocation request references retain `/subrequest` suffixes;
 prepared responses normalize them to deduplicated top-level request names for
