@@ -11,6 +11,12 @@ DS=daemonset/k8s-device-plugin-dra-example
 FIXTURE=$SCRIPT_DIR/e2e-first-available.yaml
 CONSUMER=dra-example-first-available-consumer
 k() { "$KUBECTL" --context "$KUBE_CONTEXT" --request-timeout=15s "$@"; }
+minor=$(k version -o json | "$JQ" -er '.serverVersion.minor | capture("^(?<minor>[0-9]+)").minor | tonumber')
+if ((minor >= 37)); then
+    health_service=v1.DRAResourceHealth
+else
+    health_service=v1alpha1.DRAResourceHealth
+fi
 # The script owns only this opt-in env var. Refuse an existing override so
 # cleanup can restore the absent/default state exactly.
 k -n "$NAMESPACE" get "$DS" -o json |
@@ -35,7 +41,8 @@ for attempt in {1..60}; do
     if k -n "$NAMESPACE" get "pod/$CONSUMER" -o json |
         "$JQ" -e 'any(.status.containerStatuses[]?.allocatedResourcesStatus[]?.resources[]?; .health == "Healthy")' >/dev/null; then
         k -n "$NAMESPACE" logs "$DS" --tail=100 | grep -F 'kubelet opened resource health watch'
-        printf 'kubelet health negotiation, watch and Pod health passed\n'
+        k -n "$NAMESPACE" logs "$DS" --tail=100 | grep -F 'serving DRA resource health watch' | grep -F "$health_service"
+        printf 'kubelet %s negotiation, watch and Pod health passed\n' "$health_service"
         exit 0
     fi
     sleep 2

@@ -41,12 +41,10 @@ impl DraResourceHealthService {
         Self { reporter: None }
     }
 
-    fn watch_stream(
+    fn watch_stream<T: Send + 'static>(
         &self,
-    ) -> Result<
-        ReceiverStream<tonic::Result<dra::health::v1alpha1::NodeWatchResourcesResponse>>,
-        tonic::Status,
-    > {
+        convert: fn(ResourceHealthReport) -> T,
+    ) -> Result<ReceiverStream<tonic::Result<T>>, tonic::Status> {
         let reporter = self.reporter.as_ref().ok_or_else(|| {
             tonic::Status::unimplemented(
                 "resource health reporting is not supported by this backend",
@@ -69,7 +67,7 @@ impl DraResourceHealthService {
                     },
                     report = reports_rx.recv() => match report {
                         Some(report) => {
-                            if responses_tx.send(Ok(report_to_wire(report))).await.is_err() {
+                            if responses_tx.send(Ok(convert(report))).await.is_err() {
                                 watch.abort();
                                 let _ = watch.await;
                                 return;
@@ -95,7 +93,7 @@ impl DraResourceHealthService {
                         // before returning. Preserve every buffered report
                         // before signalling that kubelet should reconnect.
                         while let Ok(report) = reports_rx.try_recv() {
-                            if responses_tx.send(Ok(report_to_wire(report))).await.is_err() {
+                            if responses_tx.send(Ok(convert(report))).await.is_err() {
                                 return;
                             }
                         }
@@ -110,15 +108,15 @@ impl DraResourceHealthService {
     }
 }
 
-fn report_to_wire(
+fn report_to_v1alpha1(
     report: ResourceHealthReport,
 ) -> dra::health::v1alpha1::NodeWatchResourcesResponse {
     dra::health::v1alpha1::NodeWatchResourcesResponse {
-        devices: report.devices.into_iter().map(device_to_wire).collect(),
+        devices: report.devices.into_iter().map(device_to_v1alpha1).collect(),
     }
 }
 
-fn device_to_wire(device: DraDeviceHealth) -> dra::health::v1alpha1::DeviceHealth {
+fn device_to_v1alpha1(device: DraDeviceHealth) -> dra::health::v1alpha1::DeviceHealth {
     let health = match device.health {
         ResourceHealthStatus::Unknown => dra::health::v1alpha1::HealthStatus::Unknown,
         ResourceHealthStatus::Healthy => dra::health::v1alpha1::HealthStatus::Healthy,
@@ -136,8 +134,32 @@ fn device_to_wire(device: DraDeviceHealth) -> dra::health::v1alpha1::DeviceHealt
     }
 }
 
-async fn send_watch_completion(
-    responses: &mpsc::Sender<tonic::Result<dra::health::v1alpha1::NodeWatchResourcesResponse>>,
+fn report_to_v1(report: ResourceHealthReport) -> dra::health::v1::NodeWatchResourcesResponse {
+    dra::health::v1::NodeWatchResourcesResponse {
+        devices: report.devices.into_iter().map(device_to_v1).collect(),
+    }
+}
+
+fn device_to_v1(device: DraDeviceHealth) -> dra::health::v1::DeviceHealth {
+    let health = match device.health {
+        ResourceHealthStatus::Unknown => dra::health::v1::HealthStatus::Unknown,
+        ResourceHealthStatus::Healthy => dra::health::v1::HealthStatus::Healthy,
+        ResourceHealthStatus::Unhealthy => dra::health::v1::HealthStatus::Unhealthy,
+    };
+    dra::health::v1::DeviceHealth {
+        device: Some(dra::health::v1::DeviceIdentifier {
+            pool_name: device.pool_name.into_string(),
+            device_name: device.device_name.into_string(),
+        }),
+        health: health.into(),
+        last_updated_time: device.last_updated_time,
+        health_check_timeout_seconds: device.health_check_timeout_seconds,
+        message: device.message,
+    }
+}
+
+async fn send_watch_completion<T>(
+    responses: &mpsc::Sender<tonic::Result<T>>,
     result: Result<Result<(), ResourceHealthError>, task::JoinError>,
 ) {
     let message = match result {
@@ -159,7 +181,30 @@ impl dra::health::v1alpha1::DraResourceHealth for DraResourceHealthService {
         &self,
         _request: tonic::Request<dra::health::v1alpha1::NodeWatchResourcesRequest>,
     ) -> tonic::Result<tonic::Response<Self::NodeWatchResourcesStream>> {
-        Ok(tonic::Response::new(self.watch_stream()?))
+        let stream = self.watch_stream(report_to_v1alpha1)?;
+        tracing::info!(
+            service = dra::health::v1alpha1::SERVICE_NAME,
+            "serving DRA resource health watch"
+        );
+        Ok(tonic::Response::new(stream))
+    }
+}
+
+#[tonic::async_trait]
+impl dra::health::v1::DraResourceHealth for DraResourceHealthService {
+    type NodeWatchResourcesStream =
+        ReceiverStream<tonic::Result<dra::health::v1::NodeWatchResourcesResponse>>;
+
+    async fn node_watch_resources(
+        &self,
+        _request: tonic::Request<dra::health::v1::NodeWatchResourcesRequest>,
+    ) -> tonic::Result<tonic::Response<Self::NodeWatchResourcesStream>> {
+        let stream = self.watch_stream(report_to_v1)?;
+        tracing::info!(
+            service = dra::health::v1::SERVICE_NAME,
+            "serving DRA resource health watch"
+        );
+        Ok(tonic::Response::new(stream))
     }
 }
 
@@ -170,6 +215,7 @@ mod tests {
 
     use camino_tempfile::Utf8TempDir;
     use hyper_util::rt::TokioIo;
+    use prost::Message;
     use tokio_stream::wrappers::UnixListenerStream;
     use tower::service_fn;
 
@@ -219,8 +265,16 @@ mod tests {
             });
             let service = DraResourceHealthService::new(Arc::clone(&reporter));
             // Repeated disconnections must not accumulate idle monitors.
-            for _ in 0..3 {
-                let stream = service.watch_stream().expect("start health stream");
+            for stable in [false, true, false, true] {
+                let stream: Box<dyn Send> = if stable {
+                    Box::new(service.watch_stream(report_to_v1).expect("start v1 stream"))
+                } else {
+                    Box::new(
+                        service
+                            .watch_stream(report_to_v1alpha1)
+                            .expect("start v1alpha1 stream"),
+                    )
+                };
                 tokio::time::timeout(Duration::from_secs(1), reporter.started.notified())
                     .await
                     .expect("reporter starts");
@@ -267,9 +321,7 @@ mod tests {
         }
     }
 
-    async fn connect(
-        socket_path: &Utf8Path,
-    ) -> tonic::Result<dra::health::v1alpha1::DraResourceHealthClient<transport::Channel>> {
+    async fn connect(socket_path: &Utf8Path) -> tonic::Result<transport::Channel> {
         let socket_path = socket_path.to_path_buf();
         let connector_path = socket_path.clone();
         let endpoint = transport::Endpoint::try_from("http://[::]:50051").map_err(|err| {
@@ -287,7 +339,7 @@ mod tests {
                     socket_path
                 ))
             })?;
-        Ok(dra::health::v1alpha1::DraResourceHealthClient::new(channel))
+        Ok(channel)
     }
 
     fn start_server(
@@ -298,6 +350,9 @@ mod tests {
         let listener = net::UnixListener::bind(&socket_path).expect("bind resource-health socket");
         let incoming = UnixListenerStream::new(listener);
         let server = transport::Server::builder()
+            .add_service(dra::health::v1::DraResourceHealthServer::new(
+                service.clone(),
+            ))
             .add_service(dra::health::v1alpha1::DraResourceHealthServer::new(service));
         let handle = tokio::spawn(async move {
             let _ = server.serve_with_incoming(incoming).await;
@@ -310,7 +365,9 @@ mod tests {
         let reporter = Arc::new(ReconnectingReporter::default());
         let (socket_path, _socket_dir, handle) =
             start_server(DraResourceHealthService::new(Arc::clone(&reporter)));
-        let mut client = connect(&socket_path).await.expect("connect health client");
+        let mut client = dra::health::v1alpha1::DraResourceHealthClient::new(
+            connect(&socket_path).await.expect("connect health client"),
+        );
 
         let mut first = client
             .node_watch_resources(dra::health::v1alpha1::NodeWatchResourcesRequest {})
@@ -354,13 +411,97 @@ mod tests {
         );
         assert_eq!(reporter.sessions.load(Ordering::SeqCst), 2);
         handle.abort();
+        assert!(handle.await.unwrap_err().is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn v1_stream_preserves_reports_and_reconnects() {
+        let reporter = Arc::new(ReconnectingReporter::default());
+        let (socket_path, _socket_dir, handle) =
+            start_server(DraResourceHealthService::new(Arc::clone(&reporter)));
+        let mut client =
+            dra::health::v1::DraResourceHealthClient::new(connect(&socket_path).await.unwrap());
+        for health in [
+            dra::health::v1::HealthStatus::Healthy,
+            dra::health::v1::HealthStatus::Unhealthy,
+        ] {
+            let mut stream = client
+                .node_watch_resources(dra::health::v1::NodeWatchResourcesRequest {})
+                .await
+                .unwrap()
+                .into_inner();
+            let report = stream.message().await.unwrap().unwrap();
+            assert_eq!(
+                report.devices,
+                vec![dra::health::v1::DeviceHealth {
+                    device: Some(dra::health::v1::DeviceIdentifier {
+                        pool_name: "pool-0".into(),
+                        device_name: "widget-0".into(),
+                    }),
+                    health: health.into(),
+                    last_updated_time: 1_700_000_000,
+                    health_check_timeout_seconds: 30,
+                    message: "monitor update".into(),
+                }]
+            );
+            assert_eq!(
+                stream.message().await.unwrap_err().code(),
+                tonic::Code::Unavailable
+            );
+        }
+        assert_eq!(reporter.sessions.load(Ordering::SeqCst), 2);
+        handle.abort();
+        assert!(handle.await.unwrap_err().is_cancelled());
+    }
+
+    #[test]
+    fn health_versions_have_identical_report_bytes_and_explicit_enum_values() {
+        for (health, wire) in [
+            (ResourceHealthStatus::Unknown, 0),
+            (ResourceHealthStatus::Healthy, 1),
+            (ResourceHealthStatus::Unhealthy, 2),
+        ] {
+            let report = ResourceHealthReport {
+                devices: vec![DraDeviceHealth {
+                    pool_name: "pool-0".parse().unwrap(),
+                    device_name: "widget-0".parse().unwrap(),
+                    health,
+                    last_updated_time: 1_700_000_000,
+                    health_check_timeout_seconds: -1,
+                    message: "health detail".into(),
+                }],
+            };
+            let v1 = report_to_v1(report.clone());
+            let alpha = report_to_v1alpha1(report);
+            assert_eq!(v1.devices[0].health, wire);
+            assert_eq!(alpha.devices[0].health, wire);
+            assert_eq!(v1.encode_to_vec(), alpha.encode_to_vec());
+            assert_eq!(v1.devices[0].last_updated_time, 1_700_000_000);
+            assert_eq!(v1.devices[0].health_check_timeout_seconds, -1);
+            assert_eq!(v1.devices[0].message, "health detail");
+            assert_eq!(v1.devices[0].device.as_ref().unwrap().pool_name, "pool-0");
+            assert_eq!(
+                v1.devices[0].device.as_ref().unwrap().device_name,
+                "widget-0"
+            );
+        }
     }
 
     #[tokio::test]
     async fn unsupported_resource_health_is_explicitly_unimplemented() {
         let (socket_path, _socket_dir, handle) =
             start_server(DraResourceHealthService::unsupported());
-        let mut client = connect(&socket_path).await.expect("connect health client");
+        let channel = connect(&socket_path).await.expect("connect health client");
+        let mut stable = dra::health::v1::DraResourceHealthClient::new(channel.clone());
+        assert_eq!(
+            stable
+                .node_watch_resources(dra::health::v1::NodeWatchResourcesRequest {})
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::Unimplemented
+        );
+        let mut client = dra::health::v1alpha1::DraResourceHealthClient::new(channel);
         assert_eq!(
             client
                 .node_watch_resources(dra::health::v1alpha1::NodeWatchResourcesRequest {})
@@ -370,5 +511,6 @@ mod tests {
             tonic::Code::Unimplemented
         );
         handle.abort();
+        assert!(handle.await.unwrap_err().is_cancelled());
     }
 }

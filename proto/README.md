@@ -2,7 +2,9 @@
 
 Generated Rust bindings for Kubernetes Device Plugin, DRA, and plugin
 registration gRPC protocols. The `dra` Cargo feature enables the stable DRA
-`v1` bindings; `dra-health` additionally enables the resource-health protocol.
+`v1` bindings; `dra-health` additionally enables both `dra::health::v1` and
+`dra::health::v1alpha1`. Health v1 is used by kubelet v1.37 and later;
+v1alpha1 preserves compatibility with the v1.36 baseline.
 
 The package includes the required kubelet protocol sources from the
 `proto/kubelet` submodule. Building from a Git checkout requires that submodule;
@@ -12,8 +14,9 @@ installation is required for any feature combination.
 
 The submodule is pinned to the upstream `kubernetes-1.37.2` tag, aligned with
 the Kubernetes v1.37 schemas in `k8s-openapi` 0.29 / `kube` 5. Git records the
-tag's exact commit in the submodule entry. All four compiled protocol files
-and LICENSE are byte-identical to the previous `kubernetes-1.36.5` pin.
+tag's exact commit in the submodule entry. The four previously compiled protocol
+files and LICENSE are byte-identical to the previous `kubernetes-1.36.5` pin;
+the fifth compiled file is the stable health v1 protocol from v1.37.2.
 The supported cluster baseline remains v1.36; the protocol source tag and
 Kubernetes object API versions are separate compatibility choices. For future
 ecosystem upgrades, review a matching stable kubelet tag, compare protocol

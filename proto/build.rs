@@ -11,7 +11,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if std::env::var("CARGO_FEATURE_DRA_HEALTH").is_ok() {
-        protos.push("kubelet/pkg/apis/dra-health/v1alpha1/api.proto");
+        protos.extend([
+            "kubelet/pkg/apis/dra-health/v1/api.proto",
+            "kubelet/pkg/apis/dra-health/v1alpha1/api.proto",
+        ]);
     }
 
     // Keep Tonic's Rust generator; protox supplies descriptors without protoc.

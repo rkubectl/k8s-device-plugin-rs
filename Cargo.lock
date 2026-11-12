@@ -935,6 +935,7 @@ dependencies = [
  "k8s-quantity",
  "kube",
  "parking_lot 0.13.0",
+ "prost",
  "rustix",
  "semver",
  "serde",

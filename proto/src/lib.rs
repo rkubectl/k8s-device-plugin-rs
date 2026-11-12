@@ -67,6 +67,16 @@ pub mod dra {
     #[cfg(feature = "dra-health")]
     pub mod health {
 
+        pub mod v1 {
+
+            pub use dra_resource_health_client::DraResourceHealthClient;
+            pub use dra_resource_health_server::DraResourceHealth;
+            pub use dra_resource_health_server::DraResourceHealthServer;
+            pub use dra_resource_health_server::SERVICE_NAME;
+
+            tonic::include_proto!("v1");
+        }
+
         pub mod v1alpha1 {
 
             pub use dra_resource_health_client::DraResourceHealthClient;

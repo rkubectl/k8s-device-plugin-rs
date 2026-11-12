@@ -203,8 +203,8 @@ larger than Kubernetes' 10 KiB limit.
 
 The publisher validates the `ClaimRef` UID and the exact
 `pool`/`device`/`shareID` against the current allocation before sending an
-update. It only changes entries for its own driver, never removes omitted
-entries, and returns `Unchanged` without a write when the supplied entries are
+update. Publication only changes entries for its own driver, never removes
+omitted entries, and returns `Unchanged` without a write when the supplied entries are
 already current. A JSON merge patch retains the current list and replaces or
 adds only the supplied entries, using `metadata.resourceVersion` as a
 precondition so concurrent updates cannot be overwritten. A conflict triggers
@@ -212,7 +212,19 @@ a fresh read and full UID/allocation revalidation, up to three patch attempts;
 an exhausted conflict is returned to the caller. `with_field_manager` controls
 update attribution, not server-side apply ownership. Do not mix SSA and this
 publisher for the same status entries. Omitted entries are not a deletion
-request; their removal remains part of the claim lifecycle.
+request. To withdraw status, call `remove(&claim, keys)` with
+`ClaimDeviceStatusKey { pool_name, device_name, share_id }` values. The
+publisher supplies its own driver identity, preserving other drivers and
+unnamed keys. Duplicate or absent keys are harmless; empty input avoids an
+API request. Removal checks the claim UID and uses the same conditional patch
+and conflict retries, but allows cleanup after allocation has been cleared.
+
+`publish` completely replaces each supplied entry: `None` clears conditions,
+data or network data. `publish_fields` retains fields supplied as `None` and
+can clear conditions with `Some(vec![])`; it cannot independently clear data
+or network data. Use a complete `publish` entry to clear those fields. JSON
+null is not a separate field-deletion operation.
+
 Treat authorization failures as configuration errors instead
 of retrying them: a node-local driver needs `get,patch` on
 `resourceclaims/status` plus `associated-node:patch` on the synthetic
@@ -228,7 +240,8 @@ asserts that value after the consumer starts.
 
 ### Optional resource-health reporting
 
-The kubelet `dra-health/v1alpha1` protocol is compiled into the DRA runtime. A backend can implement
+The kubelet `dra-health/v1` and `v1alpha1` protocols are compiled into the DRA
+runtime. A backend can implement
 `ResourceHealthReporter` and use `DraPlugin::with_resource_health(...)`
 instead of `DraPlugin::new(...)`. The health service shares the normal DRA
 plugin socket; it streams snapshots to kubelet through
@@ -242,8 +255,10 @@ channel closes. Each report may cover one source's subset of devices, and the
 source must resend it before its per-device timeout expires. Returning from a
 watch ends that RPC with `Unavailable`, allowing kubelet to reconnect and
 start a fresh monitor session. Only a backend that calls `with_resource_health`
-advertises `v1alpha1.DRAResourceHealth` in registration. Kubelet does not open
-health watches for a backend that does not opt in.
+advertises both `v1.DRAResourceHealth` and `v1alpha1.DRAResourceHealth` in
+registration. Kubelet v1.37 and later prefer v1; v1.36 uses v1alpha1. Both
+versions share the same reporter and cancellation lifecycle. Kubelet does not
+open health watches for a backend that does not opt in.
 
 Disconnecting kubelet cancels and reaps the reporter even if it is idle.
 Reporters must be cancellation-safe: keep cleanup in owned guards and avoid

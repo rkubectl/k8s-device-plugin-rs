@@ -200,6 +200,9 @@ impl DraPluginService {
     ) -> io::Result<task::JoinHandle<Result<(), transport::Error>>> {
         let incoming = setup_listener(socket_path).await?;
         let mut router = transport::Server::builder();
+        let router = router.add_service(dra::health::v1::DraResourceHealthServer::new(
+            self.health.clone(),
+        ));
         let router = router.add_service(dra::health::v1alpha1::DraResourceHealthServer::new(
             self.health.clone(),
         ));

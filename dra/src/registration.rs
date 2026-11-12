@@ -32,15 +32,20 @@ impl DraRegistrationServer {
     /// at this registration's plugin endpoint.
     #[must_use]
     pub fn with_resource_health(mut self) -> Self {
-        if !self
-            .plugin_info
-            .supported_versions
-            .iter()
-            .any(|version| version == dra::health::v1alpha1::SERVICE_NAME)
-        {
-            self.plugin_info
+        for service in [
+            dra::health::v1::SERVICE_NAME,
+            dra::health::v1alpha1::SERVICE_NAME,
+        ] {
+            if !self
+                .plugin_info
                 .supported_versions
-                .push(dra::health::v1alpha1::SERVICE_NAME.to_string());
+                .iter()
+                .any(|version| version == service)
+            {
+                self.plugin_info
+                    .supported_versions
+                    .push(service.to_string());
+            }
         }
         self
     }

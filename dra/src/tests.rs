@@ -418,6 +418,15 @@ async fn run_spawns_all_three_components_and_they_work() {
         }))
         .await
         .expect("connect to plugin health endpoint");
+    let mut stable = dra::health::v1::DraResourceHealthClient::new(channel.clone());
+    assert_eq!(
+        stable
+            .node_watch_resources(dra::health::v1::NodeWatchResourcesRequest {})
+            .await
+            .expect_err("ordinary plugin declines stable health watches")
+            .code(),
+        tonic::Code::Unimplemented
+    );
     let mut health = dra::health::v1alpha1::DraResourceHealthClient::new(channel);
     assert_eq!(
         health
@@ -830,7 +839,11 @@ async fn opted_in_health_is_advertised_by_the_plugin_registration_rpc() {
     let info = client.get_info().await.unwrap();
     assert_eq!(
         info.supported_versions,
-        ["v1.DRAPlugin", "v1alpha1.DRAResourceHealth"]
+        [
+            "v1.DRAPlugin",
+            "v1.DRAResourceHealth",
+            "v1alpha1.DRAResourceHealth"
+        ]
     );
     handle.abort();
 }
@@ -870,7 +883,11 @@ async fn tuning_composes_with_health_and_metadata() {
         .unwrap();
     assert_eq!(
         reg.get_info().await.unwrap().supported_versions,
-        ["v1.DRAPlugin", "v1alpha1.DRAResourceHealth"]
+        [
+            "v1.DRAPlugin",
+            "v1.DRAResourceHealth",
+            "v1alpha1.DRAResourceHealth"
+        ]
     );
     let claim = k8s_device_plugin_test::kube_mock::resource_claim(
         "claim",
@@ -913,6 +930,11 @@ async fn tuning_composes_with_health_and_metadata() {
         }))
         .await
         .unwrap();
+    let mut stable = dra::health::v1::DraResourceHealthClient::new(channel.clone());
+    stable
+        .node_watch_resources(dra::health::v1::NodeWatchResourcesRequest {})
+        .await
+        .expect("stable health remains enabled");
     let mut health = dra::health::v1alpha1::DraResourceHealthClient::new(channel);
     health
         .node_watch_resources(dra::health::v1alpha1::NodeWatchResourcesRequest {})

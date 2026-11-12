@@ -24,7 +24,7 @@ fn make_server() -> (DraRegistrationServer, Utf8TempDir) {
 }
 
 #[test]
-fn repeated_health_activation_advertises_one_service() {
+fn repeated_health_activation_advertises_each_version_once() {
     let (server, _dir) = make_server();
     assert_eq!(
         server
@@ -32,7 +32,11 @@ fn repeated_health_activation_advertises_one_service() {
             .with_resource_health()
             .plugin_info
             .supported_versions,
-        ["v1.DRAPlugin", "v1alpha1.DRAResourceHealth"]
+        [
+            "v1.DRAPlugin",
+            "v1.DRAResourceHealth",
+            "v1alpha1.DRAResourceHealth"
+        ]
     );
 }
 

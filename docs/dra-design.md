@@ -127,7 +127,7 @@ does today:
 core   — extend with DRA-facing pure types/traits (no gRPC, no k8s client)
 proto  — add a `dra` module, gated behind a `dra` cargo feature, compiling
          dra/v1/api.proto and pluginregistration/v1/api.proto; the additive
-         `dra-health` feature compiles dra-health/v1alpha1/api.proto
+         `dra-health` feature compiles dra-health/v1{,alpha1}/api.proto
 dra    — new crate: the DRA runtime (registration server, DRAPlugin service,
          ResourceSlice publisher, ResourceClaim resolver). Depends on core,
          proto (dra feature), tonic, kube, k8s-openapi.
@@ -208,7 +208,8 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
   on `/var/lib/kubelet/plugins_registry/<driver-name>-reg.sock`. `GetInfo`
   reports `type: "DRAPlugin"`, the real plugin socket as `endpoint`, and
   `supported_versions: ["v1.DRAPlugin"]`, adding
-  `"v1alpha1.DRAResourceHealth"` only for a backend that opts into health reporting.
+  `"v1.DRAResourceHealth"` and `"v1alpha1.DRAResourceHealth"` only for a backend
+  that opts into health reporting. Kubelet v1.37+ selects v1; v1.36 uses v1alpha1.
   The AF_UNIX path-length problem this socket
   name has to fit in is the same one `lib`'s `sanitize_socket_name` already
   solves for the classic plugin (truncate + disambiguating hash within the
@@ -264,13 +265,20 @@ container runtimes cache CDI specs and won't reliably reload a reused ID.
   ends a completed or failed monitor with `Unavailable` so kubelet reconnects.
   `ResourcePool` and `PoolDevice::health` are never treated as this stream's
   source of truth.
+  Both health API versions use that same bounded forwarding and cancellation
+  path, with explicit typed wire conversions and no driver API changes.
 - **`ClaimDeviceStatusPublisher`** — an explicit backend-owned publisher for
   allocated-device configuration and diagnostics. It validates a claim UID and
   each driver/pool/device/share allocation key before merging the caller's
   status entries into the current list. A resource-version precondition and
   bounded conflict retries preserve omitted and other drivers' entries under
   concurrent updates. Each retry revalidates identity and allocation. The
-  backend may call it from preparation or a separate monitor; it is neither
+  explicit `remove` operation filters only this driver's exact pool/device/share
+  keys, with the same UID and resourceVersion checks and conflict retries.
+  Removal does not require a current allocation, permitting stale-status cleanup.
+  Complete `publish` entries clear unspecified fields; `publish_fields` retains
+  unspecified fields and can clear conditions with an explicit empty list.
+  The backend may call it from preparation or a separate monitor; it is neither
   inferred from `ResourcePool` nor coupled to resource-health streaming. On
   Kubernetes v1.36 it relies on the default-on beta
   `DRAResourceClaimDeviceStatus` gate and node-aware synthetic authorization;

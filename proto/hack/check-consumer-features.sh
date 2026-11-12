@@ -28,6 +28,8 @@ fn main() {
     let _ = k8s_device_plugin_proto::dra::v1::SERVICE_NAME;
     #[cfg(feature = "health")]
     let _ = k8s_device_plugin_proto::dra::health::v1alpha1::SERVICE_NAME;
+    #[cfg(feature = "health")]
+    let _ = k8s_device_plugin_proto::dra::health::v1::SERVICE_NAME;
 }
 EOF
 unset K8S_OPENAPI_ENABLED_VERSION
