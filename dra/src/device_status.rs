@@ -174,6 +174,8 @@ pub enum ClaimDeviceStatusError {
 /// before merging a status update. A resource-version precondition prevents
 /// concurrent updates from being lost, including other drivers' entries.
 /// Conflicts are reread and revalidated, with at most three patch attempts.
+/// Use [`Self::remove`] to explicitly withdraw this driver's entries, including
+/// after their allocation has been cleared.
 #[derive(Clone)]
 pub struct ClaimDeviceStatusPublisher {
     client: kube::Client,
@@ -215,6 +217,9 @@ impl ClaimDeviceStatusPublisher {
     /// the API object, avoiding an unnecessary API write. API authorization
     /// failures are returned as [`ClaimDeviceStatusError::Kubernetes`] and are
     /// intentionally not retried: the caller must correct its RBAC or token.
+    /// Each supplied entry is a complete replacement: `None` clears its
+    /// conditions, data or network data. Use [`Self::publish_fields`] to retain
+    /// unspecified fields, or [`Self::remove`] to withdraw the entire entry.
     pub async fn publish(
         &self,
         claim: &ClaimRef,
@@ -228,6 +233,9 @@ impl ClaimDeviceStatusPublisher {
     /// Omitted conditions/data/network data retain their current values. Use
     /// this when a pre-binding controller owns conditions and a node preparer
     /// owns data. An explicit empty condition list clears the conditions.
+    /// This method cannot clear data or network data independently; use
+    /// [`Self::publish`] with a complete entry and `None` for those fields.
+    /// JSON null is not a separate field-deletion operation.
     /// Updates retain the same UID, allocation and resourceVersion checks as
     /// [`Self::publish`], including remerging current fields after a conflict.
     pub async fn publish_fields(
@@ -236,6 +244,44 @@ impl ClaimDeviceStatusPublisher {
         statuses: impl IntoIterator<Item = ClaimDeviceStatus>,
     ) -> Result<ClaimDeviceStatusPublishOutcome, ClaimDeviceStatusError> {
         self.publish_inner(claim, statuses, true).await
+    }
+
+    /// Removes this driver's entries for the exact pool/device/share keys.
+    ///
+    /// Other drivers and unnamed entries are preserved. Duplicate and absent
+    /// keys are harmless; empty input makes no API request. Removal checks the
+    /// claim UID even when keys are absent, but does not require a current
+    /// allocation, so a backend can withdraw stale status after deallocation.
+    /// Like publication, removal uses resourceVersion preconditions and at
+    /// most three patch attempts, rereading after each conflict. Authorization
+    /// failures are returned without retrying.
+    pub async fn remove(
+        &self,
+        claim: &ClaimRef,
+        keys: impl IntoIterator<Item = ClaimDeviceStatusKey>,
+    ) -> Result<ClaimDeviceStatusPublishOutcome, ClaimDeviceStatusError> {
+        let keys = keys.into_iter().collect::<BTreeSet<_>>();
+        if keys.is_empty() {
+            return Ok(ClaimDeviceStatusPublishOutcome::Unchanged);
+        }
+        self.update_claim(claim, |resource_claim| {
+            let mut devices = resource_claim
+                .status
+                .as_ref()
+                .and_then(|status| status.devices.clone())
+                .unwrap_or_default();
+            let previous_len = devices.len();
+            devices.retain(|status| {
+                status.driver != self.driver_name.as_str()
+                    || !keys.iter().any(|key| {
+                        key.pool_name.as_str() == status.pool
+                            && key.device_name.as_str() == status.device
+                            && key.share_id == status.share_id
+                    })
+            });
+            Ok((devices.len() != previous_len).then_some(devices))
+        })
+        .await
     }
 
     async fn publish_inner(
@@ -256,43 +302,17 @@ impl ClaimDeviceStatusPublisher {
             return Ok(ClaimDeviceStatusPublishOutcome::Unchanged);
         }
 
-        let api = self.client.resource_claims(claim);
-        let mut attempt = 0;
-        loop {
-            attempt += 1;
-            let resource_claim = api
-                .get(&claim.name)
-                .await
-                .map_err(ClaimDeviceStatusError::Kubernetes)?;
-            let found_uid = resource_claim.metadata.uid.as_deref().unwrap_or_default();
-            if found_uid != claim.uid {
-                return Err(ClaimDeviceStatusError::ClaimIdentityMismatch {
-                    namespace: claim.namespace.clone(),
-                    name: claim.name.clone(),
-                    expected_uid: claim.uid.clone(),
-                    found_uid: found_uid.to_string(),
-                });
-            }
-
-            self.validate_allocations(claim, &resource_claim, &desired)?;
+        self.update_claim(claim, |resource_claim| {
+            self.validate_allocations(claim, resource_claim, &desired)?;
             let desired = if preserve_unspecified_fields {
-                std::borrow::Cow::Owned(self.merge_existing_fields(&resource_claim, &desired))
+                std::borrow::Cow::Owned(self.merge_existing_fields(resource_claim, &desired))
             } else {
                 std::borrow::Cow::Borrowed(&desired)
             };
-            if self.statuses_are_current(&resource_claim, &desired) {
-                return Ok(ClaimDeviceStatusPublishOutcome::Unchanged);
+            if self.statuses_are_current(resource_claim, &desired) {
+                return Ok(None);
             }
 
-            let resource_version = resource_claim
-                .metadata
-                .resource_version
-                .as_deref()
-                .filter(|version| !version.is_empty())
-                .ok_or_else(|| ClaimDeviceStatusError::MissingResourceVersion {
-                    namespace: claim.namespace.clone(),
-                    name: claim.name.clone(),
-                })?;
             let mut devices = resource_claim
                 .status
                 .as_ref()
@@ -310,6 +330,50 @@ impl ClaimDeviceStatusPublisher {
                     devices.push(desired_status.clone());
                 }
             }
+            Ok(Some(devices))
+        })
+        .await
+    }
+
+    async fn update_claim(
+        &self,
+        claim: &ClaimRef,
+        update: impl Fn(
+            &resourcev1::ResourceClaim,
+        ) -> Result<
+            Option<Vec<resourcev1::AllocatedDeviceStatus>>,
+            ClaimDeviceStatusError,
+        >,
+    ) -> Result<ClaimDeviceStatusPublishOutcome, ClaimDeviceStatusError> {
+        let api = self.client.resource_claims(claim);
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let resource_claim = api
+                .get(&claim.name)
+                .await
+                .map_err(ClaimDeviceStatusError::Kubernetes)?;
+            let found_uid = resource_claim.metadata.uid.as_deref().unwrap_or_default();
+            if found_uid != claim.uid {
+                return Err(ClaimDeviceStatusError::ClaimIdentityMismatch {
+                    namespace: claim.namespace.clone(),
+                    name: claim.name.clone(),
+                    expected_uid: claim.uid.clone(),
+                    found_uid: found_uid.to_string(),
+                });
+            }
+            let Some(devices) = update(&resource_claim)? else {
+                return Ok(ClaimDeviceStatusPublishOutcome::Unchanged);
+            };
+            let resource_version = resource_claim
+                .metadata
+                .resource_version
+                .as_deref()
+                .filter(|version| !version.is_empty())
+                .ok_or_else(|| ClaimDeviceStatusError::MissingResourceVersion {
+                    namespace: claim.namespace.clone(),
+                    name: claim.name.clone(),
+                })?;
 
             // SSA omits previously owned entries when given only a partial upsert.
             // Use an optimistic-concurrency merge patch instead; the version check
@@ -715,6 +779,264 @@ mod tests {
         json::from_slice(&bytes).expect("decode patch")
     }
 
+    #[tokio::test]
+    async fn removal_preserves_other_drivers_and_exact_pool_device_share_keys() {
+        let (client, mut handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap())
+            .with_field_manager("status-cleanup");
+        let preserved = json::json!([
+            {"driver": "other.example.com", "pool": "widget-pool", "device": "widget-0", "data": {"foreign": true}},
+            {"driver": DRIVER, "pool": "other-pool", "device": "widget-0"},
+            {"driver": DRIVER, "pool": "widget-pool", "device": "widget-1"},
+            {"driver": DRIVER, "pool": "widget-pool", "device": "widget-0", "shareID": "other-share"}
+        ]);
+        let expected = preserved.clone();
+        let responder = tokio::spawn(async move {
+            let mut devices = preserved.as_array().unwrap().clone();
+            devices.push(ready_device_status());
+            let mut shared = ready_device_status();
+            shared["shareID"] = json::json!("removed-share");
+            devices.push(shared);
+            let mut current = allocated_claim(json::json!(devices));
+            // Withdrawal must work even after the allocation is gone.
+            current["status"]["allocation"] = json::Value::Null;
+            let (_, send) = handle.next_request().await.unwrap();
+            send.send_response(response(200, current.clone()));
+            let (request, send) = handle.next_request().await.unwrap();
+            assert_eq!(
+                request.uri().path(),
+                "/apis/resource.k8s.io/v1/namespaces/default/resourceclaims/claim/status"
+            );
+            assert_eq!(request.uri().query(), Some("&fieldManager=status-cleanup"));
+            let patch = read_patch(request).await;
+            assert_eq!(patch["metadata"]["uid"], "claim-uid");
+            assert_eq!(patch["metadata"]["resourceVersion"], "1");
+            assert_eq!(patch["status"]["devices"], expected);
+            assert!(patch.get("spec").is_none());
+            assert!(patch["status"].get("allocation").is_none());
+            send.send_response(response(200, current));
+        });
+        let key = status().key();
+        let shared = ClaimDeviceStatusKey {
+            share_id: Some("removed-share".into()),
+            ..key.clone()
+        };
+        assert_eq!(
+            publisher
+                .remove(&claim_ref(), [key.clone(), shared, key])
+                .await
+                .unwrap(),
+            ClaimDeviceStatusPublishOutcome::Updated
+        );
+        responder.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn removal_clears_the_last_entry_and_then_converges() {
+        let (client, mut handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
+        let responder = tokio::spawn(async move {
+            let current = allocated_claim(json::json!([ready_device_status()]));
+            let (_, send) = handle.next_request().await.unwrap();
+            send.send_response(response(200, current.clone()));
+            let (request, send) = handle.next_request().await.unwrap();
+            assert_eq!(
+                read_patch(request).await["status"]["devices"],
+                json::json!([])
+            );
+            send.send_response(response(200, current));
+            let (_, send) = handle.next_request().await.unwrap();
+            send.send_response(response(200, allocated_claim(json::Value::Null)));
+        });
+        assert_eq!(
+            publisher
+                .remove(&claim_ref(), [status().key()])
+                .await
+                .unwrap(),
+            ClaimDeviceStatusPublishOutcome::Updated
+        );
+        assert_eq!(
+            publisher
+                .remove(&claim_ref(), [status().key()])
+                .await
+                .unwrap(),
+            ClaimDeviceStatusPublishOutcome::Unchanged
+        );
+        responder.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn removal_of_empty_or_absent_keys_is_unchanged() {
+        let (client, _handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
+        assert_eq!(
+            publisher.remove(&claim_ref(), []).await.unwrap(),
+            ClaimDeviceStatusPublishOutcome::Unchanged
+        );
+        for devices in [
+            json::Value::Null,
+            json::json!([]),
+            json::json!([{"driver": "other.example.com", "pool": "widget-pool", "device": "widget-0"}]),
+        ] {
+            let (client, mut handle) = mock_kube_client();
+            let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
+            let responder = tokio::spawn(async move {
+                let mut current = allocated_claim(devices);
+                current["status"]["allocation"] = json::Value::Null;
+                let (_, send) = handle.next_request().await.unwrap();
+                send.send_response(response(200, current));
+            });
+            assert_eq!(
+                publisher
+                    .remove(&claim_ref(), [status().key()])
+                    .await
+                    .unwrap(),
+                ClaimDeviceStatusPublishOutcome::Unchanged
+            );
+            responder.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn removal_rereads_and_preserves_concurrent_updates_after_conflict() {
+        let (client, mut handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
+        let responder = tokio::spawn(async move {
+            for version in ["1", "2"] {
+                let foreign = json::json!({"driver": "other.example.com", "pool": "p", "device": "d", "data": {"version": version}});
+                let mut current =
+                    allocated_claim(json::json!([ready_device_status(), foreign.clone()]));
+                current["metadata"]["resourceVersion"] = json::json!(version);
+                if version == "2" {
+                    current["status"]["allocation"] = json::Value::Null;
+                }
+                let (_, send) = handle.next_request().await.unwrap();
+                send.send_response(response(200, current.clone()));
+                let (request, send) = handle.next_request().await.unwrap();
+                let patch = read_patch(request).await;
+                assert_eq!(patch["metadata"]["resourceVersion"], version);
+                assert_eq!(patch["status"]["devices"], json::json!([foreign]));
+                send.send_response(if version == "1" {
+                    conflict_response()
+                } else {
+                    response(200, current)
+                });
+            }
+        });
+        assert_eq!(
+            publisher
+                .remove(&claim_ref(), [status().key()])
+                .await
+                .unwrap(),
+            ClaimDeviceStatusPublishOutcome::Updated
+        );
+        responder.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn removal_converges_when_a_conflicting_writer_already_removed_the_entry() {
+        let (client, mut handle) = mock_kube_client();
+        let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
+        let responder = tokio::spawn(async move {
+            let (_, send) = handle.next_request().await.unwrap();
+            send.send_response(response(
+                200,
+                allocated_claim(json::json!([ready_device_status()])),
+            ));
+            let (_, send) = handle.next_request().await.unwrap();
+            send.send_response(conflict_response());
+            let (_, send) = handle.next_request().await.unwrap();
+            send.send_response(response(200, allocated_claim(json::json!([]))));
+        });
+        assert_eq!(
+            publisher
+                .remove(&claim_ref(), [status().key()])
+                .await
+                .unwrap(),
+            ClaimDeviceStatusPublishOutcome::Unchanged
+        );
+        responder.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn removal_checks_uid_and_resource_version_initially_and_after_conflicts() {
+        for retry in [false, true] {
+            for replaced in [false, true] {
+                let (client, mut handle) = mock_kube_client();
+                let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
+                let responder = tokio::spawn(async move {
+                    let mut current = allocated_claim(json::json!([ready_device_status()]));
+                    if retry {
+                        let (_, send) = handle.next_request().await.unwrap();
+                        send.send_response(response(200, current.clone()));
+                        let (_, send) = handle.next_request().await.unwrap();
+                        send.send_response(conflict_response());
+                    }
+                    if replaced {
+                        current["metadata"]["uid"] = json::json!("replacement");
+                        // Identity is checked even when no matching entry remains.
+                        current["status"]["devices"] = json::Value::Null;
+                    } else {
+                        current["metadata"]["resourceVersion"] = json::Value::Null;
+                    }
+                    let (_, send) = handle.next_request().await.unwrap();
+                    send.send_response(response(200, current));
+                });
+                let error = publisher
+                    .remove(&claim_ref(), [status().key()])
+                    .await
+                    .unwrap_err();
+                if replaced {
+                    assert!(matches!(
+                        error,
+                        ClaimDeviceStatusError::ClaimIdentityMismatch { .. }
+                    ));
+                } else {
+                    assert!(matches!(
+                        error,
+                        ClaimDeviceStatusError::MissingResourceVersion { .. }
+                    ));
+                }
+                responder.await.unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn removal_returns_authorization_errors_and_bounds_conflicts() {
+        for (code, fail_read, attempts) in [(403, true, 1), (403, false, 1), (409, false, 3)] {
+            let (client, mut handle) = mock_kube_client();
+            let publisher = ClaimDeviceStatusPublisher::new(client, DRIVER.parse().unwrap());
+            let responder = tokio::spawn(async move {
+                for _ in 0..attempts {
+                    let (_, send) = handle.next_request().await.unwrap();
+                    if !fail_read {
+                        send.send_response(response(
+                            200,
+                            allocated_claim(json::json!([ready_device_status()])),
+                        ));
+                        let (_, patch_send) = handle.next_request().await.unwrap();
+                        patch_send.send_response(response(
+                            code,
+                            kube::core::Status::failure("test failure", "Failure").with_code(code),
+                        ));
+                    } else {
+                        send.send_response(response(
+                            code,
+                            kube::core::Status::failure("test failure", "Forbidden")
+                                .with_code(code),
+                        ));
+                    }
+                }
+            });
+            assert!(
+                matches!(publisher.remove(&claim_ref(), [status().key()]).await,
+                Err(ClaimDeviceStatusError::Kubernetes(kube::Error::Api(error))) if error.code == code)
+            );
+            responder.await.unwrap();
+        }
+    }
+
     fn conflict_response() -> http::Response<client::Body> {
         response(
             409,
@@ -973,12 +1295,23 @@ mod tests {
             let body = patch_json(request).await;
             assert!(body["status"]["devices"][0].get("conditions").is_none());
             assert!(body["status"]["devices"][0].get("networkData").is_none());
+            assert!(body["status"]["devices"][0].get("data").is_none());
             send.send_response(response(
                 200,
                 allocated_claim(body["status"]["devices"].clone()),
             ));
         };
-        let publication = async { publisher.publish(&claim_ref(), [status()]).await };
+        let publication = async {
+            publisher
+                .publish(
+                    &claim_ref(),
+                    [ClaimDeviceStatus::new(
+                        "widget-pool".parse().unwrap(),
+                        "widget-0".parse().unwrap(),
+                    )],
+                )
+                .await
+        };
         let (_, result) = tokio::join!(script, publication);
         assert_eq!(result.unwrap(), ClaimDeviceStatusPublishOutcome::Updated);
     }

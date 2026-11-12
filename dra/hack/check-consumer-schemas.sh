@@ -59,6 +59,10 @@ fn main() {
     let _ = std::mem::size_of::<k8s_device_plugin::DraResourceHealthService>();
     let _ = std::mem::size_of::<k8s_device_plugin_dra_core::ResourceHealthReport>();
     let _ = std::mem::size_of::<k8s_device_plugin_dra::DraResourceHealthService>();
+    let publisher = k8s_device_plugin::ClaimDeviceStatusPublisher::new(client, "example.com".parse().unwrap());
+    let _removal = publisher.remove(&claim, [k8s_device_plugin::ClaimDeviceStatusKey {
+        pool_name: "pool".parse().unwrap(), device_name: "device".parse().unwrap(), share_id: None,
+    }]);
 }
 EOF
 
@@ -82,7 +86,8 @@ for schema in v1_36 v1_37; do
                 source='let _ = std::mem::size_of::<k8s_device_plugin_dra_core::ResourceHealthReport>();'
                 ;;
             runtime)
-                dependency="k8s-device-plugin-dra = { path = $dra_path }"
+                dependency="k8s-device-plugin-dra = { path = $dra_path }
+k8s-device-plugin-dra-core = { path = $dra_core_path }"
                 source='let _ = std::mem::size_of::<k8s_device_plugin_dra::DraResourceHealthService>(); fn configure(p: k8s_device_plugin_dra::DraPlugin) -> k8s_device_plugin_dra::DraPlugin { p.with_max_concurrent_resolves(4).with_claim_retry_policy(2, std::time::Duration::from_millis(20)).with_publisher_retry_backoff(std::time::Duration::from_secs(1), std::time::Duration::from_secs(5)) } let _ = configure as fn(_) -> _;'
                 ;;
             facade-dra)
@@ -90,6 +95,14 @@ for schema in v1_36 v1_37; do
                 source='let _ = std::mem::size_of::<k8s_device_plugin::DraResourceHealthService>(); let _ = std::mem::size_of::<k8s_device_plugin::ResourceHealthReport>(); let _: k8s_device_plugin::DriverName = "example.com".parse().unwrap(); let _: k8s_device_plugin::NodeName = "node".parse().unwrap(); let _: k8s_device_plugin::PoolName = "pool".parse().unwrap(); let _: k8s_device_plugin::DeviceName = "device".parse().unwrap(); let _: k8s_device_plugin::CounterSetName = "set".parse().unwrap(); let _: k8s_device_plugin::CounterName = "counter".parse().unwrap(); fn configure(p: k8s_device_plugin::DraPlugin) -> k8s_device_plugin::DraPlugin { p.with_max_concurrent_resolves(4).with_claim_retry_policy(2, std::time::Duration::from_millis(20)).with_publisher_retry_backoff(std::time::Duration::from_secs(1), std::time::Duration::from_secs(5)) } let _ = configure as fn(_) -> _;'
                 ;;
         esac
+        case "$mode" in
+            runtime) runtime_crate=k8s_device_plugin_dra; claim_crate=k8s_device_plugin_dra_core ;;
+            facade-dra) runtime_crate=k8s_device_plugin; claim_crate=k8s_device_plugin ;;
+            core) runtime_crate= ;;
+        esac
+        if [ -n "$runtime_crate" ]; then
+            source="$source async fn remove(p: &$runtime_crate::ClaimDeviceStatusPublisher, c: &$claim_crate::ClaimRef, k: $runtime_crate::ClaimDeviceStatusKey) -> Result<$runtime_crate::ClaimDeviceStatusPublishOutcome, $runtime_crate::ClaimDeviceStatusError> { p.remove(c, [k]).await } let _ = remove;"
+        fi
         cat > Cargo.toml <<MANIFEST
 [package]
 name = "isolated-dra-consumer"
