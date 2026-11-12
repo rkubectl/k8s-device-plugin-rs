@@ -341,10 +341,13 @@ Linux privilege compatible with its device interface, and resource limits. The
 runtime requires `get` on `ResourceClaim` and `Node`, plus
 `get/list/create/update/patch/delete` on `ResourceSlice`; it does not need
 cluster-wide claim listing or watching. Drivers that opt into
-`ResourceClaim.status.devices` additionally require `get,patch` on
+`ResourceClaim.status.devices` additionally require `patch` on
 `resourceclaims/status` and `associated-node:patch` on the synthetic
 `resourceclaims/driver` subresource with a `resourceNames` restriction to their
-driver name. A cluster-scoped role remains necessary
+driver name. The publisher reads and rereads `resourceclaims` itself using
+the `get` permission above. The associated-node check requires a node-local,
+pod-bound service-account token; the broader `arbitrary-node:patch` permission
+is not needed for a node-local driver. A cluster-scoped role remains necessary
 because slices are cluster-scoped and claims may belong to workloads in any
 namespace. RBAC cannot restrict a shared DaemonSet service account to only the
 local node's slices, so a cluster-owned Validating Admission Policy or

@@ -176,6 +176,35 @@ pub enum ClaimDeviceStatusError {
 /// Conflicts are reread and revalidated, with at most three patch attempts.
 /// Use [`Self::remove`] to explicitly withdraw this driver's entries, including
 /// after their allocation has been cleared.
+///
+/// # Kubernetes permissions
+///
+/// A node-local publisher needs all three rules in the `resource.k8s.io` API
+/// group. Reads and conflict rereads use the claim resource, not its status
+/// subresource:
+///
+/// ```yaml
+/// rules:
+///   - apiGroups: ["resource.k8s.io"]
+///     resources: ["resourceclaims"]
+///     verbs: ["get"]
+///   - apiGroups: ["resource.k8s.io"]
+///     resources: ["resourceclaims/status"]
+///     verbs: ["patch"]
+///   - apiGroups: ["resource.k8s.io"]
+///     resources: ["resourceclaims/driver"]
+///     verbs: ["associated-node:patch"]
+///     resourceNames: ["your.driver.example.com"]
+/// ```
+///
+/// Replace `your.driver.example.com` with the publisher's driver name and bind
+/// the role to the driver's service account. The associated-node check needs
+/// a node-local, pod-bound service-account token so Kubernetes can identify
+/// its node and constrain claim updates accordingly. The broader
+/// `arbitrary-node:patch` permission is not needed for a node-local driver.
+/// Authorization failures are returned without retrying; correct the role or
+/// token before trying again. These permissions apply to publication and
+/// explicit removal alike.
 #[derive(Clone)]
 pub struct ClaimDeviceStatusPublisher {
     client: kube::Client,

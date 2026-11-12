@@ -73,7 +73,7 @@ rules:
     verbs: ["get"]
   - apiGroups: ["resource.k8s.io"]
     resources: ["resourceclaims/status"]
-    verbs: ["get", "patch"]
+    verbs: ["patch"]
   - apiGroups: ["resource.k8s.io"]
     resources: ["resourceclaims/driver"]
     verbs: ["associated-node:patch"]
@@ -97,8 +97,12 @@ exact CEL expressions against the target Kubernetes version before enforcement.
 RBAC alone does not provide that isolation. `resourceclaims/driver` is a
 Kubernetes v1.36 synthetic subresource: bind the driver service account to a
 node-local, pod-bound token so the API server can enforce the associated-node
-check. `DRAResourceClaimDeviceStatus` is beta and enabled by default in v1.36,
-then GA in v1.37; a v1.36 cluster that explicitly disables it must omit the
+check. The publisher's initial read, UID check and conflict rereads use `get`
+on `resourceclaims`; writes use `patch` on `resourceclaims/status` plus the
+driver-scoped synthetic permission. Both publication and explicit removal
+need these rules. The broader `arbitrary-node:patch` permission is not needed
+for a node-local driver. `DRAResourceClaimDeviceStatus` is beta and enabled by
+default in v1.36, then GA in v1.37; a v1.36 cluster that explicitly disables it must omit the
 reporting path and these permissions.
 
 ### Liveness and readiness

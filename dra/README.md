@@ -225,11 +225,20 @@ can clear conditions with `Some(vec![])`; it cannot independently clear data
 or network data. Use a complete `publish` entry to clear those fields. JSON
 null is not a separate field-deletion operation.
 
-Treat authorization failures as configuration errors instead
-of retrying them: a node-local driver needs `get,patch` on
-`resourceclaims/status` plus `associated-node:patch` on the synthetic
-`resourceclaims/driver` subresource, restricted with `resourceNames` to its
-driver name.
+Treat authorization failures as configuration errors instead of retrying
+them. Publication and removal need three rules in the `resource.k8s.io`
+API group:
+
+- `get` on `resourceclaims`, for the initial read, UID check and conflict rereads.
+- `patch` on `resourceclaims/status`, for conditional status updates.
+- `associated-node:patch` on the synthetic `resourceclaims/driver` subresource,
+  restricted with `resourceNames: [<driver name>]`.
+
+Bind the role to the driver's service account and use a node-local, pod-bound
+service-account token so Kubernetes can enforce the associated-node check.
+The broader `arbitrary-node:patch` permission is not needed for a node-local
+driver. See the [deployment contract](k8s/README.md#production-deployment-contract)
+for the full runtime role and the separate ResourceSlice isolation requirements.
 
 The API is available in Kubernetes v1.36 and v1.37 using
 `resource.k8s.io/v1`. In v1.36, `DRAResourceClaimDeviceStatus` is beta and
