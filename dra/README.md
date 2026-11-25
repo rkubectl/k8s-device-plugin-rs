@@ -88,25 +88,23 @@ repeat the following block, then regenerate its lockfile (for example with
 
 ```toml
 [patch.crates-io]
-h2 = { git = "https://github.com/rkubectl/h2", tag = "v0.4.20+20261023" }
+h2 = { git = "https://github.com/rkubectl/h2", tag = "v0.4.21+20261125" }
 ```
 
-The fork is based on upstream `h2` v0.4.20. Its
-[maintenance notes](https://github.com/rkubectl/h2/blob/v0.4.20%2B20261023/UDS-COMPAT.md)
+The fork is based on upstream `h2` v0.4.21. Its
+[maintenance notes](https://github.com/rkubectl/h2/blob/v0.4.21%2B20261125/UDS-COMPAT.md)
 record the patch provenance and regression checks.
 
-The annotated tag `v0.4.20+20261023` identifies the upstream base plus our
-fork snapshot date. It resolves to the previously validated commit
-`e80d915d7468bc7009d3d38acfcaebc83b747f4b`; Cargo retains that exact commit
+The annotated tag `v0.4.21+20261125` identifies the upstream base plus our
+fork snapshot date. It resolves to commit
+`8597ebebcca08e91ec42b6de14b221c59e25de7f`, which Cargo records
 in `Cargo.lock`. Published snapshot tags must never be moved or reused. A
 second snapshot on the same date uses `.1`, then `.2`, and so on. The crate's
-internal version remains `0.4.20`; the date does not imply a new validation run.
+internal version is `0.4.21`.
 
-Status checked on **2026-10-23**: v0.4.20 remains the latest upstream release,
-and [h2 PR #487](https://github.com/hyperium/h2/pull/487) remains open and
-unmerged. Kubelet's pluginwatcher registration client still uses a bare socket
-path in Kubernetes v1.36.5, v1.37.1, and current master. Retain the exact pin
-above; see the [dated upstream audit](../docs/dra-design.md#h2-fork-status-2026-10-23)
+As of **2026-11-25**, [h2 PR #487](https://github.com/hyperium/h2/pull/487)
+remains open, and stock h2 v0.4.21 still rejects the kubelet-style registration
+request. See the [upstream audit](../docs/dra-design.md#h2-fork-status-2026-11-25)
 for source references and the removal gate.
 
 The exact pin in the [workspace Cargo manifest](https://github.com/rkubectl/k8s-device-plugin-rs/blob/main/Cargo.toml)

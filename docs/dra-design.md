@@ -434,12 +434,7 @@ invalid authorities and preserves normal `PROTOCOL_ERROR` handling for other
 malformed values. The override is required for real kubelet interoperability,
 not for Tonic-to-Tonic tests.
 
-The fork now tracks upstream `h2` v0.4.20 on the
-`uds-authority-compat-0.4.20` branch. The original compatibility revision is
-preserved; the refreshed branch adds focused authority regression coverage
-and [maintenance notes](https://github.com/rkubectl/h2/blob/v0.4.20%2B20261023/UDS-COMPAT.md).
-
-On 2026-10-10, the refreshed pin passed the fork's separate library/doc and
+On 2026-10-10, the v0.4.20 fork passed separate library/doc and
 integration suites, strict library Clippy, and workspace CI. A native ARM64
 image passed real kubelet registration, RPC liveness, ResourceSlice publication,
 claim preparation, CDI injection, and unpreparation on Kubernetes v1.36.1 and
@@ -455,16 +450,14 @@ entry from the root `Cargo.toml`. The [crate guide](../dra/README.md) is the
 authoritative copy-and-paste instruction. This is a release constraint, not a
 hidden implementation detail.
 
-### h2 fork status (2026-10-23)
+### h2 fork status (2026-11-25)
 
-Retain the compatibility override. The annotated snapshot tag
-[`v0.4.20+20261023`](https://github.com/rkubectl/h2/releases/tag/v0.4.20%2B20261023)
-and remote `uds-authority-compat-0.4.20` branch both resolve to
-`e80d915d7468bc7009d3d38acfcaebc83b747f4b`. The manifest and downstream
-instructions select the tag; `Cargo.lock` records the same exact commit.
-This replaces the SHA selector without changing the fork's source or its
-internal `0.4.20` package version. No source refresh is needed for the latest
-released upstream version.
+The annotated snapshot tag
+[`v0.4.21+20261125`](https://github.com/rkubectl/h2/tree/v0.4.21%2B20261125)
+and `uds-authority-compat-0.4.21` branch point to
+`8597ebebcca08e91ec42b6de14b221c59e25de7f`. They carry the existing authority
+patch and regression tests on top of upstream `d1a9b403a6fc180c47e720274ad8f819d5187716`.
+`Cargo.lock` records the exact fork commit.
 
 Snapshot tags use `v<upstream-version>+<YYYYMMDD>`, with `.1`, `.2`, and so
 on for additional snapshots on the same date. Create annotated tags recording
@@ -472,31 +465,37 @@ the upstream base, fork commit, and validation evidence. Never move or reuse a
 published tag. The date identifies the snapshot tag, while validation dates
 remain explicit in the annotation and documentation.
 
-- [Upstream v0.4.20](https://github.com/hyperium/h2/releases/tag/v0.4.20),
-  published 2026-10-06, remains the latest release.
-  [PR #487](https://github.com/hyperium/h2/pull/487) remains open and unmerged.
-  Both the [released server](https://github.com/hyperium/h2/blob/b0e890842ac16d3c76836fd4fcc06421acb15fa7/src/server.rs#L1703-L1711)
-  and [master at e64c1662](https://github.com/hyperium/h2/blob/e64c1662ebb14794fc19cbcbb5b5dd0f67925f27/src/server.rs#L1703-L1711)
-  still reject an authority that fails URI parsing.
+- [Upstream v0.4.21](https://github.com/hyperium/h2/releases/tag/v0.4.21)
+  was published on 2026-11-24. [PR #487](https://github.com/hyperium/h2/pull/487)
+  remains open. The existing kubelet authority regression received
+  `PROTOCOL_ERROR` against stock v0.4.21 and passed on the fork.
 - The complete pluginwatcher `dial` function in
-  [Kubernetes v1.36.5](https://github.com/kubernetes/kubernetes/blob/v1.36.5/pkg/kubelet/pluginmanager/operationexecutor/operation_generator.go#L191-L209),
-  [v1.37.1](https://github.com/kubernetes/kubernetes/blob/v1.37.1/pkg/kubelet/pluginmanager/operationexecutor/operation_generator.go#L191-L209),
-  and [master at dc5eeea8](https://github.com/kubernetes/kubernetes/blob/dc5eeea813679154dce3bf511ab011221ebd67a1/pkg/kubelet/pluginmanager/operationexecutor/operation_generator.go#L191-L209)
+  [Kubernetes v1.36.1](https://github.com/kubernetes/kubernetes/blob/v1.36.1/pkg/kubelet/pluginmanager/operationexecutor/operation_generator.go#L191-L209),
+  [v1.37.0](https://github.com/kubernetes/kubernetes/blob/v1.37.0/pkg/kubelet/pluginmanager/operationexecutor/operation_generator.go#L191-L209),
+  and [v1.37.2](https://github.com/kubernetes/kubernetes/blob/v1.37.2/pkg/kubelet/pluginmanager/operationexecutor/operation_generator.go#L191-L209)
   still passes a bare socket path to `grpc.DialContext` with a custom Unix
-  dialer, without an explicit authority or Unix-scheme target. The separate
-  [DRA resource client](https://github.com/kubernetes/kubernetes/blob/dc5eeea813679154dce3bf511ab011221ebd67a1/pkg/kubelet/cm/dra/plugin/dra_plugin_manager.go#L405-L420)
-  already uses a `unix:` target; that does not fix pluginwatcher registration.
+  dialer, without an explicit authority or Unix-scheme target.
+
+The fork passed its separate library and integration test suites, doctests,
+formatting, and strict library Clippy. Workspace tests passed with the v1.36
+schema and default features, and with the v1.37 schema and all features. A
+separate application compiled against the published DRA v0.7.1 crate with the
+new tag in its root manifest, so existing applications can adopt the snapshot
+without a DRA crate release.
+
+The checked-in DRA matrix used the same linux/arm64 image on Kubernetes v1.36.1
+and v1.37.0 with `rosetta=false`. Both kubelets registered the driver and
+passed RPC liveness, ResourceSlice publication, ordinary and FirstAvailable
+claim preparation, CDI injection, and claim unpreparation. Resource health
+negotiated `v1alpha1` on v1.36.1 and `v1` on v1.37.0 and reached Pod status.
+The v1.37.0 extended-resource fixture also passed generated-claim cleanup.
+The Container profiles and builder returned to their original stopped states.
+The separate `kind` CLI was unavailable because its Podman service was down.
 
 Cleanup task `k8s-device-plugin-rs-9uf.14` remains deferred. Removal requires a
 compatible released h2 fix or a released kubelet pluginwatcher fix applicable
 to the supported cluster baseline, followed by a smoke test without the patch
 that proves registration, claim preparation/CDI injection, and unpreparation.
-The tag migration passed `cargo test --locked -p k8s-device-plugin-dra
---all-targets`, with Unix-socket tests run outside the restrictive sandbox.
-The lockfile differs only in the h2 source selector; the resolved commit and
-all dependency versions are unchanged. No live cluster tests were rerun. The
-last recorded kubelet validation remains the 2026-10-10 v1.36.1/v1.37.0 run
-above.
 
 ### Guarded matrix validation (2026-10-23)
 

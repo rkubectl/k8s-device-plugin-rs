@@ -109,4 +109,4 @@ publish = false
 # kubelet's grpc-go Unix-socket client sends a percent-encoded socket path as
 # :authority. Upstream h2 rejects it before Tonic can dispatch the gRPC call.
 # Keep the immutable fork snapshot tag until upstream h2 or kubelet resolves this.
-h2 = { git = "https://github.com/rkubectl/h2", tag = "v0.4.20+20261023" }
+h2 = { git = "https://github.com/rkubectl/h2", tag = "v0.4.21+20261125" }
