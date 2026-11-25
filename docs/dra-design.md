@@ -497,6 +497,18 @@ compatible released h2 fix or a released kubelet pluginwatcher fix applicable
 to the supported cluster baseline, followed by a smoke test without the patch
 that proves registration, claim preparation/CDI injection, and unpreparation.
 
+### Kubernetes v1.36.4 validation (2026-11-25)
+
+The serial matrix moved to v1.36.4 for the 1.36 line and ran on a freshly
+provisioned `dra-validation-1364` profile. The retained v1.37.0 profile and
+the fresh profile ran the same linux/arm64 driver image with `rosetta=false`.
+Both passed kubelet registration, RPC liveness, ResourceSlice publication,
+and ordinary and FirstAvailable claim preparation, CDI injection, and
+unpreparation. v1.37.0 also passed DRA extended-resource allocation and
+generated-claim cleanup. Prior profile states and the host kubeconfig context
+were preserved. For deployment patch selection, see the
+[upstream fix guide](kubernetes-patch-versions.md).
+
 ### Guarded matrix validation (2026-10-23)
 
 Task `k8s-device-plugin-rs-m4z` moved every matrix start and restoration to

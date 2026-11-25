@@ -18,6 +18,8 @@ claim sharing. Do not run classic and DRA providers for the same extended
 resource against the same hardware on a node; they must own non-overlapping
 allocation boundaries.
 
+For cluster upgrades, see [choosing a Kubernetes patch version for DRA](kubernetes-patch-versions.md).
+
 ## Add the framework
 
 Start with the umbrella crate. It exposes common backend types at the crate

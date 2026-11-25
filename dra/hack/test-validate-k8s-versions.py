@@ -63,7 +63,7 @@ elif kind == 'kubectl':
     name = args[1]
     if args[2] == 'version':
         print(json.dumps({'serverVersion': {'gitVersion': state.get('version_override',
-            'v1.37.0' if name.endswith('-137') else 'v1.36.1')}}))
+            'v1.37.0' if name.endswith('-137') else 'v1.36.4')}}))
     elif 'logs' in args and state.get('fail_logs'):
         fail(26)
 else:
@@ -76,7 +76,7 @@ class MatrixTests(unittest.TestCase):
     def run_matrix(self, overrides=None, env_overrides=None):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            state = {'clusters': {'dra-validation': 'stopped', 'dra-validation-137': 'stopped'}}
+            state = {'clusters': {'dra-validation-1364': 'stopped', 'dra-validation-137': 'stopped'}}
             state.update(overrides or {})
             (root / 'state.json').write_text(json.dumps(state))
             script = root / 'validate-k8s-versions.sh'
@@ -89,8 +89,8 @@ class MatrixTests(unittest.TestCase):
                        KUBECTL=str(root / 'kubectl'), JQ=shutil.which('jq'),
                        DRA_E2E_SKIP_BUILD='1', DRA_E2E_TAINTS='0', DRA_E2E_BINDING='0', DRA_E2E_WORKLOAD='0', DRA_E2E_POOL_STATUS='0', DRA_E2E_METADATA='0', DRA_E2E_METADATA_SHARED='0', DRA_E2E_SHARED_COUNTERS='0',
                        DRA_E2E_IMAGE='docker.io/library/k8s-device-plugin-dra-example:latest',
-                       DRA_E2E_V136_CLUSTER='dra-validation',
-                       DRA_E2E_V137_CLUSTER='dra-validation-137')
+                       DRA_E2E_V136_CLUSTER='',
+                       DRA_E2E_V137_CLUSTER='')
             env.update(env_overrides or {})
             result = subprocess.run(['bash', str(script)], env=env, capture_output=True, text=True)
             calls_file = root / 'calls.jsonl'
@@ -99,7 +99,7 @@ class MatrixTests(unittest.TestCase):
             return result, calls, state
 
     def assert_baseline(self, state):
-        self.assertEqual(state['clusters'], {'dra-validation': 'stopped', 'dra-validation-137': 'stopped'})
+        self.assertEqual(state['clusters'], {'dra-validation-1364': 'stopped', 'dra-validation-137': 'stopped'})
 
     def test_success_is_serial_and_uses_guarded_restore(self):
         result, calls, state = self.run_matrix(env_overrides={'DRA_E2E_SKIP_BUILD': '0'})
@@ -110,12 +110,12 @@ class MatrixTests(unittest.TestCase):
         self.assertEqual([c for c in calls if c[:3] == ['container', 'k8s-versioned', 'load-image']], [
             ['container', 'k8s-versioned', 'load-image', '--name', name,
              'docker.io/library/k8s-device-plugin-dra-example:latest']
-            for name in ['dra-validation', 'dra-validation-137']])
+            for name in ['dra-validation-1364', 'dra-validation-137']])
         self.assertEqual([c for c in calls if c[:3] == ['container', 'k8s-versioned', 'start']], [
-            ['container', 'k8s-versioned', 'start', '--name', 'dra-validation'],
+            ['container', 'k8s-versioned', 'start', '--name', 'dra-validation-1364'],
             ['container', 'k8s-versioned', 'start', '--name', 'dra-validation-137']])
         self.assertEqual([c for c in calls if c[0] == 'e2e-smoke.sh'], [
-            ['e2e-smoke.sh', 'dra-validation'], ['e2e-smoke.sh', 'dra-validation-137']])
+            ['e2e-smoke.sh', 'dra-validation-1364'], ['e2e-smoke.sh', 'dra-validation-137']])
         self.assertEqual(sum(c[0] == 'e2e-extended-resource.sh' for c in calls), 1)
         self.assertFalse(any(c[0] == 'e2e-taints.sh' for c in calls))
         self.assertFalse(any(c[0] == 'e2e-binding.sh' for c in calls))
@@ -129,7 +129,7 @@ class MatrixTests(unittest.TestCase):
         result, calls, state = self.run_matrix(env_overrides={'DRA_E2E_IMAGE': image})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([c for c in calls if c[0] == 'e2e-first-available.sh'], [
-            ['e2e-first-available.sh', 'dra-validation'], ['e2e-first-available.sh', 'dra-validation-137']])
+            ['e2e-first-available.sh', 'dra-validation-1364'], ['e2e-first-available.sh', 'dra-validation-137']])
         self.assertEqual(sum('dra-driver=' + image in c for c in calls), 2)
         self.assert_baseline(state)
 
@@ -144,7 +144,7 @@ class MatrixTests(unittest.TestCase):
             result, calls, state = self.run_matrix({'fail_smoke': failure},
                                                   {'DRA_E2E_SHARED_COUNTERS': '1'})
             self.assertEqual(result.returncode, 27 if failure else 0, result.stderr)
-            expected = ['dra-validation'] if failure else ['dra-validation', 'dra-validation-137']
+            expected = ['dra-validation-1364'] if failure else ['dra-validation-1364', 'dra-validation-137']
             self.assertEqual([c for c in calls if c[0] == 'e2e-shared-counters.sh'],
                              [['e2e-shared-counters.sh', name] for name in expected])
             self.assert_baseline(state)
@@ -154,27 +154,27 @@ class MatrixTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(any(c[:2] == ['container', 'build'] and '-f' in c and 'dra/Dockerfile' in c for c in calls))
         self.assertEqual([c for c in calls if c[0] == 'e2e-resource-health.sh'], [
-            ['e2e-resource-health.sh', 'dra-validation'], ['e2e-resource-health.sh', 'dra-validation-137']])
+            ['e2e-resource-health.sh', 'dra-validation-1364'], ['e2e-resource-health.sh', 'dra-validation-137']])
         self.assert_baseline(state)
 
     def test_running_profile_still_gets_guarded_repair(self):
         result, calls, state = self.run_matrix({'clusters': {
-            'dra-validation': 'running', 'dra-validation-137': 'stopped'}})
+            'dra-validation-1364': 'running', 'dra-validation-137': 'stopped'}})
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(state['starts']['dra-validation'], 2)
-        self.assertEqual(state['clusters'], {'dra-validation': 'running', 'dra-validation-137': 'stopped'})
+        self.assertEqual(state['starts']['dra-validation-1364'], 2)
+        self.assertEqual(state['clusters'], {'dra-validation-1364': 'running', 'dra-validation-137': 'stopped'})
 
     def test_initial_v137_running_is_restored(self):
         result, calls, state = self.run_matrix({'clusters': {
-            'dra-validation': 'stopped', 'dra-validation-137': 'running'}})
+            'dra-validation-1364': 'stopped', 'dra-validation-137': 'running'}})
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(state['clusters'], {'dra-validation': 'stopped', 'dra-validation-137': 'running'})
+        self.assertEqual(state['clusters'], {'dra-validation-1364': 'stopped', 'dra-validation-137': 'running'})
 
     def test_opt_in_taints_use_both_profile_contexts(self):
         result, calls, state = self.run_matrix(env_overrides={'DRA_E2E_TAINTS': '1'})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([c for c in calls if c[0] == 'e2e-taints.sh'], [
-            ['e2e-taints.sh', 'dra-validation'], ['e2e-taints.sh', 'dra-validation-137']])
+            ['e2e-taints.sh', 'dra-validation-1364'], ['e2e-taints.sh', 'dra-validation-137']])
         self.assert_baseline(state)
 
     def test_opt_in_taint_failure_restores_baseline(self):
@@ -187,7 +187,7 @@ class MatrixTests(unittest.TestCase):
         result, calls, state = self.run_matrix(env_overrides={'DRA_E2E_BINDING': '1'})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([c for c in calls if c[0] == 'e2e-binding.sh'], [
-            ['e2e-binding.sh', 'dra-validation'], ['e2e-binding.sh', 'dra-validation-137']])
+            ['e2e-binding.sh', 'dra-validation-1364'], ['e2e-binding.sh', 'dra-validation-137']])
         self.assert_baseline(state)
 
     def test_binding_failure_restores_baseline(self):
@@ -226,7 +226,7 @@ class MatrixTests(unittest.TestCase):
         result, calls, state = self.run_matrix(env_overrides={'DRA_E2E_METADATA': '1'})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([c for c in calls if c[0] == 'e2e-metadata.sh'], [
-            ['e2e-metadata.sh', 'dra-validation'], ['e2e-metadata.sh', 'dra-validation-137']])
+            ['e2e-metadata.sh', 'dra-validation-1364'], ['e2e-metadata.sh', 'dra-validation-137']])
         self.assert_baseline(state)
 
     def test_metadata_failure_restores_baseline(self):
@@ -265,22 +265,22 @@ class MatrixTests(unittest.TestCase):
         self.assertTrue(any(c[:3] == ['kubectl', '--context', 'dra-validation-137'] and 'logs' in c for c in calls))
 
     def test_failed_restoration_makes_success_nonzero(self):
-        result, calls, state = self.run_matrix({'fail_start': 'dra-validation', 'fail_start_n': 2,
-            'clusters': {'dra-validation': 'running', 'dra-validation-137': 'stopped'}})
+        result, calls, state = self.run_matrix({'fail_start': 'dra-validation-1364', 'fail_start_n': 2,
+            'clusters': {'dra-validation-1364': 'running', 'dra-validation-137': 'stopped'}})
         self.assertEqual(result.returncode, 25, result.stderr)
         self.assertIn('failed to restore', result.stderr)
 
     def test_cleanup_failure_preserves_original_failure(self):
         result, calls, state = self.run_matrix({'fail_smoke': 'e2e-extended-resource.sh',
-                                               'fail_start': 'dra-validation', 'fail_start_n': 2,
-                                               'clusters': {'dra-validation': 'running', 'dra-validation-137': 'stopped'}})
+                                               'fail_start': 'dra-validation-1364', 'fail_start_n': 2,
+                                               'clusters': {'dra-validation-1364': 'running', 'dra-validation-137': 'stopped'}})
         self.assertEqual(result.returncode, 27, result.stderr)
         self.assertIn('failed to restore', result.stderr)
 
     def test_failed_stop_prevents_baseline_start(self):
         result, calls, state = self.run_matrix({'fail_stop': 'dra-validation-137'})
         self.assertEqual(result.returncode, 24, result.stderr)
-        self.assertEqual(state['starts']['dra-validation'], 1)
+        self.assertEqual(state['starts']['dra-validation-1364'], 1)
         self.assertEqual(state['clusters']['dra-validation-137'], 'running')
 
     def test_status_query_failure_is_not_treated_as_stopped(self):
@@ -292,7 +292,7 @@ class MatrixTests(unittest.TestCase):
     def test_failed_cleanup_status_query_prevents_baseline_start(self):
         result, calls, state = self.run_matrix({'fail_list_after': 11})
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(state['starts']['dra-validation'], 1)
+        self.assertEqual(state['starts']['dra-validation-1364'], 1)
         self.assertIn('failed to restore', result.stderr)
 
     def test_unavailable_logs_do_not_hide_smoke_result(self):
@@ -302,7 +302,7 @@ class MatrixTests(unittest.TestCase):
 
     def test_wrong_server_version_fails_and_reports_restore_failure(self):
         result, calls, state = self.run_matrix({'version_override': 'v1.35.0',
-            'clusters': {'dra-validation': 'running', 'dra-validation-137': 'stopped'}})
+            'clusters': {'dra-validation-1364': 'running', 'dra-validation-137': 'stopped'}})
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn('failed to restore', result.stderr)
         self.assertFalse(any(c[0] == 'e2e-smoke.sh' for c in calls))
@@ -347,7 +347,7 @@ class MatrixTests(unittest.TestCase):
 
     def test_preflight_failure_never_starts_or_stops(self):
         for overrides, env in [({'rosetta': True}, {}), ({'arch': 'amd64'}, {}),
-                               ({}, {'DRA_E2E_V137_CLUSTER': 'dra-validation'}),
+                               ({}, {'DRA_E2E_V137_CLUSTER': 'dra-validation-1364'}),
                                ({}, {'KUBECTL': '/nonexistent/kubectl'})]:
             with self.subTest(overrides=overrides, env=env):
                 result, calls, state = self.run_matrix(overrides, env)

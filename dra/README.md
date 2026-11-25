@@ -74,6 +74,10 @@ both schemas without that environment variable, including the health APIs. CI te
 
 ## Compatibility and dependency override
 
+See [choosing a Kubernetes patch version for DRA](https://github.com/rkubectl/k8s-device-plugin-rs/blob/main/docs/kubernetes-patch-versions.md)
+for upstream fixes that affect allocation, prepare retries, claim status, and
+device taints.
+
 Kubelet currently sends a percent-encoded Unix-socket path in the HTTP/2
 `:authority` header during pluginwatcher registration. Upstream `h2` rejects
 that header before Tonic can dispatch the request. Until upstream `h2` releases
@@ -455,29 +459,27 @@ classic/DRA node boundary, and a migration sequence, read
 
 #### Verified local Apple Container runs
 
-The local native-arm64 Apple Container helper is named `k8s-versioned`. It is
-host tooling, not a project dependency (the installed helper was verified at
-`1.6.0-k8s-versioned` on 2026-10-23). It
-pins `kindest/node` images for Kubernetes v1.36.1 and v1.37.0, passes the
-selected image version to kubeadm, persists the kind restart configuration,
-and always provisions with Rosetta disabled. A Homebrew upgrade of `container`
-replaces its plugin directory, so reinstall this local helper after upgrading.
+The local native-arm64 Apple Container helper `cluster-versioned`, also
+available as `k8s-versioned`, pins `kindest/node` images for Kubernetes v1.36.4
+and v1.37.0. It passes the selected version to kubeadm, persists the kind
+restart configuration, and provisions with Rosetta disabled. The original
+v1.36.1 image stays in its restart allowlist for saved profiles. For helper
+installation and validation, see the [Container fork guide](https://github.com/rkubectl/container/blob/k8s-versioned/docs/k8s-versioned.md).
 
 The two on-demand validation profiles are intentionally not run together:
 
 ```sh
-# Switch to the v1.36.1 baseline.
+# Switch to the v1.36.4 validation profile.
 container stop dra-validation-137
-container k8s-versioned start --name dra-validation
+container k8s-versioned start --name dra-validation-1364
 
 # Switch to the v1.37.0 validation profile.
-container stop dra-validation
+container stop dra-validation-1364
 container k8s-versioned start --name dra-validation-137
 ```
 
-Both profiles were created and restarted successfully as linux/arm64 nodes.
-The v1.37.0 profile also completed the checked-in DRA smoke test. After
-building the image, the validation flow is:
+After building the image, load it into the selected profile and run the DRA
+lifecycle smoke test:
 
 ```sh
 container k8s-versioned load-image --name <cluster> k8s-device-plugin-dra-example
@@ -485,9 +487,9 @@ kubectl --context <cluster> apply -k dra/k8s
 KUBE_CONTEXT=<cluster> dra/hack/e2e-smoke.sh
 ```
 
-`load-image` also adds the canonical `docker.io/library/...` CRI alias for a
-short local image name. The smoke run reported `DRA_E2E_DEVICE=widget-0` and
-deleted the consumer successfully. Rosetta was not installed or enabled.
+`load-image` adds the canonical `docker.io/library/...` CRI alias for a short
+local image name. A passing smoke run reports `DRA_E2E_DEVICE=widget-0` and
+deletes the consumer.
 
 #### Serial local validation matrix
 
@@ -496,6 +498,17 @@ Run both local profiles without keeping them running together:
 ```sh
 mise run dra-validate-k8s
 ```
+
+Create the v1.36.4 profile under a new name when upgrading the matrix:
+
+```sh
+container k8s-versioned create --name dra-validation-1364 --kubernetes-version v1.36.4
+container k8s-versioned stop --name dra-validation-1364
+```
+
+Create `dra-validation-137` with `--kubernetes-version v1.37.0` if needed.
+`DRA_E2E_V136_CLUSTER` and `DRA_E2E_V137_CLUSTER` select existing profiles at
+the same exact patch versions.
 
 The task builds the linux/arm64 fixture image once using the canonical
 `docker.io/library/k8s-device-plugin-dra-example:latest` reference for both

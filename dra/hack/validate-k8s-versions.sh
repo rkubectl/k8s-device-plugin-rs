@@ -13,7 +13,9 @@ JQ=${JQ:-jq}
 # coexist with it in the host image store.
 IMAGE=${DRA_E2E_IMAGE:-docker.io/library/k8s-device-plugin-dra-example:latest}
 NAMESPACE=k8s-device-plugin-dra-example
-V136_CLUSTER=${DRA_E2E_V136_CLUSTER:-dra-validation}
+V136_VERSION=v1.36.4
+V137_VERSION=v1.37.0
+V136_CLUSTER=${DRA_E2E_V136_CLUSTER:-dra-validation-1364}
 V137_CLUSTER=${DRA_E2E_V137_CLUSTER:-dra-validation-137}
 SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-smoke.sh
 FIRST_AVAILABLE_SMOKE_SCRIPT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/e2e-first-available.sh
@@ -122,9 +124,9 @@ restore_initial_state() {
     stop_if_running "$V136_CLUSTER" || restore_result=$?
     if ((restore_result == 0)); then
         if [[ "$INITIAL_V136_STATE" == running ]]; then
-            start_cluster "$V136_CLUSTER" && assert_server_version "$V136_CLUSTER" v1.36.1 || restore_result=$?
+            start_cluster "$V136_CLUSTER" && assert_server_version "$V136_CLUSTER" "$V136_VERSION" || restore_result=$?
         elif [[ "$INITIAL_V137_STATE" == running ]]; then
-            start_cluster "$V137_CLUSTER" && assert_server_version "$V137_CLUSTER" v1.37.0 || restore_result=$?
+            start_cluster "$V137_CLUSTER" && assert_server_version "$V137_CLUSTER" "$V137_VERSION" || restore_result=$?
         fi
     fi
     if ((restore_result != 0)); then
@@ -159,7 +161,7 @@ run_profile() {
     if [[ ${DRA_E2E_RESOURCE_HEALTH:-0} == 1 ]]; then
         KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" JQ="$JQ" "$RESOURCE_HEALTH_SMOKE_SCRIPT"
     fi
-    if [[ "$expected_version" == v1.37.0 ]]; then
+    if [[ "$expected_version" == "$V137_VERSION" ]]; then
         KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" "$EXTENDED_RESOURCE_SMOKE_SCRIPT"
     fi
     if [[ ${DRA_E2E_TAINTS:-0} == 1 ]]; then
@@ -169,17 +171,17 @@ run_profile() {
         KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" JQ="$JQ" "$BINDING_SMOKE_SCRIPT"
     fi
 
-    if [[ "$expected_version" == v1.37.0 && ${DRA_E2E_WORKLOAD:-0} == 1 ]]; then
+    if [[ "$expected_version" == "$V137_VERSION" && ${DRA_E2E_WORKLOAD:-0} == 1 ]]; then
         KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" JQ="$JQ" "$WORKLOAD_SMOKE_SCRIPT"
     fi
 
-    if [[ "$expected_version" == v1.37.0 && ${DRA_E2E_POOL_STATUS:-0} == 1 ]]; then
+    if [[ "$expected_version" == "$V137_VERSION" && ${DRA_E2E_POOL_STATUS:-0} == 1 ]]; then
         KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" JQ="$JQ" "$POOL_STATUS_SMOKE_SCRIPT"
     fi
 
     if [[ ${DRA_E2E_METADATA:-0} == 1 ]]; then
         local shared=0
-        if [[ "$expected_version" == v1.37.0 ]]; then shared=${DRA_E2E_METADATA_SHARED:-0}; fi
+        if [[ "$expected_version" == "$V137_VERSION" ]]; then shared=${DRA_E2E_METADATA_SHARED:-0}; fi
         DRA_E2E_METADATA_SHARED="$shared" KUBE_CONTEXT="$cluster" KUBECTL="$KUBECTL" CONTAINER="$CONTAINER" JQ="$JQ" "$METADATA_SMOKE_SCRIPT"
     fi
 
@@ -237,5 +239,5 @@ if [[ ${DRA_E2E_SKIP_BUILD:-0} != 1 ]]; then
     "$CONTAINER" build --platform linux/arm64 -f dra/Dockerfile -t "$IMAGE" .
 fi
 
-run_profile v1.36.1 "$V136_CLUSTER" "$V137_CLUSTER"
-run_profile v1.37.0 "$V137_CLUSTER" "$V136_CLUSTER"
+run_profile "$V136_VERSION" "$V136_CLUSTER" "$V137_CLUSTER"
+run_profile "$V137_VERSION" "$V137_CLUSTER" "$V136_CLUSTER"
