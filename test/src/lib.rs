@@ -15,13 +15,25 @@ use tower::service_fn;
 use k8s_device_plugin_proto::v1beta1;
 
 pub mod device_plugin;
+#[expect(
+    clippy::expect_used,
+    reason = "published test helper, compiled outside cfg(test) for downstream tests"
+)]
 pub mod registration;
 
 #[cfg(feature = "dra")]
 pub mod dra_plugin;
 #[cfg(feature = "dra")]
+#[expect(
+    clippy::expect_used,
+    reason = "published test helper, compiled outside cfg(test) for downstream tests"
+)]
 pub mod dra_registration;
 #[cfg(feature = "dra")]
+#[expect(
+    clippy::expect_used,
+    reason = "published test fixtures, compiled outside cfg(test) for downstream tests"
+)]
 pub mod kube_mock;
 
 fn default<T: Default>() -> T {

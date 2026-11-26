@@ -19,6 +19,8 @@ use k8s_device_plugin_dra::DraPlugin;
 use k8s_device_plugin_dra_core::AllocatedDevice;
 use k8s_device_plugin_dra_core::ClaimPreparer;
 use k8s_device_plugin_dra_core::ClaimRef;
+use k8s_device_plugin_dra_core::DeviceName;
+use k8s_device_plugin_dra_core::DeviceNameError;
 use k8s_device_plugin_dra_core::DraDriver;
 use k8s_device_plugin_dra_core::DriverName;
 use k8s_device_plugin_dra_core::NodeName;
@@ -50,7 +52,7 @@ const ATTRIBUTE_MEMBER_1: &str = "accelerator.example.com/member1";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct AcceleratorPair {
-    name: &'static str,
+    name: DeviceName,
     members: [&'static str; 2],
     interconnect: &'static str,
 }
@@ -63,7 +65,7 @@ impl AcceleratorPair {
 
 impl From<&AcceleratorPair> for PoolDevice {
     fn from(pair: &AcceleratorPair) -> Self {
-        Self::new(pair.name.parse().expect("valid pair name"))
+        Self::new(pair.name.clone())
             .attribute(ATTRIBUTE_KIND, "connected-pair")
             .attribute(ATTRIBUTE_INTERCONNECT, pair.interconnect)
             .attribute(ATTRIBUTE_MEMBER_0, pair.members[0])
@@ -74,7 +76,7 @@ impl From<&AcceleratorPair> for PoolDevice {
 impl From<&AcceleratorPair> for cdi::Device {
     fn from(pair: &AcceleratorPair) -> Self {
         Self {
-            name: pair.name.into(),
+            name: pair.name.to_string(),
             container_edits: cdi::ContainerEdits {
                 env: vec![
                     format!("ACCELERATOR_PAIR={}", pair.name),
@@ -87,19 +89,19 @@ impl From<&AcceleratorPair> for cdi::Device {
     }
 }
 
-fn example_pairs() -> [AcceleratorPair; 2] {
-    [
+fn example_pairs() -> Result<[AcceleratorPair; 2], DeviceNameError> {
+    Ok([
         AcceleratorPair {
-            name: "pair-0-1",
+            name: "pair-0-1".parse()?,
             members: ["accelerator-0", "accelerator-1"],
             interconnect: "nvlink",
         },
         AcceleratorPair {
-            name: "pair-2-3",
+            name: "pair-2-3".parse()?,
             members: ["accelerator-2", "accelerator-3"],
             interconnect: "nvlink",
         },
-    ]
+    ])
 }
 
 async fn write_cdi_spec(pairs: &[AcceleratorPair]) -> io::Result<()> {
@@ -118,7 +120,7 @@ async fn write_cdi_spec(pairs: &[AcceleratorPair]) -> io::Result<()> {
 struct AcceleratorPairDriver {
     name: DriverName,
     pool: PoolName,
-    pairs: BTreeMap<&'static str, AcceleratorPair>,
+    pairs: BTreeMap<DeviceName, AcceleratorPair>,
 }
 
 impl AcceleratorPairDriver {
@@ -130,7 +132,10 @@ impl AcceleratorPairDriver {
         Self {
             name,
             pool,
-            pairs: pairs.into_iter().map(|pair| (pair.name, pair)).collect(),
+            pairs: pairs
+                .into_iter()
+                .map(|pair| (pair.name.clone(), pair))
+                .collect(),
         }
     }
 
@@ -142,7 +147,7 @@ impl AcceleratorPairDriver {
             )));
         }
 
-        let Some(pair) = self.pairs.get(device.device_name.as_str()) else {
+        let Some(pair) = self.pairs.get(&device.device_name) else {
             return Err(PrepareError::DeviceUnavailable(format!(
                 "{}/{} is not an advertised connected pair",
                 device.pool_name, device.device_name
@@ -227,7 +232,7 @@ async fn main() -> io::Result<()> {
         .map_err(|error| io::Error::other(format!("NODE_NAME must be set: {error}")))?
         .parse()
         .map_err(io::Error::other)?;
-    let pairs = example_pairs();
+    let pairs = example_pairs().map_err(io::Error::other)?;
 
     write_cdi_spec(&pairs).await?;
     tracing::info!(
@@ -262,7 +267,7 @@ mod tests {
         AcceleratorPairDriver::new(
             DEFAULT_DRIVER_NAME.parse().unwrap(),
             DEFAULT_POOL_NAME.parse().unwrap(),
-            example_pairs(),
+            example_pairs().unwrap(),
         )
     }
 
@@ -276,7 +281,7 @@ mod tests {
 
     #[test]
     fn inventory_advertises_only_connected_pairs() {
-        let pairs = example_pairs();
+        let pairs = example_pairs().unwrap();
         let devices = pairs.iter().map(PoolDevice::from).collect::<Vec<_>>();
 
         assert_eq!(
@@ -321,7 +326,7 @@ mod tests {
     #[test]
     fn cdi_device_id_uses_the_pair_kind() {
         assert_eq!(
-            example_pairs()[1].cdi_device_id(),
+            example_pairs().unwrap()[1].cdi_device_id(),
             "accelerator.example.com/pair=pair-2-3"
         );
     }
@@ -329,7 +334,7 @@ mod tests {
     #[test]
     fn pair_conversion_preserves_the_cdi_environment_contract() {
         assert_eq!(
-            json::to_value(cdi::Device::from(&example_pairs()[0])).unwrap(),
+            json::to_value(cdi::Device::from(&example_pairs().unwrap()[0])).unwrap(),
             json::json!({
                 "name": "pair-0-1",
                 "containerEdits": {

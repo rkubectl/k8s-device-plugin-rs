@@ -13,6 +13,7 @@
 //! ```
 
 use std::collections::BTreeMap;
+use std::io;
 
 use parking_lot::Mutex;
 
@@ -35,19 +36,20 @@ struct ExampleWidgetPlugin {
 }
 
 impl ExampleWidgetPlugin {
-    fn new() -> Self {
+    fn new() -> io::Result<Self> {
         let devices = vec![
-            make_device("widget-0", Health::Healthy),
-            make_device("widget-1", Health::Healthy),
+            make_device("widget-0", Health::Healthy)?,
+            make_device("widget-1", Health::Healthy)?,
         ];
-        Self {
+        Ok(Self {
             devices: Mutex::new(devices),
-        }
+        })
     }
 }
 
-fn make_device(id: &str, health: Health) -> Device {
-    Device::rdwr(id.parse().unwrap(), format!("/dev/{id}")).health(health)
+fn make_device(id: &str, health: Health) -> io::Result<Device> {
+    let device_id = id.parse().map_err(io::Error::other)?;
+    Ok(Device::rdwr(device_id, format!("/dev/{id}")).health(health))
 }
 
 #[tonic::async_trait]
@@ -129,13 +131,13 @@ impl K8sDevicePlugin for ExampleWidgetPlugin {
 }
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let service = DevicePluginService::new(ExampleWidgetPlugin::new());
-    let plugin = DevicePlugin::new(RESOURCE_NAME.parse().unwrap(), service);
+    let service = DevicePluginService::new(ExampleWidgetPlugin::new()?);
+    let plugin = DevicePlugin::new(RESOURCE_NAME.parse().map_err(io::Error::other)?, service);
 
     tracing::info!(
         resource_name = RESOURCE_NAME,

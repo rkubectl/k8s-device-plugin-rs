@@ -421,13 +421,9 @@ fn empty_capacity_policy_values_match_but_nonempty_values_remain_distinct() {
     capacity.request_policy.as_mut().unwrap().valid_values = Some(vec![]);
     assert!(resource_slice_matches(&current, &desired));
     let name = "slice".to_string();
+    let desired = [(name.clone(), desired)];
     assert_eq!(
-        pool_generation(
-            &[(&name, &current)],
-            "pool-0",
-            std::slice::from_ref(&desired)
-        )
-        .unwrap(),
+        pool_generation(&[(&name, &current)], "pool-0", &desired).unwrap(),
         4
     );
 
@@ -439,9 +435,9 @@ fn empty_capacity_policy_values_match_but_nonempty_values_remain_distinct() {
         .unwrap();
     capacity.request_policy.as_mut().unwrap().valid_values =
         Some(vec![apiresource::Quantity("1".into())]);
-    assert!(!resource_slice_matches(&current, &desired));
+    assert!(!resource_slice_matches(&current, &desired[0].1));
     assert_eq!(
-        pool_generation(&[(&name, &current)], "pool-0", &[desired]).unwrap(),
+        pool_generation(&[(&name, &current)], "pool-0", &desired).unwrap(),
         5
     );
 }

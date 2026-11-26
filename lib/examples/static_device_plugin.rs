@@ -9,6 +9,8 @@
 //! cargo run --example static_device_plugin
 //! ```
 
+use std::io;
+
 use k8s_device_plugin_lib::Device;
 use k8s_device_plugin_lib::DevicePlugin;
 use k8s_device_plugin_lib::DevicePluginService;
@@ -17,14 +19,15 @@ use k8s_device_plugin_lib::StaticDevicePlugin;
 const RESOURCE_NAME: &str = "example.com/widget";
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> io::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let devices = vec![Device::rdwr("widget-0".parse().unwrap(), "/dev/widget0")];
+    let id = "widget-0".parse().map_err(io::Error::other)?;
+    let devices = vec![Device::rdwr(id, "/dev/widget0")];
     let service = DevicePluginService::new(StaticDevicePlugin::new(devices));
-    let plugin = DevicePlugin::new(RESOURCE_NAME.parse().unwrap(), service);
+    let plugin = DevicePlugin::new(RESOURCE_NAME.parse().map_err(io::Error::other)?, service);
 
     tracing::info!(
         resource_name = RESOURCE_NAME,

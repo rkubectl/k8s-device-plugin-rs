@@ -27,7 +27,9 @@ use k8s_device_plugin_dra::DeviceMetadataOptions;
 use k8s_device_plugin_dra::DraPlugin;
 use k8s_device_plugin_dra_core::ClaimPreparer;
 use k8s_device_plugin_dra_core::ClaimRef;
+use k8s_device_plugin_dra_core::CounterName;
 use k8s_device_plugin_dra_core::CounterSet;
+use k8s_device_plugin_dra_core::CounterSetName;
 use k8s_device_plugin_dra_core::DeviceBinding;
 use k8s_device_plugin_dra_core::DeviceCounterConsumption;
 use k8s_device_plugin_dra_core::DeviceName;
@@ -204,38 +206,37 @@ impl ResourcePool for StaticDraDriver {
 }
 
 /// Two pairs, each exposed both as individual cards and as a complete bridge.
-fn partitionable_inventory() -> PoolInventory {
+fn partitionable_inventory() -> io::Result<PoolInventory> {
+    let cards = "cards".parse::<CounterName>().map_err(io::Error::other)?;
+    let half = "0.5".parse::<Quantity>().map_err(io::Error::other)?;
     let mut inventory = PoolInventory::default();
     for pair in ["a", "b"] {
-        let set = format!("pair-{pair}");
-        inventory.shared_counters.push(
-            CounterSet::new(set.as_str().try_into().expect("valid set"))
-                .counter("cards".parse().unwrap(), Quantity::from(1)),
-        );
+        let set = format!("pair-{pair}")
+            .parse::<CounterSetName>()
+            .map_err(io::Error::other)?;
+        inventory
+            .shared_counters
+            .push(CounterSet::new(set.clone()).counter(cards.clone(), Quantity::from(1)));
         for (suffix, kind, consumption) in [
-            ("0", "card", "0.5"),
-            ("1", "card", "0.5"),
-            ("bridge", "pair", "1"),
+            ("0", "card", half.clone()),
+            ("1", "card", half.clone()),
+            ("bridge", "pair", Quantity::from(1)),
         ] {
-            let device =
-                PoolDevice::new(format!("{pair}-{suffix}").try_into().expect("valid device"))
-                    .attribute("type", kind)
-                    .attribute("pair", pair)
-                    .capacity("fractional", "0.5".parse().expect("valid fixture quantity"));
+            let name = format!("{pair}-{suffix}")
+                .parse()
+                .map_err(io::Error::other)?;
+            let device = PoolDevice::new(name)
+                .attribute("type", kind)
+                .attribute("pair", pair)
+                .capacity("fractional", half.clone());
             inventory
                 .devices
-                .push(
-                    InventoryDevice::new(device).with_consumes_counters(
-                        DeviceCounterConsumption::new(set.as_str().try_into().expect("valid set"))
-                            .counter(
-                                "cards".parse().unwrap(),
-                                consumption.parse().expect("valid fixture quantity"),
-                            ),
-                    ),
-                );
+                .push(InventoryDevice::new(device).with_consumes_counters(
+                    DeviceCounterConsumption::new(set.clone()).counter(cards.clone(), consumption),
+                ));
         }
     }
-    inventory
+    Ok(inventory)
 }
 
 #[async_trait]
@@ -413,7 +414,7 @@ async fn main() -> io::Result<()> {
         .with_binding(binding);
     match env_or_default("DRA_EXAMPLE_SHARED_COUNTERS", "0").as_str() {
         "0" => {}
-        "1" => driver = driver.with_inventory(partitionable_inventory()),
+        "1" => driver = driver.with_inventory(partitionable_inventory()?),
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,

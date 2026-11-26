@@ -173,9 +173,9 @@ fn canonicalize_devices(mut devices: Vec<resourcev1::Device>) -> Vec<resourcev1:
 /// Keep the API server's defaulted timestamp for an unchanged taint. Replacing
 /// it on each poll would reset toleration deadlines and continuously republish.
 fn preserve_taint_times(
-    desired: &mut [resourcev1::Device],
+    mut desired: Vec<resourcev1::Device>,
     existing: &[(&String, &resourcev1::ResourceSlice)],
-) {
+) -> Vec<resourcev1::Device> {
     let mut current_devices = BTreeMap::new();
     for (_, slice) in existing {
         for device in slice.spec.devices.iter().flatten() {
@@ -187,7 +187,7 @@ fn preserve_taint_times(
             }
         }
     }
-    for device in desired {
+    for device in &mut desired {
         let Some((_, current)) = current_devices.get(&device.name) else {
             continue;
         };
@@ -204,6 +204,7 @@ fn preserve_taint_times(
             }
         }
     }
+    desired
 }
 
 /// Reconciles a [`ResourcePool`]'s complete snapshot against the API server.
@@ -364,7 +365,7 @@ impl ResourceSlicePublisher {
             .into_iter()
             .map(|device| inventory_device_to_wire(device, pool_name))
             .collect::<kube::Result<Vec<_>>>()?;
-        let mut wire_devices = canonicalize_devices(wire_devices);
+        let wire_devices = canonicalize_devices(wire_devices);
         validate_counter_references(&wire_devices, &counters, pool_name)?;
         if wire_devices
             .windows(2)
@@ -380,7 +381,7 @@ impl ResourceSlicePublisher {
             .iter()
             .filter(|(_, slice)| slice.spec.pool.name == pool_name)
             .collect::<Vec<_>>();
-        preserve_taint_times(&mut wire_devices, &pool_existing);
+        let wire_devices = preserve_taint_times(wire_devices, &pool_existing);
         let chunk_size = if wire_devices
             .iter()
             .any(|device| device.taints.is_some() || device.consumes_counters.is_some())
@@ -414,9 +415,9 @@ impl ResourceSlicePublisher {
                 pool_name,
                 index,
             );
-            desired.push(resourcev1::ResourceSlice {
+            let slice = resourcev1::ResourceSlice {
                 metadata: metav1::ObjectMeta {
-                    name: Some(name),
+                    name: Some(name.clone()),
                     owner_references: Some(vec![owner.clone()]),
                     ..default()
                 },
@@ -432,16 +433,12 @@ impl ResourceSlicePublisher {
                     shared_counters,
                     ..default()
                 },
-            });
+            };
+            desired.push((name, slice));
         }
         let generation = pool_generation(&pool_existing, pool_name, &desired)?;
-        for mut desired in desired {
+        for (name, mut desired) in desired {
             desired.spec.pool.generation = generation;
-            let name = desired
-                .metadata
-                .name
-                .clone()
-                .expect("desired slice has a name");
             let pp = api::PostParams::default();
             if existing
                 .get(&name)
@@ -508,28 +505,23 @@ fn resource_slice_matches(
     current: &resourcev1::ResourceSlice,
     desired: &resourcev1::ResourceSlice,
 ) -> bool {
-    let mut current_spec = current.spec.clone();
-    let mut desired_spec = desired.spec.clone();
-    canonicalize_slice_spec(&mut current_spec);
-    canonicalize_slice_spec(&mut desired_spec);
+    let current_spec = canonicalize_slice_spec(current.spec.clone());
+    let desired_spec = canonicalize_slice_spec(desired.spec.clone());
     current_spec == desired_spec
         && current.metadata.owner_references == desired.metadata.owner_references
 }
 
-fn canonicalize_slice_spec(spec: &mut resourcev1::ResourceSliceSpec) {
+fn canonicalize_slice_spec(
+    mut spec: resourcev1::ResourceSliceSpec,
+) -> resourcev1::ResourceSliceSpec {
     spec.devices = spec
         .devices
-        .take()
         .filter(|values| !values.is_empty())
         .map(canonicalize_devices);
-    spec.shared_counters = spec
-        .shared_counters
-        .take()
-        .filter(|values| !values.is_empty());
+    spec.shared_counters = spec.shared_counters.filter(|values| !values.is_empty());
     k8s_openapi::k8s_if_ge_1_37! {
         spec.skip_node_operations = spec
             .skip_node_operations
-            .take()
             .filter(|values| !values.is_empty());
     }
     for device in spec.devices.iter_mut().flatten() {
@@ -538,7 +530,7 @@ fn canonicalize_slice_spec(spec: &mut resourcev1::ResourceSliceSpec) {
             .iter_mut()
             .flat_map(|values| values.values_mut())
         {
-            canonicalize_quantity(&mut capacity.value);
+            capacity.value = canonicalize_quantity(std::mem::take(&mut capacity.value));
             if let Some(policy) = &mut capacity.request_policy {
                 policy.valid_values = policy
                     .valid_values
@@ -548,7 +540,7 @@ fn canonicalize_slice_spec(spec: &mut resourcev1::ResourceSliceSpec) {
         }
         for consumption in device.consumes_counters.iter_mut().flatten() {
             for counter in consumption.counters.values_mut() {
-                canonicalize_quantity(&mut counter.value);
+                counter.value = canonicalize_quantity(std::mem::take(&mut counter.value));
             }
         }
     }
@@ -556,39 +548,29 @@ fn canonicalize_slice_spec(spec: &mut resourcev1::ResourceSliceSpec) {
         counters.sort_by(|left, right| left.name.cmp(&right.name));
         for set in counters {
             for counter in set.counters.values_mut() {
-                canonicalize_quantity(&mut counter.value);
+                counter.value = canonicalize_quantity(std::mem::take(&mut counter.value));
             }
         }
     }
+    spec
 }
 
-fn canonicalize_quantity(value: &mut apiresource::Quantity) {
+fn canonicalize_quantity(value: apiresource::Quantity) -> apiresource::Quantity {
     use k8s_quantity::Quantity;
 
-    if let Ok(quantity) = Quantity::try_from(&*value) {
-        value.0 = quantity.canonical_decimal();
-    }
+    Quantity::try_from(&value).map_or(value, |quantity| {
+        apiresource::Quantity(quantity.canonical_decimal())
+    })
 }
 
 fn pool_generation(
     existing: &[(&String, &resourcev1::ResourceSlice)],
     pool_name: &str,
-    desired: &[resourcev1::ResourceSlice],
+    desired: &[(String, resourcev1::ResourceSlice)],
 ) -> kube::Result<i64> {
     let expected = desired
         .iter()
-        .map(|slice| {
-            let mut spec = slice.spec.clone();
-            canonicalize_slice_spec(&mut spec);
-            (
-                slice
-                    .metadata
-                    .name
-                    .as_ref()
-                    .expect("desired slice has a name"),
-                spec,
-            )
-        })
+        .map(|(name, slice)| (name, canonicalize_slice_spec(slice.spec.clone())))
         .collect::<BTreeMap<_, _>>();
     let generations = existing
         .iter()
@@ -599,8 +581,7 @@ fn pool_generation(
         && generations.len() == 1
         && existing.iter().all(|(name, slice)| {
             expected.get(*name).is_some_and(|desired| {
-                let mut current = slice.spec.clone();
-                canonicalize_slice_spec(&mut current);
+                let mut current = canonicalize_slice_spec(slice.spec.clone());
                 current.pool.generation = desired.pool.generation;
                 current == *desired
             })

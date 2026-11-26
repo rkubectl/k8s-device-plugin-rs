@@ -18,14 +18,19 @@ use std::time::UNIX_EPOCH;
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
+use k8s_device_plugin_dra_core::DeviceName;
 use k8s_device_plugin_dra_core::DraDeviceHealth;
+use k8s_device_plugin_dra_core::PoolName;
 use k8s_device_plugin_dra_core::ResourceHealthError;
 use k8s_device_plugin_dra_core::ResourceHealthReport;
 use k8s_device_plugin_dra_core::ResourceHealthReporter;
 use k8s_device_plugin_dra_core::ResourceHealthStatus;
 
 #[derive(Debug)]
-struct WidgetHealthReporter;
+struct WidgetHealthReporter {
+    pool_name: PoolName,
+    device_name: DeviceName,
+}
 
 #[async_trait]
 impl ResourceHealthReporter for WidgetHealthReporter {
@@ -41,8 +46,8 @@ impl ResourceHealthReporter for WidgetHealthReporter {
             .map_err(|error| ResourceHealthError::MonitorFailed(error.to_string()))?;
         let report = ResourceHealthReport {
             devices: vec![DraDeviceHealth {
-                pool_name: "widget-pool".parse().unwrap(),
-                device_name: "widget-0".parse().unwrap(),
+                pool_name: self.pool_name.clone(),
+                device_name: self.device_name.clone(),
                 health: ResourceHealthStatus::Healthy,
                 last_updated_time,
                 health_check_timeout_seconds: 30,
@@ -61,7 +66,14 @@ impl ResourceHealthReporter for WidgetHealthReporter {
 #[tokio::main]
 async fn main() -> Result<(), ResourceHealthError> {
     let (sender, mut receiver) = mpsc::channel(1);
-    let reporter = WidgetHealthReporter;
+    let reporter = WidgetHealthReporter {
+        pool_name: "widget-pool"
+            .parse::<PoolName>()
+            .map_err(|error| ResourceHealthError::MonitorFailed(error.to_string()))?,
+        device_name: "widget-0"
+            .parse::<DeviceName>()
+            .map_err(|error| ResourceHealthError::MonitorFailed(error.to_string()))?,
+    };
     let watch = reporter.watch_resource_health(sender);
     let consume_one_report = async {
         let report = receiver.recv().await.ok_or_else(|| {

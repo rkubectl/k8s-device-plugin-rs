@@ -10,7 +10,7 @@ pub trait KubeClientExt {
     ) -> api::Api<resourcev1alpha3::ResourcePoolStatusRequest>;
 }
 
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "Kubernetes API construction is centralized in this extension trait"
 )]

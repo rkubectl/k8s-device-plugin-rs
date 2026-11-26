@@ -16,7 +16,18 @@ use bigdecimal::Zero as _;
 #[cfg(feature = "k8s-openapi")]
 mod openapi;
 
-const DECIMAL_SUFFIXES: [&str; 10] = ["n", "u", "m", "", "k", "M", "G", "T", "P", "E"];
+const DECIMAL_SUFFIXES: [(i64, &str); 10] = [
+    (-9, "n"),
+    (-6, "u"),
+    (-3, "m"),
+    (0, ""),
+    (3, "k"),
+    (6, "M"),
+    (9, "G"),
+    (12, "T"),
+    (15, "P"),
+    (18, "E"),
+];
 const BINARY_SUFFIXES: [&str; 6] = ["Ki", "Mi", "Gi", "Ti", "Pi", "Ei"];
 
 #[derive(Clone, Copy, Debug)]
@@ -78,14 +89,15 @@ impl Quantity {
         }
         // Values beyond Exa use exponent notation. This preserves their value
         // instead of dropping an unsupported SI suffix in older API servers.
-        if matches!(format, Format::DecimalExponent) || group > 18 {
-            if group != 0 {
-                return format!("{digits}e{group}");
-            }
-            return digits;
+        if !matches!(format, Format::DecimalExponent)
+            && let Some((_, suffix)) = DECIMAL_SUFFIXES
+                .iter()
+                .find(|(exponent, _)| *exponent == group)
+        {
+            digits.push_str(suffix);
+        } else if group != 0 {
+            return format!("{digits}e{group}");
         }
-        let index = usize::try_from(group / 3 + 3).expect("quantity is rounded to nano precision");
-        digits.push_str(DECIMAL_SUFFIXES[index]);
         digits
     }
 }
@@ -116,23 +128,23 @@ impl FromStr for Quantity {
         }
         let mut value = input[..end].parse::<BigDecimal>().map_err(|_| invalid())?;
         let suffix = &input[end..];
-        let mut format =
-            if let Some(index) = DECIMAL_SUFFIXES.iter().position(|unit| *unit == suffix) {
-                let exponent = (i64::try_from(index).expect("suffix index fits in i64") - 3) * 3;
-                let (coefficient, scale) = value.as_bigint_and_exponent();
-                value = BigDecimal::new(coefficient, scale - exponent);
-                Format::DecimalSI
-            } else if let Some(index) = BINARY_SUFFIXES.iter().position(|unit| *unit == suffix) {
-                value *= 1_u64 << ((index + 1) * 10);
-                Format::BinarySI
-            } else if let Some(exponent) = suffix.strip_prefix(['e', 'E']) {
-                let exponent = exponent.parse::<i32>().map_err(|_| invalid())?;
-                let (coefficient, scale) = value.as_bigint_and_exponent();
-                value = BigDecimal::new(coefficient, scale - i64::from(exponent));
-                Format::DecimalExponent
-            } else {
-                return Err(invalid());
-            };
+        let mut format = if let Some(&(exponent, _)) =
+            DECIMAL_SUFFIXES.iter().find(|(_, unit)| *unit == suffix)
+        {
+            let (coefficient, scale) = value.as_bigint_and_exponent();
+            value = BigDecimal::new(coefficient, scale - exponent);
+            Format::DecimalSI
+        } else if let Some(index) = BINARY_SUFFIXES.iter().position(|unit| *unit == suffix) {
+            value *= 1_u64 << ((index + 1) * 10);
+            Format::BinarySI
+        } else if let Some(exponent) = suffix.strip_prefix(['e', 'E']) {
+            let exponent = exponent.parse::<i32>().map_err(|_| invalid())?;
+            let (coefficient, scale) = value.as_bigint_and_exponent();
+            value = BigDecimal::new(coefficient, scale - i64::from(exponent));
+            Format::DecimalExponent
+        } else {
+            return Err(invalid());
+        };
 
         // with_scale_round's reduction path operates on coefficient digits;
         // even extreme small exponents do not allocate a power of ten.
@@ -157,10 +169,12 @@ impl FromStr for Quantity {
 
 impl fmt::Display for Quantity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if matches!(self.format, Format::BinarySI) && self.value.is_integer() {
-            // Binary quantities were bounded to signed-64-bit magnitude when
-            // parsed. Fractional binary amounts use exact decimal notation.
-            let value = self.value.to_i64().expect("BinarySI quantity is bounded");
+        // Binary quantities were bounded to signed-64-bit magnitude when
+        // parsed. Use exact decimal notation when there is no integer suffix.
+        if matches!(self.format, Format::BinarySI)
+            && self.value.is_integer()
+            && let Some(value) = self.value.to_i64()
+        {
             for (index, suffix) in BINARY_SUFFIXES.iter().enumerate().rev() {
                 let factor = 1_i64 << ((index + 1) * 10);
                 if value != 0 && value % factor == 0 {

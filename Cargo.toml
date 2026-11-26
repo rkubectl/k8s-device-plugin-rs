@@ -51,8 +51,10 @@ k8s-quantity = { path = "quantity", version = "0.7.1" }
 
 
 [workspace.lints.clippy]
+allow_attributes_without_reason = "warn"
 disallowed_methods = "warn"
-disallowed_types = "warn"
+disallowed_types = "deny"
+expect_used = "deny"
 from_over_into = "warn"
 infallible_try_from = "warn"
 large_futures = "warn"
@@ -61,6 +63,7 @@ map_unwrap_or = "warn"
 redundant_type_annotations = "warn"
 redundant_clone = "warn"
 should_implement_trait = "warn"
+unwrap_used = "deny"
 unused_async = "warn"
 use_self = "warn"
 wrong_self_convention = "warn"

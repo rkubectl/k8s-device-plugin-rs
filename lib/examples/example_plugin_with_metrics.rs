@@ -14,10 +14,13 @@
 //!
 //! Then, while it's running against a real kubelet: `curl http://127.0.0.1:9184/metrics`
 
+use std::io;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
 use parking_lot::Mutex;
+use prometheus_exporter::prometheus;
 use prometheus_exporter::prometheus::HistogramOpts;
 use prometheus_exporter::prometheus::HistogramVec;
 use prometheus_exporter::prometheus::IntCounterVec;
@@ -59,16 +62,15 @@ struct RpcMetrics {
 }
 
 impl RpcMetrics {
-    fn register() -> Self {
+    fn register() -> Result<Self, prometheus::Error> {
         let calls = IntCounterVec::new(
             Opts::new(
                 "device_plugin_rpc_calls_total",
                 "Total number of device plugin RPC handler invocations",
             ),
             &["rpc"],
-        )
-        .expect("valid metric definition");
-        register(Box::new(calls.clone())).expect("register calls counter");
+        )?;
+        register(Box::new(calls.clone()))?;
 
         let duration = HistogramVec::new(
             HistogramOpts::new(
@@ -76,11 +78,10 @@ impl RpcMetrics {
                 "Device plugin RPC handler duration in seconds",
             ),
             &["rpc"],
-        )
-        .expect("valid metric definition");
-        register(Box::new(duration.clone())).expect("register duration histogram");
+        )?;
+        register(Box::new(duration.clone()))?;
 
-        Self { calls, duration }
+        Ok(Self { calls, duration })
     }
 }
 
@@ -128,10 +129,11 @@ struct ExampleWidgetPlugin {
 }
 
 impl ExampleWidgetPlugin {
-    fn new() -> Self {
-        let device = Device::rdwr("widget-0".parse().unwrap(), "/dev/widget-0");
+    fn new() -> io::Result<Self> {
+        let id = "widget-0".parse().map_err(io::Error::other)?;
+        let device = Device::rdwr(id, "/dev/widget-0");
         let devices = Mutex::new(vec![device]);
-        Self { devices }
+        Ok(Self { devices })
     }
 }
 
@@ -167,20 +169,20 @@ impl DeviceAllocator for ExampleWidgetPlugin {
 impl K8sDevicePlugin for ExampleWidgetPlugin {}
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
-    let metrics = Arc::new(RpcMetrics::register());
+async fn main() -> io::Result<()> {
+    let metrics = Arc::new(RpcMetrics::register().map_err(io::Error::other)?);
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
         .with(RpcMetricsLayer { metrics })
         .init();
 
-    let binding = "127.0.0.1:9184".parse().expect("valid socket address");
-    prometheus_exporter::start(binding).expect("failed to start Prometheus exporter");
+    let binding = SocketAddr::from(([127, 0, 0, 1], 9184));
+    prometheus_exporter::start(binding).map_err(io::Error::other)?;
     tracing::info!("Prometheus metrics available at http://127.0.0.1:9184/metrics");
 
-    let service = DevicePluginService::new(ExampleWidgetPlugin::new());
-    let plugin = DevicePlugin::new(RESOURCE_NAME.parse().unwrap(), service);
+    let service = DevicePluginService::new(ExampleWidgetPlugin::new()?);
+    let plugin = DevicePlugin::new(RESOURCE_NAME.parse().map_err(io::Error::other)?, service);
     plugin.run().await
 }
 

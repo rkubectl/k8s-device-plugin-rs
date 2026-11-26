@@ -78,8 +78,10 @@ pub(super) fn consumptions_to_wire(
                     "has duplicate device counter-set references",
                 ));
             }
-            // v1.37 adds compatibility_groups; keep the v1.36 schema supported.
-            #[allow(clippy::needless_update)]
+            #[allow(
+                clippy::needless_update,
+                reason = "v1.37 adds compatibility_groups, so this lint fires only with v1.36"
+            )]
             let wire = resourcev1::DeviceCounterConsumption {
                 counter_set: consumption.counter_set.into_string(),
                 counters: counters_to_wire(consumption.counters, pool_name)?,
