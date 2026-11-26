@@ -31,7 +31,7 @@ application uses:
 async-trait = "0.1"
 k8s-device-plugin = { version = "0.7.1", default-features = false, features = ["dra"] }
 k8s-openapi = { version = "0.29", features = ["v1_37"] }
-kube = "5.0"
+kube = "5.2"
 tokio = { version = "1.52", features = ["macros", "rt-multi-thread"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

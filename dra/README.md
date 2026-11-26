@@ -53,7 +53,7 @@ Applications choose exactly one schema in their own manifest:
 
 ```toml
 k8s-openapi = { version = "0.29", features = ["v1_36"] }
-kube = "5.0"
+kube = "5.2"
 ```
 
 The supported choices are `v1_36` and `v1_37`; older schemas do not contain
