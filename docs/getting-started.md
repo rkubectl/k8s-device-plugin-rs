@@ -29,7 +29,7 @@ application uses:
 ```toml
 [dependencies]
 async-trait = "0.1"
-k8s-device-plugin = { version = "0.7.1", default-features = false, features = ["dra"] }
+k8s-device-plugin = { version = "0.7.2", default-features = false, features = ["dra"] }
 k8s-openapi = { version = "0.29", features = ["v1_37"] }
 kube = "5.2"
 tokio = { version = "1.52", features = ["macros", "rt-multi-thread"] }
@@ -163,7 +163,7 @@ Enable it in the umbrella crate and use the runnable
 example as the trait-level starting point:
 
 ```toml
-k8s-device-plugin = { version = "0.7.1", default-features = false, features = ["dra"] }
+k8s-device-plugin = { version = "0.7.2", default-features = false, features = ["dra"] }
 ```
 
 Implement `ResourceHealthReporter` on the same backend as `DraDriver`, then
