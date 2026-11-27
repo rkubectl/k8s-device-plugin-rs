@@ -61,7 +61,7 @@ pub(super) struct JournalDevice {
     cdi: Vec<String>,
     device: String,
     pool: String,
-    requests: Vec<String>,
+    pub(super) requests: Vec<String>,
 }
 
 impl From<&PreparedDevice> for JournalDevice {

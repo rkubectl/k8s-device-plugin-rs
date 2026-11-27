@@ -174,7 +174,8 @@ poll interval. Builders can be combined with metadata and health activation.
 `ClaimResolver::new(client, driver_name)` exposes only that driver's allocations
 to the preparer. Allocation request references retain `/subrequest` suffixes;
 prepared responses normalize them to deduplicated top-level request names for
-kubelet. An empty request-name list continues to mean all requests. Local
+kubelet. An empty request-name list means all requests, bounded by the device's
+actual allocation when container metadata is enabled. Local
 allocations with share IDs are rejected before preparation: shared/consumable
 device preparation is not yet supported, including the metadata path.
 

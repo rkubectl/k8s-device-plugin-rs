@@ -64,6 +64,9 @@ backend's ResourceSlice inventory. Runtime-only scalar attributes are also
 possible. The framework does not scrape ResourceSlices or serialize arbitrary
 claim annotations/status. It retains the original UID-checked claim context
 for request/annotation routing; no second claim lookup or Pod watch is needed.
+An empty prepared-device request list exposes the physical CDI edits only to
+requests that allocated that device. Existing version-1 journals retain their
+original bytes when replayed.
 
 Attribute keys follow DRA qualified-name rules: optional DNS domain of at most
 63 bytes, then a C identifier of at most 32 bytes. At most 32 attributes are

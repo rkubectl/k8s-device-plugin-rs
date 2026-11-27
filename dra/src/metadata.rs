@@ -198,6 +198,7 @@ struct Plan {
     documents: BTreeMap<String, String>,
     specs: BTreeMap<String, String>,
     devices: Vec<PreparedDevice>,
+    legacy_wildcards: BTreeSet<usize>,
 }
 
 impl Plan {
@@ -277,6 +278,7 @@ impl Plan {
         > = BTreeMap::new();
         let mut full_names: BTreeMap<String, String> = BTreeMap::new();
         let mut wire = Vec::with_capacity(prepared.len());
+        let mut legacy_wildcards = BTreeSet::new();
         for entry in prepared {
             let device = entry.device;
             if entry.attributes.len() > 32
@@ -359,8 +361,11 @@ impl Plan {
                 ));
             }
             let mut physical = device;
-            // Preserve empty => all-requests semantics for physical CDI edits.
-            if !physical.request_names.is_empty() {
+            let wildcard = physical.request_names.is_empty();
+            if !wildcard || base_names.len() < declared.len() {
+                if wildcard {
+                    legacy_wildcards.insert(wire.len());
+                }
                 physical.request_names = base_names.into_iter().collect();
             }
             wire.push(physical);
@@ -440,13 +445,27 @@ impl Plan {
             documents,
             specs,
             devices: wire,
+            legacy_wildcards,
         })
     }
 
     fn journal(&self, driver: &str) -> wire::Journal {
         wire::Journal {
             claim: self.claim.clone(),
-            devices: self.devices.iter().map(wire::JournalDevice::from).collect(),
+            devices: self
+                .devices
+                .iter()
+                .enumerate()
+                .map(|(index, device)| {
+                    let mut recorded = wire::JournalDevice::from(device);
+                    // Keep version-1 journal bytes during retries. Only the RPC
+                    // response uses the checked scope of an old wildcard.
+                    if self.legacy_wildcards.contains(&index) {
+                        recorded.requests.clear();
+                    }
+                    recorded
+                })
+                .collect(),
             documents: self.documents.clone(),
             driver: driver.to_string(),
             version: 1,

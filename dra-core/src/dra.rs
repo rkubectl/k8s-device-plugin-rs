@@ -132,7 +132,9 @@ pub struct ResolvedClaim {
 pub struct PreparedDevice {
     /// Request references satisfied by this device. The runtime strips
     /// `/subrequest` suffixes and deduplicates them for kubelet. An empty list
-    /// associates the device with every request in the claim.
+    /// associates the device with every request in the claim. With container
+    /// metadata enabled, the runtime limits this wildcard to the requests
+    /// that allocated this device.
     pub request_names: Vec<String>,
     /// The pool and device this was prepared from, required by the
     /// wire-level `dra.v1.Device` message -- not necessarily inferable

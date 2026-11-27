@@ -350,17 +350,47 @@ fn template_subrequest_paths_and_full_json_reference() {
         )
     );
 }
-#[test]
-fn all_requests_preserves_physical_cdi_scope_without_inventing_metadata_memberships() {
+#[tokio::test]
+async fn wildcard_device_is_scoped_on_replay_of_a_version_one_journal() {
     let tmp = camino_tempfile::tempdir().unwrap();
-    let runtime = new_runtime(tmp.path());
-    let mut device = prepared("a", "widget-0");
+    let runtime = Arc::new(
+        MetadataRuntime::new(
+            "dra.example.com".parse().unwrap(),
+            DeviceMetadataOptions::v1beta1()
+                .with_plugin_directories(tmp.path().join("plugin"), "/node/plugin")
+                .with_cdi_directory(tmp.path().join("cdi")),
+        )
+        .unwrap(),
+    );
+    let mut device = prepared("a", "widget-0")
+        .with_attribute("enabled", true)
+        .with_attribute("index", -42)
+        .with_attribute("version", AttributeValue::version("1.2.3"));
     device.device.request_names.clear();
-    let plan = Plan::build(&runtime, &claim(), vec![device]).unwrap();
-    assert!(plan.devices[0].request_names.is_empty());
-    assert_eq!(plan.documents.len(), 1);
-    assert!(plan.documents.contains_key("a"));
-    assert!(!plan.documents.contains_key("b"));
+
+    let mut legacy =
+        json::from_slice::<json::Value>(include_bytes!("fixtures/journal-v1-direct.json")).unwrap();
+    let devices = legacy["devices"].as_array_mut().unwrap();
+    devices.remove(3);
+    devices.remove(1);
+    devices[0]["requests"] = json::json!([]);
+    legacy["documents"].as_object_mut().unwrap().remove("b");
+    legacy["specs"].as_object_mut().unwrap().remove("b");
+    let legacy_bytes = json::to_vec(&legacy).unwrap();
+    let claim_dir = tmp.path().join("plugin/dra-device-metadata/claim-uid");
+    fs::create_dir_all(&claim_dir).unwrap();
+    let journal = claim_dir.join("journal.json");
+    fs::write(&journal, &legacy_bytes).unwrap();
+
+    let devices = runtime
+        .publish(claim(), vec![device], Arc::default())
+        .await
+        .unwrap();
+    assert_eq!(devices.len(), 2);
+    assert!(devices.iter().all(|device| device.request_names == ["a"]));
+    assert!(data(tmp.path(), "a").exists());
+    assert!(!data(tmp.path(), "b").exists());
+    assert_eq!(fs::read(journal).unwrap(), legacy_bytes);
 }
 #[test]
 fn rejects_foreign_unallocated_conflicting_or_malformed_payloads() {
