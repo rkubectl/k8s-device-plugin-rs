@@ -436,11 +436,15 @@ impl ResourceSlicePublisher {
         }
 
         let generation = pool_generation(&pool_existing, pool_name, &desired)?;
+        let pp = api::PostParams::default();
         for (name, mut desired) in desired {
             desired.spec.pool.generation = generation;
-            let pp = api::PostParams::default();
             match existing.remove(&name) {
-                Some(current) if resource_slice_matches(&current, &desired) => {}
+                // Keeping the generation means every normalized spec already matches.
+                Some(current)
+                    if current.spec.pool.generation == generation
+                        && current.metadata.owner_references
+                            == desired.metadata.owner_references => {}
                 Some(mut current) => {
                     current.metadata.owner_references = desired.metadata.owner_references;
                     current.spec = desired.spec;
@@ -526,16 +530,6 @@ fn invalid_pool_error(pool_name: &str, reason: &str) -> kube::Error {
             .with_code(422)
             .boxed(),
     )
-}
-
-fn resource_slice_matches(
-    current: &resourcev1::ResourceSlice,
-    desired: &resourcev1::ResourceSlice,
-) -> bool {
-    let current_spec = canonicalize_slice_spec(current.spec.clone());
-    let desired_spec = canonicalize_slice_spec(desired.spec.clone());
-    current_spec == desired_spec
-        && current.metadata.owner_references == desired.metadata.owner_references
 }
 
 fn canonicalize_slice_spec(

@@ -223,6 +223,44 @@ async fn publish_once_is_a_noop_when_existing_devices_are_reordered() {
 }
 
 #[tokio::test]
+async fn publish_once_repairs_the_owner_without_advancing_the_generation() {
+    let (publisher, mut handle) = mock_publisher(one_pool(
+        "pool-0",
+        vec![PoolDevice::new("widget-0".parse().unwrap())],
+    ));
+
+    let script = async {
+        respond(&mut handle, 200, &node("node-0", "new-node-uid")).await;
+        let existing = owned_slice(
+            &slice_name("example.com", "node-0", "pool-0", 0),
+            4,
+            "pool-0",
+            1,
+            vec![device("widget-0")],
+        );
+        respond(&mut handle, 200, &resource_slice_list(vec![existing])).await;
+        let (replace, send) = handle.next_request().await.unwrap();
+        assert_eq!(replace.method(), http::Method::PUT);
+        let body = request_body_json(replace).await;
+        assert_eq!(body["spec"]["pool"]["generation"], 4);
+        assert_eq!(
+            body["metadata"]["ownerReferences"][0]["uid"],
+            "new-node-uid"
+        );
+        send.send_response(http::Response::new(client::Body::from(
+            json::to_vec(&body).unwrap(),
+        )));
+    };
+
+    let (script_result, result) = tokio::join!(
+        tokio::time::timeout(Duration::from_secs(2), script),
+        publisher.publish_once()
+    );
+    script_result.unwrap();
+    result.unwrap();
+}
+
+#[tokio::test]
 async fn publish_once_updates_changed_pool_with_next_generation() {
     let (publisher, mut handle) = mock_publisher(one_pool(
         "pool-0",
@@ -493,7 +531,6 @@ fn empty_capacity_policy_values_match_but_nonempty_values_remain_distinct() {
         .get_mut("memory")
         .unwrap();
     capacity.request_policy.as_mut().unwrap().valid_values = Some(vec![]);
-    assert!(resource_slice_matches(&current, &desired));
     let name = "slice".to_string();
     let desired = [(name.clone(), desired)];
     assert_eq!(
@@ -509,7 +546,6 @@ fn empty_capacity_policy_values_match_but_nonempty_values_remain_distinct() {
         .unwrap();
     capacity.request_policy.as_mut().unwrap().valid_values =
         Some(vec![apiresource::Quantity("1".into())]);
-    assert!(!resource_slice_matches(&current, &desired[0].1));
     assert_eq!(
         pool_generation(&[(&name, &current)], "pool-0", &desired).unwrap(),
         5
