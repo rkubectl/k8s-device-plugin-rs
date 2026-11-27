@@ -1,5 +1,7 @@
 //! Authoritative `ResourceSlice` publisher.
 
+use std::sync::atomic::Ordering;
+
 use k8s_openapi::jiff;
 use kube::Resource as _;
 
@@ -455,11 +457,21 @@ impl ResourceSlicePublisher {
     /// Publishes once immediately, then re-publishes every poll interval.
     /// Failures use a bounded exponential delay and success resets it.
     pub fn spawn(self) -> task::JoinHandle<()> {
+        self.spawn_with_initial_publication(None)
+    }
+
+    pub(crate) fn spawn_with_initial_publication(
+        self,
+        mut initial_publication: Option<Arc<AtomicBool>>,
+    ) -> task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut failed_attempts = 0_u32;
             loop {
                 let delay = match self.publish_once().await {
                     Ok(()) => {
+                        if let Some(published) = initial_publication.take() {
+                            published.store(true, Ordering::Relaxed);
+                        }
                         failed_attempts = 0;
                         self.poll_interval
                     }

@@ -6,13 +6,14 @@ use tower::service_fn;
 use super::*;
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+pub(crate) const INVENTORY_PUBLISHED_HEADER: &str = "x-k8s-device-plugin-inventory-published";
 
 /// A non-mutating liveness probe for one node-local DRA plugin instance.
 ///
 /// [`Self::check`] verifies both serving sockets with real gRPC calls: it
 /// invokes registration `GetInfo`, then `NodePrepareResources` with an empty
 /// claim batch. The latter cannot prepare a device, so the check is safe to
-/// run repeatedly from a Kubernetes `exec` liveness or readiness probe.
+/// run repeatedly from a Kubernetes `exec` probe.
 #[derive(Clone, Debug)]
 pub struct DraPluginLivenessProbe {
     driver_name: DriverName,
@@ -54,6 +55,28 @@ impl DraPluginLivenessProbe {
     /// it advertises a different plugin endpoint, or when either gRPC call
     /// fails.
     pub async fn check(&self) -> io::Result<()> {
+        self.check_sockets().await.map(|_| ())
+    }
+
+    /// Checks the serving sockets and whether this `DraPlugin` instance has
+    /// successfully reconciled its inventory at least once.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same socket and RPC errors as [`Self::check`], or
+    /// [`io::ErrorKind::WouldBlock`] while initial publication is pending.
+    pub async fn check_readiness(&self) -> io::Result<()> {
+        if self.check_sockets().await? {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "DRA inventory has not been published by this instance",
+            ))
+        }
+    }
+
+    async fn check_sockets(&self) -> io::Result<bool> {
         let registration_channel = connect(&self.registration_socket_path, "registration").await?;
         let mut registration_client =
             dra::registration::RegistrationClient::new(registration_channel);
@@ -101,13 +124,16 @@ impl DraPluginLivenessProbe {
 
         let plugin_channel = connect(&self.plugin_socket_path, "DRAPlugin").await?;
         let mut plugin_client = dra::v1::DraPluginClient::new(plugin_channel);
-        plugin_client
+        let response = plugin_client
             .node_prepare_resources(tonic::Request::new(dra::v1::NodePrepareResourcesRequest {
                 claims: Vec::new(),
             }))
             .await
             .map_err(|error| rpc_error("DRAPlugin NodePrepareResources", error))?;
-        Ok(())
+        Ok(response
+            .metadata()
+            .get(INVENTORY_PUBLISHED_HEADER)
+            .is_some_and(|value| value == "true"))
     }
 }
 

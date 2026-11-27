@@ -572,8 +572,8 @@ async fn liveness_probe_rejects_other_plugin_types_with_plain_string_diagnostics
 }
 
 #[tokio::test]
-async fn liveness_probe_checks_both_dra_sockets_with_real_rpcs() {
-    let (client, _kube_handle) = mock_kube_client();
+async fn readiness_requires_successful_publication_but_liveness_does_not() {
+    let (client, mut kube_handle) = mock_kube_client();
     let registration_dir = Utf8TempDir::new().expect("create temp dir for registration socket");
     let registration_socket_path = registration_dir.path().join("plugin-reg.sock");
     let plugin_dir = Utf8TempDir::new().expect("create temp dir for plugin socket");
@@ -584,35 +584,70 @@ async fn liveness_probe_checks_both_dra_sockets_with_real_rpcs() {
         devices: vec![PoolDevice::new("widget-0".parse().unwrap())],
     };
 
-    let registration = DraRegistrationServer::for_test(
-        &"example.com".parse().unwrap(),
+    let mut plugin = DraPlugin::new(
+        client,
+        driver.name.clone(),
+        "node-0".parse().unwrap(),
+        driver,
+    )
+    .unwrap()
+    .with_publisher_retry_backoff(Duration::from_millis(1), Duration::from_millis(1));
+    plugin.registration = DraRegistrationServer::for_test(
+        &plugin.driver_name,
         &plugin_socket_path,
         registration_socket_path.clone(),
     );
-    let registration_handle = registration
-        .spawn()
-        .await
-        .expect("spawn registration server");
-    let service = DraPluginService::new(
-        ClaimResolver::new(client, "example.com".parse().unwrap()),
-        driver,
-    );
-    let service_handle = service
-        .spawn_at(&plugin_socket_path)
-        .await
-        .expect("spawn DRAPlugin service");
-
-    DraPluginLivenessProbe::with_socket_paths(
-        &"example.com".parse().unwrap(),
+    let probe = DraPluginLivenessProbe::with_socket_paths(
+        &plugin.driver_name,
         registration_socket_path,
-        plugin_socket_path,
-    )
-    .check()
-    .await
-    .expect("both DRA sockets answer the liveness probe");
+        &plugin_socket_path,
+    );
+    let run = tokio::spawn(async move { plugin.run_at(&plugin_socket_path).await });
 
-    registration_handle.abort();
-    service_handle.abort();
+    respond(
+        &mut kube_handle,
+        403,
+        &kube::core::Status::failure("forbidden", "Forbidden").with_code(403),
+    )
+    .await;
+    let (request, send) = kube_handle.next_request().await.unwrap();
+    assert_eq!(request.uri().path(), "/api/v1/nodes/node-0");
+    probe.check().await.unwrap();
+    assert_eq!(
+        probe.check_readiness().await.unwrap_err().kind(),
+        io::ErrorKind::WouldBlock
+    );
+
+    send.send_response(http::Response::new(client::Body::from(
+        json::to_vec(&node("node-0", "node-uid-0")).unwrap(),
+    )));
+    respond(
+        &mut kube_handle,
+        200,
+        &k8s_openapi::List::<resourcev1::ResourceSlice>::default(),
+    )
+    .await;
+    let (create, send) = kube_handle.next_request().await.unwrap();
+    assert_eq!(create.method(), http::Method::POST);
+    assert_eq!(
+        probe.check_readiness().await.unwrap_err().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    send.send_response(http::Response::new(create.into_body()));
+    time::timeout(Duration::from_secs(2), async {
+        loop {
+            match probe.check_readiness().await {
+                Ok(()) => break,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    time::sleep(Duration::from_millis(5)).await;
+                }
+                Err(error) => panic!("{error}"),
+            }
+        }
+    })
+    .await
+    .unwrap();
+    run.abort();
 }
 
 #[tokio::test]

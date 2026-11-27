@@ -110,17 +110,16 @@ reporting path and these permissions.
 The example image contains `/usr/local/bin/k8s-device-plugin-dra-liveness`.
 It calls the registration socket's `GetInfo` RPC, checks that the advertised
 endpoint is the expected plugin socket, then calls `NodePrepareResources` with
-an empty claim batch. The latter is non-mutating, so it is safe for the
-`startupProbe`, `livenessProbe`, and `readinessProbe` in `daemonset.yaml`.
-Copy that strategy into a real driver image by using
+an empty claim batch. Both calls are non-mutating. The startup and liveness
+probes check the sockets. The readiness probe adds `--ready` to wait for the
+current process's first successful ResourceSlice reconciliation.
+Use the same probes in a real driver image through
 [`DraPluginLivenessProbe`](../src/health.rs) or an equivalent real-RPC
-implementation; checking merely that `*.sock` files exist does not prove that a
-server is accepting requests.
+implementation.
 
-Readiness means that both node-local gRPC servers answer. It does not by itself
-prove that inventory reached the API server, so rollout gates must also verify
-at least one correctly-owned `ResourceSlice` for every ready driver pod. If
-any registration server, DRA service, or publisher task exits,
+Readiness records initial publication, so rollout validation should still
+verify the expected inventory. If any registration server, DRA service, or
+publisher task exits,
 `DraPlugin::run()` aborts the other tasks and returns an error; a normal
 DaemonSet pod restart then restarts the process. Alert on restarts and failed
 probes instead of assuming that a healthy process implies healthy inventory.

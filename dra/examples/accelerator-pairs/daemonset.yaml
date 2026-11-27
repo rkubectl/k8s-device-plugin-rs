@@ -57,7 +57,7 @@ spec:
             failureThreshold: 3
           readinessProbe:
             exec:
-              command: ["/usr/local/bin/k8s-device-plugin-dra-liveness"]
+              command: ["/usr/local/bin/k8s-device-plugin-dra-liveness", "--ready"]
             periodSeconds: 5
             timeoutSeconds: 5
             failureThreshold: 3

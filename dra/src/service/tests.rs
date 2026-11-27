@@ -1,5 +1,4 @@
 use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 
 use camino_tempfile::Utf8TempDir;
 use kube::client;

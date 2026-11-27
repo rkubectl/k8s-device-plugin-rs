@@ -13,6 +13,7 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use camino::Utf8Path;
@@ -308,7 +309,12 @@ impl DraPlugin {
     /// `/var/lib/kubelet/plugins/<driver_name>/` -- same split
     /// `DraPluginService::spawn`/`spawn_at` already uses.
     async fn run_at(self, plugin_socket_path: &Utf8Path) -> io::Result<()> {
-        let service_handle = self.service.spawn_at(plugin_socket_path).await?;
+        let initial_publication = Arc::new(AtomicBool::new(false));
+        let service_handle = self
+            .service
+            .with_initial_publication(Arc::clone(&initial_publication))
+            .spawn_at(plugin_socket_path)
+            .await?;
         let registration_handle = match self.registration.spawn().await {
             Ok(handle) => handle,
             Err(err) => {
@@ -317,7 +323,9 @@ impl DraPlugin {
                 return Err(err);
             }
         };
-        let publisher_handle = self.publisher.spawn();
+        let publisher_handle = self
+            .publisher
+            .spawn_with_initial_publication(Some(initial_publication));
 
         wait_for_component_exit(registration_handle, service_handle, publisher_handle).await
     }

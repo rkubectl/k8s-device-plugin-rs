@@ -1,6 +1,8 @@
 //! `DRAPlugin` gRPC service (`NodePrepareResources`/`NodeUnprepareResources`)
 //! — see beads issue 9uf.7.
 
+use std::sync::atomic::Ordering;
+
 use tokio_stream::wrappers::UnixListenerStream;
 
 use super::*;
@@ -77,6 +79,7 @@ pub struct DraPluginService {
     preparer: Arc<dyn ClaimPreparer>,
     metadata: Option<Arc<metadata::MetadataRuntime>>,
     health: DraResourceHealthService,
+    initial_publication: Option<Arc<AtomicBool>>,
 }
 
 impl fmt::Debug for DraPluginService {
@@ -92,6 +95,7 @@ impl DraPluginService {
             preparer: Arc::new(preparer),
             metadata: None,
             health: DraResourceHealthService::unsupported(),
+            initial_publication: None,
         }
     }
 
@@ -102,6 +106,11 @@ impl DraPluginService {
 
     pub(crate) fn with_claim_retry_policy(mut self, attempts: usize, delay: Duration) -> Self {
         self.resolver = self.resolver.with_retry_policy(attempts, delay);
+        self
+    }
+
+    pub(crate) fn with_initial_publication(mut self, publication: Arc<AtomicBool>) -> Self {
+        self.initial_publication = Some(publication);
         self
     }
 
@@ -227,7 +236,18 @@ impl dra::v1::DraPlugin for DraPluginService {
         // Liveness probes use an empty batch. Keep them independent of backend
         // behavior, including metadata preparation hooks.
         if claim_refs.is_empty() {
-            return Ok(tonic::Response::new(default()));
+            let mut response = tonic::Response::new(default());
+            if self
+                .initial_publication
+                .as_ref()
+                .is_some_and(|published| published.load(Ordering::Relaxed))
+            {
+                response.metadata_mut().insert(
+                    health::INVENTORY_PUBLISHED_HEADER,
+                    tonic::metadata::MetadataValue::from_static("true"),
+                );
+            }
+            return Ok(response);
         }
 
         if let Some(metadata) = &self.metadata {
