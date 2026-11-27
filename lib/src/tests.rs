@@ -857,6 +857,32 @@ async fn run_reregisters_after_kubelet_disconnects() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn run_rebinds_socket_removed_before_kubelet_opens_a_watch() {
+    let kubelet = k8s_device_plugin_test::registration::start_mock_registration_server(None);
+    let directory = Utf8TempDir::new().unwrap();
+    let endpoint = directory.path().join("plugin.sock");
+    let plugin = DevicePlugin::for_test(
+        "example.com/device".parse().unwrap(),
+        make_service(),
+        endpoint.clone(),
+        kubelet.socket_path().to_path_buf(),
+    );
+    let run = tokio::spawn(async move { plugin.run().await });
+
+    wait_for_request_count(&kubelet, 1).await;
+    std::fs::remove_file(&endpoint).unwrap();
+    wait_for_request_count(&kubelet, 2).await;
+    let mut client =
+        k8s_device_plugin_test::device_plugin::MockDevicePluginClient::connect(&endpoint)
+            .await
+            .unwrap();
+    client.list_and_watch_once().await.unwrap();
+
+    run.abort();
+    kubelet.shutdown();
+}
+
+#[tokio::test(start_paused = true)]
 async fn run_reaps_server_before_returning_registration_failure() {
     let dir = Utf8TempDir::new().unwrap();
     let endpoint = dir.path().join("plugin.sock");

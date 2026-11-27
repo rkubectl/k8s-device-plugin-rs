@@ -178,27 +178,42 @@ impl DevicePlugin {
     /// Runs for the process lifetime. Dropping this future does not stop the
     /// serving task; terminate the process to shut down the plugin.
     pub async fn run(&self) -> io::Result<()> {
-        let mut server_handle = self.spawn_server()?;
+        loop {
+            let mut server = self.spawn_server()?;
+            let result = tokio::select! {
+                biased;
+                result = &mut server => return Err(server_exit_error(result)),
+                result = self.wait_for_socket_removal() => result,
+                result = self.registration_loop() => result,
+            };
+            server.abort();
+            let _ = server.await;
+            result?;
+            tracing::warn!("kubelet removed the plugin socket; rebinding");
+        }
+    }
+
+    async fn wait_for_socket_removal(&self) -> io::Result<()> {
+        // Kubelet startup unlinks device-plugin sockets, even before a watch exists.
+        loop {
+            match tokio::fs::symlink_metadata(&self.endpoint).await {
+                Ok(_) => tokio::time::sleep(Duration::from_millis(250)).await,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    async fn registration_loop(&self) -> io::Result<()> {
         loop {
             // Subscribe before registering so a fast kubelet disconnect is never missed.
             let kubelet_gone = self.service.kubelet_gone.notified();
-            if let Err(err) = self.register_with_retry().await {
-                tracing::error!(%err, "registration permanently failed; shutting down");
-                // Registration is permanently exhausted: abort the spawned server task
-                // so it doesn't keep serving RPCs against a listener nobody can reach.
-                server_handle.abort();
-                let _ = server_handle.await;
-                return Err(err);
-            }
+            self.register_with_retry().await.inspect_err(
+                |err| tracing::error!(%err, "registration permanently failed; shutting down"),
+            )?;
             tracing::info!("registered with kubelet");
-            tokio::select! {
-                result = &mut server_handle => {
-                    return Err(server_exit_error(result));
-                }
-                _ = kubelet_gone => {
-                    tracing::warn!("kubelet disconnected; re-registering");
-                }
-            }
+            kubelet_gone.await;
+            tracing::warn!("kubelet disconnected; re-registering");
         }
     }
 
