@@ -333,21 +333,15 @@ impl ResourceSlicePublisher {
     }
 
     async fn owner_reference(&self) -> kube::Result<metav1::OwnerReference> {
-        let api = self.client.nodes();
-        let node = api.get(&self.node_name).await?;
-        node.owner_ref(&())
-            .map(|owner_ref| metav1::OwnerReference {
-                controller: Some(true),
-                block_owner_deletion: Some(false),
-                ..owner_ref
-            })
-            .ok_or_else(|| {
-                kube::Error::Api(
-                    kube::core::Status::failure("node object is missing a UID", "Invalid")
-                        .with_code(422)
-                        .boxed(),
-                )
-            })
+        let node = self.client.nodes().get(&self.node_name).await?;
+        node.controller_owner_ref(&()).ok_or_else(|| {
+            std::hint::cold_path();
+            kube::Error::Api(
+                kube::core::Status::failure("node object is missing a UID", "Invalid")
+                    .with_code(422)
+                    .boxed(),
+            )
+        })
     }
 
     async fn reconcile_pool(

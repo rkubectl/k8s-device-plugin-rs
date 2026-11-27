@@ -101,7 +101,7 @@ fn owned_slice(
         name: "node-0".into(),
         uid: "node-uid-0".into(),
         controller: Some(true),
-        block_owner_deletion: Some(false),
+        ..default()
     }]);
     slice
 }
@@ -148,7 +148,10 @@ async fn publish_once_creates_slice_when_absent() {
         assert_eq!(body["spec"]["pool"]["generation"], 1);
         assert_eq!(body["spec"]["pool"]["resourceSliceCount"], 1);
         assert_eq!(body["spec"]["devices"][0]["name"], "widget-0");
-        assert_eq!(body["metadata"]["ownerReferences"][0]["uid"], "node-uid-0");
+        let owner = &body["metadata"]["ownerReferences"][0];
+        assert_eq!(owner["uid"], "node-uid-0");
+        assert_eq!(owner["controller"], true);
+        assert!(owner.get("blockOwnerDeletion").is_none());
         send.send_response(http::Response::new(client::Body::from(
             json::to_vec(&body).expect("serialize created slice"),
         )));
