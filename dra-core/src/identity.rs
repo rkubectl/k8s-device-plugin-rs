@@ -112,7 +112,7 @@ macro_rules! identity {
         }
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.write_str(self.as_str())
+                self.as_str().fmt(f)
             }
         }
         impl ops::Deref for $name {

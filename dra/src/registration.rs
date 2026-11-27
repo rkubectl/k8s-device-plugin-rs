@@ -54,7 +54,7 @@ impl DraRegistrationServer {
     /// gRPC service (see the plugin-service task) -- passed in rather than
     /// computed here, so this type stays decoupled from that one.
     pub fn new(driver_name: &DriverName, plugin_endpoint: impl AsRef<Utf8Path>) -> Self {
-        let socket_name = Self::socket_name(driver_name.as_str());
+        let socket_name = Self::socket_name(driver_name);
         let socket_path = Utf8Path::new(dra::KUBELET_PLUGINS_REGISTRY_PATH).join(socket_name);
         let plugin_info = dra::registration::PluginInfo {
             r#type: "DRAPlugin".to_string(),

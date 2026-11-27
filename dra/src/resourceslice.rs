@@ -334,7 +334,7 @@ impl ResourceSlicePublisher {
 
     async fn owner_reference(&self) -> kube::Result<metav1::OwnerReference> {
         let api = self.client.nodes();
-        let node = api.get(self.node_name.as_str()).await?;
+        let node = api.get(&self.node_name).await?;
         node.owner_ref(&())
             .map(|owner_ref| metav1::OwnerReference {
                 controller: Some(true),

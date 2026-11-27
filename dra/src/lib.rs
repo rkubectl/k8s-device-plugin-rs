@@ -177,7 +177,7 @@ impl DraPlugin {
                 backend: driver.driver_name().clone(),
             });
         }
-        let plugin_endpoint = service::plugin_socket_path(driver_name.as_str());
+        let plugin_endpoint = service::plugin_socket_path(&driver_name);
         let registration = DraRegistrationServer::new(&driver_name, &plugin_endpoint);
         let resolver = ClaimResolver::new(client.clone(), driver_name.clone());
         let service = DraPluginService::new(resolver, Arc::clone(&driver));
@@ -267,7 +267,7 @@ impl DraPlugin {
             Self::new(client, driver_name, node_name, driver).expect("valid test driver");
         plugin.registration = DraRegistrationServer::for_test(
             &plugin.driver_name,
-            service::plugin_socket_path(plugin.driver_name.as_str()),
+            service::plugin_socket_path(&plugin.driver_name),
             registration_socket_path,
         );
         plugin

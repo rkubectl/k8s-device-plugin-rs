@@ -190,8 +190,7 @@ impl DraPluginService {
         self.resolver
             .validate_identity(driver_name)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-        self.spawn_at(&plugin_socket_path(driver_name.as_str()))
-            .await
+        self.spawn_at(&plugin_socket_path(driver_name)).await
     }
 
     pub(crate) async fn spawn_at(

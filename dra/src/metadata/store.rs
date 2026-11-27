@@ -166,8 +166,7 @@ impl MetadataRuntime {
         let cdi = trusted_root(&self.cdi, true)?.ok_or_else(|| invalid("missing CDI root"))?;
         // This immutable journal is sufficient for retry/restart replay. A mutable
         // ready flag adds no correctness: every publication is create-only.
-        let journal =
-            json::to_vec(&plan.journal(self.driver.as_str())).map_err(io::Error::other)?;
+        let journal = json::to_vec(&plan.journal(&self.driver)).map_err(io::Error::other)?;
         ensure_file(&claim, "journal.json", &journal)?;
         for (request, document) in &plan.documents {
             let dir = directory(&claim, request, true)?;
@@ -176,7 +175,7 @@ impl MetadataRuntime {
         }
         // All data sources exist before the first CDI reference becomes visible.
         for (request, spec) in &plan.specs {
-            let name = filename(self.driver.as_str(), &plan.claim.uid, request);
+            let name = filename(&self.driver, &plan.claim.uid, request);
             ensure_file(&cdi, &name, spec.as_bytes())?;
             remove_stages(&cdi, &format!(".stage-{name}-"))?;
         }
@@ -229,7 +228,7 @@ impl MetadataRuntime {
         // Remove references first; retain the journal if any cleanup fails.
         if let Some(cdi) = &cdi {
             for request in specs.keys() {
-                let name = filename(self.driver.as_str(), &identity.uid, request);
+                let name = filename(&self.driver, &identity.uid, request);
                 if let Some(existing) = read(cdi, &name)? {
                     let expected = &specs[request];
                     if existing != expected.as_bytes() {

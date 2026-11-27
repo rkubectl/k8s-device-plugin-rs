@@ -23,11 +23,9 @@ pub struct DraPluginLivenessProbe {
 impl DraPluginLivenessProbe {
     /// Creates a probe for the standard kubelet paths of `driver_name`.
     pub fn new(driver_name: &DriverName) -> Self {
-        let plugin_socket_path = Utf8Path::new(dra::KUBELET_PLUGINS_PATH)
-            .join(driver_name.as_str())
-            .join("plugin.sock");
+        let plugin_socket_path = service::plugin_socket_path(driver_name);
         let registration_socket_path = Utf8Path::new(dra::KUBELET_PLUGINS_REGISTRY_PATH)
-            .join(DraRegistrationServer::socket_name(driver_name.as_str()));
+            .join(DraRegistrationServer::socket_name(driver_name));
         Self::with_socket_paths(driver_name, registration_socket_path, plugin_socket_path)
     }
 

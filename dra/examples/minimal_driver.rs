@@ -82,7 +82,7 @@ async fn write_cdi_spec(devices: &[PoolDevice], metadata: bool) -> io::Result<()
                             format!("DRA_E2E_DEVICE={}", device.name),
                             format!(
                                 "DRA_METADATA_PHYSICAL_{}=present",
-                                device.name.as_str().replace('-', "_")
+                                device.name.replace('-', "_")
                             ),
                         ]
                     } else {
@@ -258,7 +258,7 @@ impl ClaimPreparer for StaticDraDriver {
                 .devices
                 .iter()
                 .map(|device| {
-                    if !self.has_device(device.pool_name.as_str(), device.device_name.as_str()) {
+                    if !self.has_device(&device.pool_name, &device.device_name) {
                         return Err(PrepareError::DeviceUnavailable(format!(
                             "{}/{}",
                             device.pool_name, device.device_name
@@ -268,7 +268,7 @@ impl ClaimPreparer for StaticDraDriver {
                         request_names: device.request_name.clone().into_iter().collect(),
                         pool_name: device.pool_name.clone(),
                         device_name: device.device_name.clone(),
-                        cdi_device_ids: vec![cdi_device_id(device.device_name.as_str())],
+                        cdi_device_ids: vec![cdi_device_id(&device.device_name)],
                     })
                 })
                 .collect::<Result<Vec<_>, _>>();

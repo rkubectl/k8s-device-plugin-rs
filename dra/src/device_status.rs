@@ -483,7 +483,7 @@ impl ClaimDeviceStatusPublisher {
         let mut desired = BTreeMap::new();
         for status in statuses {
             let key = status.key();
-            let kubernetes_status = status.into_kubernetes(self.driver_name.as_str())?;
+            let kubernetes_status = status.into_kubernetes(&self.driver_name)?;
             if desired.insert(key.clone(), kubernetes_status).is_some() {
                 return Err(ClaimDeviceStatusError::DuplicateDeviceStatus(key));
             }
