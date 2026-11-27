@@ -330,7 +330,7 @@ The example reads these environment variables:
 | Variable | Default | Meaning |
 |---|---|---|
 | `DRIVER_NAME` | `dra.example.com` | DRA driver name and kubelet plugin-directory component. |
-| `POOL_NAME` | `widget-pool` | Resource pool advertised by the `ResourceSlice`. |
+| `POOL_NAME` | `widget-pool` when run directly | Resource pool advertised by the `ResourceSlice`. The DaemonSet uses the node name so each replica has its own pool. |
 | `DEVICE_NAMES` | `widget-0` | Comma-separated static device names. |
 | `NODE_NAME` | *(required)* | Kubernetes node that owns the published `ResourceSlice`. |
 | `DRA_EXAMPLE_DEVICE_METADATA` | `0` | Set `1` to expose validation identity/attributes through read-only CDI files. |

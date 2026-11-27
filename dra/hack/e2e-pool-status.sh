@@ -31,7 +31,7 @@ snapshot() {
     local phase=$1 allocated=$2 available=$3 result deadline request
     deadline=$((SECONDS + 120))
     while ((SECONDS < deadline)); do
-        result=$(DRIVER_NAME=dra.example.com POOL_NAME=widget-pool KUBE_CONTEXT="$KUBE_CONTEXT" \
+        result=$(DRIVER_NAME=dra.example.com POOL_NAME="$POOL_NAME" KUBE_CONTEXT="$KUBE_CONTEXT" \
             "$CARGO" run --manifest-path "$CARGO_MANIFEST" --locked --quiet \
                 -p k8s-device-plugin-dra --example pool_status 2> "$WORK_DIR/query.log") || {
                     cat "$WORK_DIR/query.log" >&2; return 1;
@@ -40,9 +40,9 @@ snapshot() {
         request=$(sed -n 's/^created pool-status request //p' "$WORK_DIR/query.log")
         test -n "$request"
         test -z "$(kubectl_run get "resourcepoolstatusrequest/$request" --ignore-not-found -o name)"
-        if "$JQ" -e --argjson allocated "$allocated" --argjson available "$available" '
+        if "$JQ" -e --arg pool "$POOL_NAME" --argjson allocated "$allocated" --argjson available "$available" '
             .poolCount == 1 and (.pools | length) == 1 and
-            all(.pools[]; .driver == "dra.example.com" and .poolName == "widget-pool" and
+            all(.pools[]; .driver == "dra.example.com" and .poolName == $pool and
                 .validationError == null and .resourceSliceCount == 1 and .totalDevices == 1 and
                 .allocatedDevices == $allocated and .availableDevices == $available and .unavailableDevices == 0)
         ' <<< "$result" >/dev/null; then
@@ -63,6 +63,9 @@ test -z "$(kubectl_run get -f "$FIXTURE" --ignore-not-found -o name)"
 kubectl_run -n "$NAMESPACE" get "$DAEMONSET" -o json |
     "$JQ" -e 'all(.spec.template.spec.containers[].env[]?;
         .name != "DRA_EXAMPLE_BINDING_CONDITIONS" and .name != "DRA_EXAMPLE_TAINT_EFFECT")' >/dev/null
+POOL_NAME=$(kubectl_run get resourceslices --field-selector spec.driver=dra.example.com -o json |
+    "$JQ" -er '[.items[].spec.pool.name] | unique |
+        if length == 1 then .[0] else error("pool-status smoke requires one fixture pool") end')
 WORK_DIR=$(mktemp -d)
 trap cleanup EXIT
 snapshot before 0 1

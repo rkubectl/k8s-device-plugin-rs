@@ -56,7 +56,7 @@ The driver still has the same three responsibilities as claim-based DRA:
 
 The complete, copyable implementation is
 [`dra/examples/minimal_driver.rs`](../dra/examples/minimal_driver.rs). It is a
-validation driver that publishes `widget-0` in `widget-pool` and prepares it by
+validation driver that publishes `widget-0` in a pool named after its node and prepares it by
 returning the CDI device ID `dra.example.com/widget=widget-0`. Replace its
 static inventory and CDI writer with your hardware discovery and preparation
 code, but retain the idempotent claim lifecycle.

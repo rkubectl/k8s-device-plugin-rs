@@ -13,8 +13,8 @@ The target cluster must expose the `resource.k8s.io/v1` DRA API and have DRA
 enabled before deployment. Kubernetes v1.36 with its default DRA configuration
 is the compatibility target; its core path intentionally does not require
 optional DRA feature gates. The checked-in smoke path completed on Kubernetes
-v1.36.1 linux/arm64. This driver publishes one static `widget-0` device in the
-`widget-pool` pool on each node; it is for registration and API-path validation
+v1.36.1 linux/arm64. This driver publishes one static `widget-0` device in a
+pool named after its node. It is for registration and API-path validation
 only. It emits a harmless CDI environment marker for each static device so an
 end-to-end consumer pod can verify DRA attachment, but it does not provide a
 real hardware device.

@@ -55,6 +55,9 @@ if [[ "$SERVER_VERSION" == v1.37.* ]]; then
     kubectl_run get --raw /apis/resource.k8s.io/v1 |
         "$JQ" -e 'any(.resources[]; .name == "devicetaintrules")' >/dev/null
     test -z "$(kubectl_run get devicetaintrule "$NAME" --ignore-not-found -o name)"
+    RULE_POOL=$(kubectl_run get resourceslices --field-selector spec.driver=dra.example.com -o json |
+        "$JQ" -er '[.items[] | select(any(.spec.devices[]?; .name == "widget-0")) | .spec.pool.name] |
+            unique | if length == 1 then .[0] else error("taint-rule smoke requires one fixture pool") end')
 fi
 WORK_DIR=$(mktemp -d)
 trap cleanup EXIT
@@ -96,7 +99,7 @@ metadata:
 spec:
   deviceSelector:
     driver: dra.example.com
-    pool: widget-pool
+    pool: $RULE_POOL
     device: widget-0
   taint:
     key: dra.example.com/maintenance

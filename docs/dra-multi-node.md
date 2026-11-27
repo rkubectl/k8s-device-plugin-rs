@@ -42,8 +42,8 @@ imports initially have tags without CRI repository digests, so the runner adds
 a matching digest alias inside each owned node and verifies CRI resolves it.
 It requires distinct image config IDs. The rendered DaemonSet targets only
 the two workers, uses immutable digests and keeps `maxSurge: 0`,
-`maxUnavailable: 1`. Pool and device names
-come from each node's name through the existing example configuration.
+`maxUnavailable: 1`. The base manifest supplies the node-local pool name.
+The runner also gives each device the node's name so it can verify CDI delivery.
 
 It then verifies:
 

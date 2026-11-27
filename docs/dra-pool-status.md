@@ -65,7 +65,7 @@ Run the host-side example against an explicitly selected cluster:
 
 ```sh
 KUBE_CONTEXT=dra-validation-advanced-137 DRIVER_NAME=dra.example.com \
-  POOL_NAME=widget-pool cargo run --locked -p k8s-device-plugin-dra \
+  cargo run --locked -p k8s-device-plugin-dra \
   --example pool_status
 ```
 

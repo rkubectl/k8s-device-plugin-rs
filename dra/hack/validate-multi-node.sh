@@ -206,14 +206,10 @@ k create --dry-run=client -k "$SCRIPT_DIR/../k8s" -o json |
             .spec.updateStrategy.rollingUpdate = {maxSurge:0,maxUnavailable:1} |
             .spec.template.spec.containers[0].image = $image |
             .spec.template.spec.containers[0].imagePullPolicy = "IfNotPresent" |
-            .spec.template.spec.containers[0].env = [
-                {name:"NODE_NAME",valueFrom:{fieldRef:{fieldPath:"spec.nodeName"}}},
-                {name:"DRIVER_NAME",value:"dra.example.com"},
-                {name:"POOL_NAME",value:"$(NODE_NAME)"},
-                {name:"DEVICE_NAMES",value:"$(NODE_NAME)"},
-                {name:"DRA_EXAMPLE_DEVICE_METADATA",value:"1"},
-                {name:"RUST_LOG",value:"info"}
-            ]
+            .spec.template.spec.containers[0].env |= (
+                map(if .name == "DEVICE_NAMES" then .value = "$(NODE_NAME)" else . end)
+                + [{name:"DRA_EXAMPLE_DEVICE_METADATA",value:"1"}]
+            )
         else . end)
 ' "$WORK_DIR/deployment.json" > "$WORK_DIR/rendered.json"
 cp "$WORK_DIR/rendered.json" "$ARTIFACTS/deployment.json"

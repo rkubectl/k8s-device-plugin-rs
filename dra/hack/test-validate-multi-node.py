@@ -125,7 +125,12 @@ elif kind == 'kubectl':
             'spec': {}, 'status': {'nodeInfo': {'architecture': 'arm64', 'kubeletVersion': 'v1.36.1'}}} for n in nodes]})
     elif args[:2] == ['create', '--dry-run=client']:
         emit({'kind': 'Namespace', 'metadata': {'name': 'k8s-device-plugin-dra-example'}})
-        emit({'kind': 'DaemonSet', 'metadata': {}, 'spec': {'template': {'spec': {'containers': [{}]}}}})
+        emit({'kind': 'DaemonSet', 'metadata': {}, 'spec': {'template': {'spec': {'containers': [{'env': [
+            {'name': 'DRIVER_NAME', 'value': 'dra.example.com'},
+            {'name': 'NODE_NAME', 'valueFrom': {'fieldRef': {'fieldPath': 'spec.nodeName'}}},
+            {'name': 'POOL_NAME', 'value': '$(NODE_NAME)'},
+            {'name': 'DEVICE_NAMES', 'value': 'widget-0'},
+        ]}]}}}})
     elif args[0] == 'apply':
         data = json.loads(Path(args[2]).read_text())
         for item in data['items']:
@@ -235,7 +240,8 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(ds['template']['spec']['nodeSelector'], {'dra.example.com/mok': 'dra-validation-mok-test'})
         driver = ds['template']['spec']['containers'][0]
         self.assertEqual(driver['image'], 'docker.io/library/mok@sha256:baseline')
-        self.assertEqual(driver['env'][0]['name'], 'NODE_NAME')
+        names = [entry['name'] for entry in driver['env']]
+        self.assertLess(names.index('NODE_NAME'), names.index('POOL_NAME'))
         for variable in ['POOL_NAME', 'DEVICE_NAMES']:
             self.assertEqual(next(e['value'] for e in driver['env'] if e['name'] == variable), '$(NODE_NAME)')
         for consumer in state['consumers']:
