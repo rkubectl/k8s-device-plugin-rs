@@ -1,5 +1,14 @@
 //! Validated identities used by DRA. Values are preserved byte-for-byte.
 //!
+//! ```
+//! use k8s_device_plugin_dra_core::PoolName;
+//!
+//! let pool: PoolName = "pool/example".parse().unwrap();
+//! let borrowed: &str = &pool;
+//! assert_eq!(borrowed, "pool/example");
+//! assert_eq!(pool, "pool/example".parse().unwrap());
+//! ```
+//!
 //! ```compile_fail
 //! use k8s_device_plugin_dra_core::{DeviceName, PoolName};
 //! let pool: PoolName = "pool".parse().unwrap();
@@ -16,6 +25,7 @@
 //! ```
 use std::borrow::Borrow;
 use std::fmt;
+use std::ops;
 use std::str::FromStr;
 
 use serde::Deserialize;
@@ -103,6 +113,12 @@ macro_rules! identity {
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str(self.as_str())
+            }
+        }
+        impl ops::Deref for $name {
+            type Target = str;
+            fn deref(&self) -> &Self::Target {
+                &self.0
             }
         }
     };

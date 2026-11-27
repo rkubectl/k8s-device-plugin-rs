@@ -358,14 +358,13 @@ impl ResourceSlicePublisher {
         pool_name: &PoolName,
         inventory: PoolInventory,
     ) -> kube::Result<()> {
-        let pool_name = pool_name.as_str();
         let counters = counter_sets_to_wire(inventory.shared_counters, pool_name)?;
         let wire_devices = inventory
             .devices
             .into_iter()
             .map(|device| inventory_device_to_wire(device, pool_name))
-            .collect::<kube::Result<Vec<_>>>()?;
-        let wire_devices = canonicalize_devices(wire_devices);
+            .collect::<kube::Result<Vec<_>>>()
+            .map(canonicalize_devices)?;
         validate_counter_references(&wire_devices, &counters, pool_name)?;
         if wire_devices
             .windows(2)
@@ -379,7 +378,7 @@ impl ResourceSlicePublisher {
 
         let pool_existing = existing
             .iter()
-            .filter(|(_, slice)| slice.spec.pool.name == pool_name)
+            .filter(|(_, slice)| slice.spec.pool.name == pool_name.as_str())
             .collect::<Vec<_>>();
         let wire_devices = preserve_taint_times(wire_devices, &pool_existing);
         let chunk_size = if wire_devices
@@ -409,12 +408,12 @@ impl ResourceSlicePublisher {
             .map_err(|_| invalid_pool_error(pool_name, "requires too many ResourceSlices"))?;
         let mut desired = Vec::with_capacity(chunks.len());
         for (index, (devices, shared_counters)) in chunks.into_iter().enumerate() {
-            let name = slice_name(
-                self.driver_name.as_str(),
-                self.node_name.as_str(),
-                pool_name,
-                index,
-            );
+            let name = slice_name(&self.driver_name, &self.node_name, pool_name, index);
+            let pool = resourcev1::ResourcePool {
+                generation: 0,
+                name: pool_name.to_string(),
+                resource_slice_count: slice_count,
+            };
             let slice = resourcev1::ResourceSlice {
                 metadata: metav1::ObjectMeta {
                     name: Some(name.clone()),
@@ -424,11 +423,7 @@ impl ResourceSlicePublisher {
                 spec: resourcev1::ResourceSliceSpec {
                     driver: self.driver_name.to_string(),
                     node_name: Some(self.node_name.to_string()),
-                    pool: resourcev1::ResourcePool {
-                        name: pool_name.to_string(),
-                        generation: 0,
-                        resource_slice_count: slice_count,
-                    },
+                    pool,
                     devices,
                     shared_counters,
                     ..default()
@@ -442,7 +437,7 @@ impl ResourceSlicePublisher {
             let pp = api::PostParams::default();
             if existing
                 .get(&name)
-                .is_some_and(|slice| slice.spec.pool.name != pool_name)
+                .is_some_and(|slice| slice.spec.pool.name != pool_name.as_str())
             {
                 return Err(invalid_pool_error(
                     pool_name,
@@ -530,7 +525,7 @@ fn canonicalize_slice_spec(
             .iter_mut()
             .flat_map(|values| values.values_mut())
         {
-            capacity.value = canonicalize_quantity(std::mem::take(&mut capacity.value));
+            canonicalize_quantity(&mut capacity.value);
             if let Some(policy) = &mut capacity.request_policy {
                 policy.valid_values = policy
                     .valid_values
@@ -539,28 +534,20 @@ fn canonicalize_slice_spec(
             }
         }
         for consumption in device.consumes_counters.iter_mut().flatten() {
-            for counter in consumption.counters.values_mut() {
-                counter.value = canonicalize_quantity(std::mem::take(&mut counter.value));
-            }
+            consumption
+                .counters
+                .values_mut()
+                .for_each(|counter| canonicalize_quantity(&mut counter.value));
         }
     }
     if let Some(counters) = &mut spec.shared_counters {
         counters.sort_by(|left, right| left.name.cmp(&right.name));
-        for set in counters {
-            for counter in set.counters.values_mut() {
-                counter.value = canonicalize_quantity(std::mem::take(&mut counter.value));
-            }
-        }
+        counters
+            .iter_mut()
+            .flat_map(|set| set.counters.values_mut())
+            .for_each(|counter| canonicalize_quantity(&mut counter.value));
     }
     spec
-}
-
-fn canonicalize_quantity(value: apiresource::Quantity) -> apiresource::Quantity {
-    use k8s_quantity::Quantity;
-
-    Quantity::try_from(&value).map_or(value, |quantity| {
-        apiresource::Quantity(quantity.canonical_decimal())
-    })
 }
 
 fn pool_generation(
@@ -600,6 +587,12 @@ fn retry_delay(base: Duration, max: Duration, failed_attempts: u32) -> Duration 
     let shift = failed_attempts.saturating_sub(1).min(31);
     let multiplier = 1_u32.checked_shl(shift).unwrap_or(u32::MAX);
     base.saturating_mul(multiplier).min(max)
+}
+
+fn canonicalize_quantity(value: &mut apiresource::Quantity) {
+    if let Ok(quantity) = k8s_quantity::Quantity::try_from(&*value) {
+        value.0 = quantity.canonical_decimal();
+    }
 }
 
 #[cfg(test)]
