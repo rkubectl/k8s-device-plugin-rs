@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::io;
+use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::UnixListener;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -14,8 +15,8 @@ fn lock_path(socket_path: &Path) -> PathBuf {
 /// Binds a nonblocking Unix listener without replacing an active peer.
 ///
 /// Startup is serialized with an advisory lock beside `socket_path`. An
-/// existing socket is removed only after a connection attempt is refused,
-/// which identifies the path as stale. If a peer accepts a connection, this
+/// existing entry is removed only when it is a socket and a connection
+/// attempt is refused. If a peer accepts a connection, this
 /// returns [`io::ErrorKind::AddrInUse`] and leaves that peer's pathname
 /// untouched. The returned listener is nonblocking and can be converted with
 /// `tokio::net::UnixListener::from_std`.
@@ -60,7 +61,20 @@ fn recover_or_refuse_active_socket(socket_path: &Path) -> io::Result<UnixListene
             ),
         )),
         Err(connect_error) if connect_error.kind() == io::ErrorKind::ConnectionRefused => {
-            fs::remove_file(socket_path)?;
+            match fs::symlink_metadata(socket_path) {
+                Ok(metadata) if metadata.file_type().is_socket() => fs::remove_file(socket_path)?,
+                Ok(_) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AddrInUse,
+                        format!(
+                            "refusing to replace non-socket entry at {}",
+                            socket_path.display()
+                        ),
+                    ));
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
             UnixListener::bind(socket_path)
         }
         // The path disappeared between bind and connect. Retrying the bind is
@@ -108,6 +122,28 @@ mod tests {
         let error = bind_unix_listener(&socket_path).expect_err("must refuse active listener");
         assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
         UnixStream::connect(&socket_path).expect("active listener pathname remains reachable");
+    }
+
+    #[test]
+    fn preserves_non_socket_entries_at_the_socket_path() {
+        let dir = Utf8TempDir::new().unwrap();
+        let file = dir.path().join("file.sock");
+        let link = dir.path().join("link.sock");
+        let stale = dir.path().join("stale.sock");
+        fs::write(&file, "preserve me").unwrap();
+        drop(UnixListener::bind(&stale).unwrap());
+        std::os::unix::fs::symlink(&stale, &link).unwrap();
+
+        assert!(bind_unix_listener(&file).is_err());
+        assert!(bind_unix_listener(&link).is_err());
+        assert_eq!(fs::read_to_string(&file).unwrap(), "preserve me");
+        assert_eq!(fs::read_link(&link).unwrap(), stale.as_std_path());
+        assert!(
+            fs::symlink_metadata(&stale)
+                .unwrap()
+                .file_type()
+                .is_socket()
+        );
     }
 
     #[test]
