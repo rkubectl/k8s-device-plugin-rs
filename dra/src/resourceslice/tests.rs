@@ -364,6 +364,77 @@ async fn publish_once_rejects_duplicate_devices_before_mutation() {
 }
 
 #[tokio::test]
+async fn failed_pools_keep_their_slices_without_blocking_unrelated_work() {
+    let bad_device = PoolDevice::new("duplicate".parse().unwrap());
+    let (publisher, mut handle) = mock_publisher(StaticPool(BTreeMap::from([
+        ("bad".parse().unwrap(), vec![bad_device.clone(), bad_device]),
+        (
+            "conflict".parse().unwrap(),
+            widgets(MAX_DEVICES_PER_SLICE + 1),
+        ),
+        ("healthy".parse().unwrap(), widgets(1)),
+    ])));
+
+    let script = async {
+        respond(&mut handle, 200, &node("node-0", "node-uid-0")).await;
+        let existing = [
+            ("bad-old", "bad"),
+            ("conflict-old", "conflict"),
+            ("removed-a", "removed"),
+            ("removed-b", "removed"),
+        ]
+        .into_iter()
+        .map(|(name, pool)| owned_slice(name, 1, pool, 1, vec![device("old")]))
+        .collect();
+        respond(&mut handle, 200, &resource_slice_list(existing)).await;
+
+        let conflict = kube::core::Status::failure("busy", "Conflict").with_code(409);
+        for (pool, status) in [("conflict", 200), ("conflict", 409), ("healthy", 200)] {
+            let (request, send) = handle.next_request().await.unwrap();
+            assert_eq!(request.method(), http::Method::POST);
+            let body = request_body_json(request).await;
+            assert_eq!(body["spec"]["pool"]["name"], pool);
+            let body = if status == 200 {
+                body
+            } else {
+                json::to_value(&conflict).unwrap()
+            };
+            send.send_response(
+                http::Response::builder()
+                    .status(status)
+                    .body(client::Body::from(json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            );
+        }
+
+        for (name, status) in [("removed-a", 409), ("removed-b", 404)] {
+            let (request, send) = handle.next_request().await.unwrap();
+            assert_eq!(request.method(), http::Method::DELETE);
+            assert!(request.uri().path().ends_with(name));
+            let status_body = kube::core::Status::failure("delete", "Failure").with_code(status);
+            send.send_response(
+                http::Response::builder()
+                    .status(status)
+                    .body(client::Body::from(json::to_vec(&status_body).unwrap()))
+                    .unwrap(),
+            );
+        }
+    };
+
+    let (script_result, result) = tokio::join!(
+        tokio::time::timeout(Duration::from_secs(2), script),
+        publisher.publish_once()
+    );
+    script_result.unwrap();
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate device names")
+    );
+}
+
+#[tokio::test]
 async fn stale_delete_tolerates_only_not_found_and_preserves_preconditions() {
     for code in [404, 409, 403, 500] {
         let (publisher, mut handle) = mock_publisher(StaticPool(BTreeMap::new()));

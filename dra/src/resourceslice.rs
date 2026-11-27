@@ -267,6 +267,7 @@ impl ResourceSlicePublisher {
     ///
     /// Pools absent from [`ResourcePool::snapshot`] and pools with no devices
     /// or counters have no desired slices, so their existing slices are deleted.
+    /// A failed pool retains its remaining slices while other pools reconcile.
     pub async fn publish_once(&self) -> kube::Result<()> {
         let owner = self.owner_reference().await?;
         let resource_slices = self.client.resource_slices();
@@ -287,49 +288,38 @@ impl ResourceSlicePublisher {
             .filter_map(|slice| slice.metadata.name.clone().map(|name| (name, slice)))
             .collect::<BTreeMap<_, _>>();
 
+        let mut failed_pools = BTreeSet::new();
+        let mut conflicting_names = BTreeSet::new();
+        let mut first_error = None;
         for (pool_name, inventory) in self.resource_pool.snapshot().await {
-            self.reconcile_pool(
-                &resource_slices,
-                &owner,
-                &mut existing,
-                &pool_name,
-                inventory,
-            )
-            .await?;
-        }
-
-        // Desired slices were created or updated first. Deleting the
-        // leftovers last avoids a deliberate incomplete pool state.
-        for (name, slice) in existing {
-            let uid = slice
-                .metadata
-                .uid
-                .filter(|uid| !uid.is_empty())
-                .ok_or_else(|| {
-                    invalid_pool_error(&slice.spec.pool.name, "stale slice is missing a UID")
-                })?;
-            let resource_version = slice
-                .metadata
-                .resource_version
-                .filter(|version| !version.is_empty())
-                .ok_or_else(|| {
-                    invalid_pool_error(
-                        &slice.spec.pool.name,
-                        "stale slice is missing a resourceVersion",
-                    )
-                })?;
-            let dp = api::DeleteParams::default().preconditions(api::Preconditions {
-                uid: Some(uid),
-                resource_version: Some(resource_version),
-            });
-            match resource_slices.delete(&name, &dp).await {
-                Ok(_) => {}
-                // Another actor may have removed the slice since our list.
-                Err(kube::Error::Api(status)) if status.code == 404 => {}
-                Err(error) => return Err(error),
+            if let Err(error) = self
+                .reconcile_pool(
+                    &resource_slices,
+                    &owner,
+                    &mut existing,
+                    &pool_name,
+                    inventory,
+                    &mut conflicting_names,
+                )
+                .await
+            {
+                tracing::warn!(%pool_name, %error, "failed to reconcile DRA pool");
+                failed_pools.insert(pool_name);
+                first_error.get_or_insert(error);
             }
         }
-        Ok(())
+
+        // Only clean up pools whose desired slices were all published.
+        for (name, slice) in existing {
+            if !failed_pools.contains(slice.spec.pool.name.as_str())
+                && !conflicting_names.contains(&name)
+                && let Err(error) = delete_stale_slice(&resource_slices, &name, slice).await
+            {
+                tracing::warn!(slice = name, %error, "failed to delete stale ResourceSlice");
+                first_error.get_or_insert(error);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
     }
 
     async fn owner_reference(&self) -> kube::Result<metav1::OwnerReference> {
@@ -351,6 +341,7 @@ impl ResourceSlicePublisher {
         existing: &mut BTreeMap<String, resourcev1::ResourceSlice>,
         pool_name: &PoolName,
         inventory: PoolInventory,
+        conflicting_names: &mut BTreeSet<String>,
     ) -> kube::Result<()> {
         let counters = counter_sets_to_wire(inventory.shared_counters, pool_name)?;
         let wire_devices = inventory
@@ -425,19 +416,27 @@ impl ResourceSlicePublisher {
             };
             desired.push((name, slice));
         }
+        let mut has_conflict = false;
+        for (name, _) in &desired {
+            if existing
+                .get(name)
+                .is_some_and(|slice| slice.spec.pool.name != pool_name.as_str())
+            {
+                has_conflict = true;
+                conflicting_names.insert(name.clone());
+            }
+        }
+        if has_conflict {
+            return Err(invalid_pool_error(
+                pool_name,
+                "slice name is owned by another pool",
+            ));
+        }
+
         let generation = pool_generation(&pool_existing, pool_name, &desired)?;
         for (name, mut desired) in desired {
             desired.spec.pool.generation = generation;
             let pp = api::PostParams::default();
-            if existing
-                .get(&name)
-                .is_some_and(|slice| slice.spec.pool.name != pool_name.as_str())
-            {
-                return Err(invalid_pool_error(
-                    pool_name,
-                    "slice name is owned by another pool",
-                ));
-            }
             match existing.remove(&name) {
                 Some(current) if resource_slice_matches(&current, &desired) => {}
                 Some(mut current) => {
@@ -478,6 +477,33 @@ impl ResourceSlicePublisher {
                 tokio::time::sleep(delay).await;
             }
         })
+    }
+}
+
+async fn delete_stale_slice(
+    api: &api::Api<resourcev1::ResourceSlice>,
+    name: &str,
+    slice: resourcev1::ResourceSlice,
+) -> kube::Result<()> {
+    let pool_name = &slice.spec.pool.name;
+    let uid = slice
+        .metadata
+        .uid
+        .filter(|uid| !uid.is_empty())
+        .ok_or_else(|| invalid_pool_error(pool_name, "stale slice is missing a UID"))?;
+    let resource_version = slice
+        .metadata
+        .resource_version
+        .filter(|version| !version.is_empty())
+        .ok_or_else(|| invalid_pool_error(pool_name, "stale slice is missing a resourceVersion"))?;
+    let params = api::DeleteParams::default().preconditions(api::Preconditions {
+        uid: Some(uid),
+        resource_version: Some(resource_version),
+    });
+    match api.delete(name, &params).await {
+        Ok(_) => Ok(()),
+        Err(kube::Error::Api(status)) if status.code == 404 => Ok(()),
+        Err(error) => Err(error),
     }
 }
 
