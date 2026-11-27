@@ -76,6 +76,7 @@ jobs:
       - uses: actions/checkout@v5
       - run: python3 dra/hack/test-validate-k8s-versions.py
       - run: python3 dra/hack/test-configure-advanced-profile.py
+      - run: python3 dra/hack/test-validate-multi-node.py
 
   consumer-schemas:
     name: Consumer-selected Kubernetes schemas
